@@ -1,0 +1,118 @@
+:root {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: #1a1a1a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f5f6f8;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #fff;
+  border-bottom: 1px solid #e3e5e8;
+}
+
+.header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.status {
+  font-size: 0.8rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+}
+
+.status.on {
+  background: #e3f6e8;
+  color: #1b7d3d;
+}
+
+.status.off {
+  background: #f6e3e3;
+  color: #a12b2b;
+}
+
+.chat {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.empty {
+  color: #8a8f98;
+  text-align: center;
+  margin-top: 2rem;
+}
+
+.msg {
+  max-width: 75%;
+  padding: 0.6rem 0.8rem;
+  border-radius: 12px;
+  white-space: pre-wrap;
+  line-height: 1.4;
+}
+
+.msg.user {
+  align-self: flex-end;
+  background: #2563eb;
+  color: #fff;
+  border-bottom-right-radius: 2px;
+}
+
+.msg.assistant {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid #e3e5e8;
+  border-bottom-left-radius: 2px;
+}
+
+.composer {
+  display: flex;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: #fff;
+  border-top: 1px solid #e3e5e8;
+}
+
+.composer input {
+  flex: 1;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #d3d6da;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.composer button {
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.composer button:hover {
+  background: #1d4ed8;
+}

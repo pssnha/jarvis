@@ -1,0 +1,27 @@
+# Local development dependencies only (MySQL + Redis).
+# The apps themselves run on the host via `pnpm dev`.
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: jarvis
+      MYSQL_USER: jarvis
+      MYSQL_PASSWORD: jarvis
+      MYSQL_ROOT_PASSWORD: rootpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - jarvis_mysql_dev:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - jarvis_redis_dev:/data
+
+volumes:
+  jarvis_mysql_dev:
+  jarvis_redis_dev:

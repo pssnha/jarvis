@@ -5,23 +5,65 @@ import {
   adminCreateGroup,
   adminDeleteMember,
   adminDeleteUser,
+  adminLinkGroupWhatsApp,
   adminListGroups,
   adminListMembers,
   adminListUsers,
-  adminOnboardWhatsApp,
+  adminWhatsAppStatus,
 } from '../lib/api';
-import type { AdminGroup, AdminUser, GroupMember } from '../lib/types';
+import type { AdminGroup, AdminUser, GroupMember, WhatsAppGroup, WhatsAppStatus } from '../lib/types';
 
 export function Admin() {
   const [error, setError] = useState<string | null>(null);
+  const [wa, setWa] = useState<WhatsAppStatus | null>(null);
   const fail = (e: unknown) => setError(String((e as Error).message ?? e));
+
+  const loadWa = useCallback(() => {
+    adminWhatsAppStatus().then(setWa).catch(() => {});
+  }, []);
+  useEffect(() => {
+    loadWa();
+    const t = setInterval(loadWa, 4000);
+    return () => clearInterval(t);
+  }, [loadWa]);
 
   return (
     <div className="admin">
       {error && <p className="error">{error}</p>}
+      <WhatsAppPanel wa={wa} />
       <UsersSection onError={fail} />
-      <GroupsSection onError={fail} />
+      <GroupsSection onError={fail} waGroups={wa?.groups ?? []} />
     </div>
+  );
+}
+
+function WhatsAppPanel({ wa }: { wa: WhatsAppStatus | null }) {
+  const status = wa?.status ?? 'offline';
+  return (
+    <section className="admin-card">
+      <h2>WhatsApp connection</h2>
+      {status === 'open' ? (
+        <p>
+          <span className="badge admin">Connected</span> linked as{' '}
+          <strong>{wa?.self ?? 'device'}</strong> · {wa?.groups.length ?? 0} group(s) visible
+        </p>
+      ) : status === 'qr' && wa?.qr ? (
+        <div className="wa-qr">
+          <p className="muted">
+            Open WhatsApp on the phone → <strong>Settings → Linked Devices → Link a Device</strong>{' '}
+            → scan this code:
+          </p>
+          <img src={wa.qr} alt="WhatsApp QR code" width={240} height={240} />
+        </div>
+      ) : (
+        <p className="muted">
+          Status: <strong>{status}</strong>
+          {status === 'connecting' && ' — connecting…'}
+          {status === 'offline' && ' — worker starting, waiting for a QR code…'}
+          {status === 'logged_out' && ' — device was unlinked; restart the worker to get a new QR.'}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -89,7 +131,13 @@ function UsersSection({ onError }: { onError: (e: unknown) => void }) {
   );
 }
 
-function GroupsSection({ onError }: { onError: (e: unknown) => void }) {
+function GroupsSection({
+  onError,
+  waGroups,
+}: {
+  onError: (e: unknown) => void;
+  waGroups: WhatsAppGroup[];
+}) {
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [name, setName] = useState('');
   const [tz, setTz] = useState('America/Los_Angeles');
@@ -128,7 +176,9 @@ function GroupsSection({ onError }: { onError: (e: unknown) => void }) {
               </span>
               <span className="muted">{openId === g.id ? '▲' : '▼'}</span>
             </div>
-            {openId === g.id && <GroupDetail group={g} onError={onError} onChanged={load} />}
+            {openId === g.id && (
+              <GroupDetail group={g} waGroups={waGroups} onError={onError} onChanged={load} />
+            )}
           </li>
         ))}
       </ul>
@@ -145,10 +195,12 @@ function GroupsSection({ onError }: { onError: (e: unknown) => void }) {
 
 function GroupDetail({
   group,
+  waGroups,
   onError,
   onChanged,
 }: {
   group: AdminGroup;
+  waGroups: WhatsAppGroup[];
   onError: (e: unknown) => void;
   onChanged: () => void;
 }) {
@@ -156,8 +208,7 @@ function GroupDetail({
   const [mName, setMName] = useState('');
   const [mEmail, setMEmail] = useState('');
   const [mWa, setMWa] = useState('');
-  const [waId, setWaId] = useState(group.whatsappGroupId ?? '');
-  const [invite, setInvite] = useState(group.inviteLink ?? '');
+  const [waJid, setWaJid] = useState(group.whatsappGroupId ?? '');
 
   const load = useCallback(() => {
     adminListMembers(group.id).then(setMembers).catch(onError);
@@ -184,18 +235,17 @@ function GroupDetail({
       onError(e);
     }
   }
-  async function saveWhatsApp(create: boolean) {
+  async function linkWhatsApp() {
+    if (!waJid) return;
     try {
-      await adminOnboardWhatsApp(group.id, {
-        whatsappGroupId: waId || undefined,
-        inviteLink: invite || undefined,
-        create,
-      });
+      await adminLinkGroupWhatsApp(group.id, waJid);
       onChanged();
     } catch (e) {
       onError(e);
     }
   }
+
+  const linkedSubject = waGroups.find((g) => g.id === group.whatsappGroupId)?.subject;
 
   return (
     <div className="group-detail">
@@ -218,7 +268,11 @@ function GroupDetail({
         <div className="admin-form">
           <input placeholder="name" value={mName} onChange={(e) => setMName(e.target.value)} />
           <input placeholder="email" value={mEmail} onChange={(e) => setMEmail(e.target.value)} />
-          <input placeholder="WhatsApp number" value={mWa} onChange={(e) => setMWa(e.target.value)} />
+          <input
+            placeholder="WhatsApp number"
+            value={mWa}
+            onChange={(e) => setMWa(e.target.value)}
+          />
           <button className="primary" onClick={addMember}>
             Add
           </button>
@@ -228,25 +282,30 @@ function GroupDetail({
       <div className="subsec">
         <h4>WhatsApp group</h4>
         <p className="muted">
-          Link the hosted WhatsApp group. Paste an existing group id + invite link, or create one
-          via the API.
+          Pick which WhatsApp group (the linked device is in) maps to this Jarvis group. Jarvis
+          replies when @mentioned or addressed as “Jarvis”, and sends reminders here.
         </p>
+        {group.whatsappGroupId && (
+          <p className="muted">
+            Currently linked: <strong>{linkedSubject ?? group.whatsappGroupId}</strong>
+          </p>
+        )}
         <div className="admin-form">
-          <input
-            placeholder="WhatsApp group id"
-            value={waId}
-            onChange={(e) => setWaId(e.target.value)}
-          />
-          <input
-            placeholder="invite link (optional)"
-            value={invite}
-            onChange={(e) => setInvite(e.target.value)}
-          />
-          <button className="primary" onClick={() => saveWhatsApp(false)}>
-            Save
+          <select value={waJid} onChange={(e) => setWaJid(e.target.value)}>
+            <option value="">— select a WhatsApp group —</option>
+            {waGroups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.subject}
+              </option>
+            ))}
+          </select>
+          <button className="primary" onClick={linkWhatsApp} disabled={!waJid}>
+            Link
           </button>
-          <button onClick={() => saveWhatsApp(true)}>Create via API</button>
         </div>
+        {waGroups.length === 0 && (
+          <p className="muted">No WhatsApp groups visible yet — connect the device above first.</p>
+        )}
       </div>
     </div>
   );

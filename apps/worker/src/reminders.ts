@@ -1,15 +1,11 @@
 import { prisma, type Group } from '@jarvis/db';
-import {
-  formatEventTime,
-  occurrencesBetween,
-  sendWhatsAppGroupText,
-  whatsappConfigured,
-} from '@jarvis/agent';
+import { formatEventTime, occurrencesBetween } from '@jarvis/agent';
+import { isConnected, sendGroupText } from './whatsapp/client';
 
 /**
  * Fire reminders for events whose time has arrived since the last check —
  * including each occurrence of a recurring reminder. Announcements go to the
- * group's WhatsApp group when configured; otherwise they are logged.
+ * group's linked WhatsApp group when connected; otherwise they are logged.
  */
 export async function sendDueReminders(): Promise<void> {
   const now = new Date();
@@ -42,15 +38,14 @@ export async function sendDueReminders(): Promise<void> {
 async function announce(group: Group, title: string, when: Date): Promise<void> {
   const text = `⏰ Reminder: ${title} — ${formatEventTime(when, null, false, group.timezone)}`;
 
-  if (group.whatsappGroupId && whatsappConfigured()) {
+  if (group.whatsappGroupId && isConnected()) {
     try {
-      await sendWhatsAppGroupText(group.whatsappGroupId, text);
+      await sendGroupText(group.whatsappGroupId, text);
       console.log(`[reminder→whatsapp] ${group.name}: ${title}`);
       return;
     } catch (err) {
       console.error(`[reminder] WhatsApp send failed for ${group.name}:`, err);
     }
   }
-  // Fallback (no WhatsApp group linked or credentials missing).
   console.log(`[reminder] ${group.name}: ${text}`);
 }

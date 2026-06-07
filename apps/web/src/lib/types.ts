@@ -64,6 +64,18 @@ export interface AdminGroup {
   _count?: { members: number; events: number };
 }
 
+export interface WhatsAppGroup {
+  id: string;
+  subject: string;
+}
+
+export interface WhatsAppStatus {
+  status: string; // offline | connecting | qr | open | closed | logged_out
+  qr: string | null; // data URL
+  self: string | null;
+  groups: WhatsAppGroup[];
+}
+
 export interface GroupMember {
   id: string;
   name: string | null;

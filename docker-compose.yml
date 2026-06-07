@@ -48,9 +48,12 @@ services:
     environment:
       NODE_ENV: production
       REDIS_URL: redis://redis:6379
+      WA_AUTH_DIR: /data/wa-auth
     depends_on:
       - mysql
       - redis
+    volumes:
+      - wa_auth:/data/wa-auth
     networks:
       - internal
 
@@ -94,3 +97,4 @@ volumes:
   redis_data:
   certbot_conf:
   certbot_www:
+  wa_auth:

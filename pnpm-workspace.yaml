@@ -6,9 +6,12 @@ packages:
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
+  '@whiskeysockets/baileys': true
   esbuild: true
   msgpackr-extract: true
   prisma: true
+  protobufjs: true
+  sharp: true
 
 # Dedupe ioredis to a single version so bullmq and our code share one type/instance.
 overrides:

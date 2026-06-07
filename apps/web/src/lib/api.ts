@@ -7,6 +7,7 @@ import type {
   GroupMember,
   Me,
   WebGroup,
+  WhatsAppStatus,
 } from './types';
 
 async function json<T>(res: Response): Promise<T> {
@@ -82,14 +83,18 @@ export async function adminDeleteMember(groupId: string, memberId: string): Prom
     json(r),
   );
 }
-export async function adminOnboardWhatsApp(
+export async function adminWhatsAppStatus(): Promise<WhatsAppStatus> {
+  return fetch('/api/admin/whatsapp/status').then((r) => json<WhatsAppStatus>(r));
+}
+
+export async function adminLinkGroupWhatsApp(
   groupId: string,
-  body: { whatsappGroupId?: string; inviteLink?: string; create?: boolean },
+  whatsappGroupId: string,
 ): Promise<void> {
   await fetch(`/api/admin/groups/${groupId}/whatsapp`, {
     method: 'POST',
     headers: jsonHeaders,
-    body: JSON.stringify(body),
+    body: JSON.stringify({ whatsappGroupId }),
   }).then((r) => json(r));
 }
 

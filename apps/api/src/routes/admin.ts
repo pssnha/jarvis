@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@jarvis/db';
-import { provisionWhatsAppGroup, whatsappConfigured } from '@jarvis/agent';
+import { createRedis } from '../plugins/redis';
 
-/** Admin-only routes (site users, groups, members, WhatsApp onboarding). */
+const redis = createRedis();
+
+/** Admin-only routes (site users, groups, members, WhatsApp linking). */
 export async function registerAdmin(app: FastifyInstance): Promise<void> {
   // ----- Site users (access control) -----
   app.get('/admin/users', async () =>
@@ -75,41 +77,34 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  // ----- WhatsApp onboarding -----
-  // Manual: paste an existing group id + invite link. Auto: create via the Groups API.
+  // ----- WhatsApp linked-device status (QR + connection + available groups) -----
+  app.get('/admin/whatsapp/status', async () => {
+    const [status, qr, groups, self] = await Promise.all([
+      redis.get('wa:status'),
+      redis.get('wa:qr'),
+      redis.get('wa:groups'),
+      redis.get('wa:self'),
+    ]);
+    return {
+      status: status ?? 'offline',
+      qr: qr ?? null,
+      self: self ?? null,
+      groups: groups ? (JSON.parse(groups) as { id: string; subject: string }[]) : [],
+    };
+  });
+
+  // Link a Jarvis group to one of the WhatsApp groups the linked device is in.
   app.post('/admin/groups/:id/whatsapp', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as {
-      whatsappGroupId?: string;
-      inviteLink?: string;
-      create?: boolean;
-    };
+    const body = (req.body ?? {}) as { whatsappGroupId?: string };
     const group = await prisma.group.findUnique({ where: { id } });
     if (!group) return reply.code(404).send({ error: 'group not found' });
-
-    let whatsappGroupId = body.whatsappGroupId;
-    let inviteLink = body.inviteLink;
-
-    if (body.create) {
-      if (!whatsappConfigured()) {
-        return reply.code(400).send({ error: 'WhatsApp credentials are not configured' });
-      }
-      try {
-        const created = await provisionWhatsAppGroup(group.name);
-        whatsappGroupId = created.groupId;
-        inviteLink = created.inviteLink ?? inviteLink;
-      } catch (err) {
-        return reply.code(502).send({ error: (err as Error).message });
-      }
+    if (!body.whatsappGroupId) {
+      return reply.code(400).send({ error: 'whatsappGroupId (JID) is required' });
     }
-
-    if (!whatsappGroupId) {
-      return reply.code(400).send({ error: 'whatsappGroupId is required (or set create:true)' });
-    }
-
     return prisma.group.update({
       where: { id },
-      data: { whatsappGroupId, inviteLink: inviteLink ?? null },
+      data: { whatsappGroupId: body.whatsappGroupId },
     });
   });
 }

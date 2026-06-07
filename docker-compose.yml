@@ -30,6 +30,7 @@ services:
     env_file:
       - .env
     environment:
+      NODE_ENV: production
       REDIS_URL: redis://redis:6379
     depends_on:
       - mysql
@@ -45,6 +46,7 @@ services:
     env_file:
       - .env
     environment:
+      NODE_ENV: production
       REDIS_URL: redis://redis:6379
     depends_on:
       - mysql

@@ -18,6 +18,10 @@
   "dependencies": {
     "@anthropic-ai/sdk": ">=0.40.0",
     "@jarvis/db": "workspace:*",
-    "@jarvis/shared": "workspace:*"
+    "@jarvis/shared": "workspace:*",
+    "luxon": "^3.7.2"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.7.1"
   }
 }

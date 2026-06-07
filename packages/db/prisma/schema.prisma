@@ -1,4 +1,4 @@
-// Prisma schema for Jarvis.
+// Prisma schema for Jarvis — a shared scheduling assistant for small groups.
 // Docs: https://pris.ly/d/prisma-schema
 
 generator client {
@@ -10,39 +10,113 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        String   @id @default(cuid())
-  // For WhatsApp users this stores the wa_id (phone number). For web users,
-  // populate with your auth provider's id.
-  waId      String?  @unique
-  email     String?  @unique
-  name      String?
+/// A scheduling group (a family, friend group, team, …). Jarvis hosts one
+/// WhatsApp group per Group and keeps a single shared schedule.
+model Group {
+  id              String  @id @default(cuid())
+  name            String
+  /// IANA time zone (e.g. "America/New_York"). One zone per group.
+  timezone        String  @default("UTC")
+  /// The WhatsApp group id once Jarvis has created/hosted the group.
+  whatsappGroupId String? @unique
+  /// Invite link members use to join the WhatsApp group.
+  inviteLink      String?
+  /// Secret token for the read-only iCal subscription feed.
+  icalToken       String  @unique @default(cuid())
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  members       Member[]
+  events        Event[]
   conversations Conversation[]
+
+  @@index([whatsappGroupId])
 }
 
+/// A person who belongs to a Group. The same human in two groups is two Members.
+model Member {
+  id      String @id @default(cuid())
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  name  String?
+  /// WhatsApp wa_id / phone number.
+  waId  String?
+  /// Personal email address used when forwarding schedules to Jarvis.
+  email String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdEvents Event[] @relation("EventCreator")
+
+  @@index([groupId])
+  @@index([waId])
+  @@index([email])
+}
+
+/// A scheduled item: appointment, vacation, reminder, etc. Times stored in UTC.
+model Event {
+  id      String @id @default(cuid())
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?  @db.Text
+  startsAt    DateTime
+  endsAt      DateTime?
+  allDay      Boolean   @default(false)
+  location    String?
+  /// appointment | vacation | reminder | other
+  category    String?
+
+  /// Where this event came from: whatsapp | email | web.
+  source    String
+  /// Provider message/email id, for de-duplication.
+  sourceRef String?
+  /// Original text the event was extracted from.
+  rawText   String?  @db.Text
+
+  createdById String?
+  createdBy   Member? @relation("EventCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  /// When a reminder was last sent for this event.
+  remindedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([groupId, startsAt])
+  @@index([source, sourceRef])
+}
+
+/// Per-group, per-channel conversation history used for agent context.
 model Conversation {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  channel   String // 'web' | 'whatsapp'
+  id      String @id @default(cuid())
+  groupId String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// whatsapp | web
+  channel String
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   messages Message[]
 
-  @@index([userId])
+  @@index([groupId])
 }
 
 model Message {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  role           String // 'user' | 'assistant'
-  content        String   @db.Text
-  createdAt      DateTime @default(now())
+  /// user | assistant
+  role       String
+  /// Display name of the member who sent a user message (group context).
+  authorName String?
+  content    String   @db.Text
+  createdAt  DateTime @default(now())
 
   @@index([conversationId])
 }

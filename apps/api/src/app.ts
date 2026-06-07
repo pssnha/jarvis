@@ -2,6 +2,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { env } from './config/env';
 import { registerHealth } from './routes/health';
+import { registerCalendar } from './routes/calendar';
+import { registerGroups } from './routes/groups';
 import { registerWhatsApp } from './whatsapp';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -29,6 +31,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(
     async (api) => {
       await registerHealth(api);
+      await registerGroups(api);
+      await registerCalendar(api);
       await registerWhatsApp(api);
     },
     { prefix: '/api' },

@@ -1,11 +1,24 @@
 # Jarvis
 
-A Node.js + TypeScript monorepo for a service with **two co-primary interfaces** — a web app and a
-**WhatsApp conversational bot** — backed by a background worker. Natural-language understanding is
-powered by **Anthropic Claude**. Real-time updates reach the browser over Socket.IO.
+**Jarvis manages a shared schedule for a small group** — a family, friend group, or team. People
+tell Jarvis about appointments, vacations, and reminders in plain language, and Jarvis keeps one
+shared calendar. It listens on three channels:
 
-> The domain logic is intentionally generic scaffolding. Module, job, and tool names use
-> placeholders that are easy to rename once the product scope is defined.
+- **WhatsApp** — Jarvis *hosts* a WhatsApp group (official Cloud API Groups, ≤8 members + Jarvis);
+  members join via an invite link and chat naturally.
+- **Email** — each group can forward schedules (appointment confirmations, itineraries, etc.) to
+  Jarvis's dedicated mailbox; the worker polls it over IMAP and extracts events.
+- **Web** — a chat UI (handy for testing) plus a per-group read-only **iCal feed** you can subscribe
+  to in any calendar app.
+
+Natural-language understanding (turning messages and forwarded emails into structured events) is
+powered by **Anthropic Claude** with an agentic tool-use loop. Times are stored in UTC and rendered
+in each group's time zone.
+
+> ⚠️ **WhatsApp groups are business-hosted.** The official Cloud API does not let a bot join your
+> existing personal group; instead Jarvis creates/hosts the group and members join it (max 8 +
+> Jarvis). The exact Groups API send/webhook payloads are marked `TODO: confirm` in
+> `apps/api/src/whatsapp/` and finalized once your business number has Groups access.
 
 ## Architecture
 
@@ -33,12 +46,27 @@ powered by **Anthropic Claude**. Real-time updates reach the browser over Socket
 
 | Path | What it is |
 |---|---|
-| `apps/api` | Fastify server: REST, health, Socket.IO, WhatsApp webhook, job producer |
-| `apps/web` | React + Vite single-page app (includes a minimal chat UI) |
-| `apps/worker` | BullMQ queue consumers + node-cron scheduled jobs |
-| `packages/agent` | Claude NL engine (client, system prompt, tools, agentic loop, conversation persistence) |
-| `packages/db` | Prisma schema + shared `PrismaClient` (MySQL) |
-| `packages/shared` | Shared TypeScript types and constants |
+| `apps/api` | Fastify: REST (groups/events), iCal feed, health, Socket.IO chat, WhatsApp webhook |
+| `apps/web` | React + Vite single-page app (chat UI) |
+| `apps/worker` | IMAP email polling + reminder cron jobs (BullMQ + node-cron) |
+| `packages/agent` | Claude engine: schedule tools, event extraction, datetime/tz, agentic loop, persistence |
+| `packages/db` | Prisma schema + shared `PrismaClient` (MySQL): `Group` / `Member` / `Event` |
+| `packages/shared` | Shared types + the iCal builder |
+
+## How a schedule entry flows
+
+```
+WhatsApp group msg ─┐
+forwarded email ────┼─► packages/agent ─► Claude (extract / tool use) ─► Event in MySQL
+web chat ───────────┘                                                         │
+                                                          iCal feed  ◄─────────┤
+                                                          reminders (worker) ◄─┘
+```
+
+- **WhatsApp/web:** the conversational agent (`runAgent`) calls schedule tools
+  (`create_event`, `list_events`, `find_event`, `cancel_event`).
+- **Email:** the worker polls IMAP, matches the sender to a group member, and `extractEvents`
+  pulls structured events from the body.
 
 ## Prerequisites
 
@@ -82,16 +110,38 @@ pnpm -r build
 pnpm -r test
 ```
 
-## WhatsApp setup (Meta Cloud API)
+## Channels & setup
+
+### WhatsApp (Meta Cloud API — hosted groups)
 
 1. Create a Meta app with the WhatsApp product; note the **App ID**, **App Secret**, **Phone
-   Number ID**, **WhatsApp Business Account ID**, and a permanent **access token**.
+   Number ID**, **WhatsApp Business Account ID**, and a permanent **access token**. Confirm your
+   number has **Groups API** access in the Meta dashboard.
 2. Put them in `.env` along with a `WHATSAPP_VERIFY_TOKEN` you invent.
-3. Point the webhook at `https://YOUR_DOMAIN/api/whatsapp/webhook`, using the same verify token, and
+3. Point the webhook at `https://YOUR_DOMAIN/api/whatsapp/webhook` with that verify token, and
    subscribe to the `messages` field.
+4. Create a group record (`POST /api/groups`), then provision the WhatsApp group via the Groups API
+   and store its id on the group (`whatsappGroupId`) so inbound messages route correctly.
 
 Inbound messages are verified via `X-Hub-Signature-256` (HMAC of the raw body with the app secret),
-handed to the Claude agent, and the reply is sent back through the Cloud API.
+routed to the matching group, handed to the Claude agent, and the reply is sent back to the group.
+The exact group send/webhook field names are marked `TODO: confirm` in `apps/api/src/whatsapp/`.
+
+### Email (IMAP)
+
+1. Create a dedicated mailbox, e.g. `jarvis@yourdomain` (Hostinger email provides MX + IMAP).
+2. Set `IMAP_HOST` / `IMAP_USER` / `IMAP_PASSWORD` (and optionally `IMAP_PORT`/`IMAP_TLS`) in `.env`.
+3. Add members with their personal email (`POST /api/groups/:id/members`). When a member forwards a
+   schedule, the worker matches the sender to their group and extracts events automatically.
+
+Email polling is disabled until `IMAP_HOST`/`IMAP_USER`/`IMAP_PASSWORD` are set. To switch to a
+real-time inbound-parse webhook later, replace `apps/worker/src/email/imap.ts` with a route that
+calls `ingestForwardedEmail(...)` — the rest is unchanged.
+
+### Calendar (iCal feed)
+
+Each group exposes a read-only feed at `/api/calendar/<icalToken>.ics` (the token is created with the
+group). Subscribe to it in Apple/Google/Outlook Calendar. `POST /api/groups` returns the path.
 
 ## Deployment
 

@@ -1,14 +1,15 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   appendMessages,
+  getGroupByWhatsappId,
   getOrCreateConversation,
-  getOrCreateUserByWaId,
   loadHistory,
+  resolveMember,
   runAgent,
 } from '@jarvis/agent';
 import { env } from '../config/env';
 import { verifySignature } from './verify';
-import { sendWhatsAppText } from './send';
+import { sendWhatsAppGroupText } from './send';
 
 interface RawBodyRequest extends FastifyRequest {
   rawBody?: Buffer;
@@ -18,11 +19,8 @@ export async function registerWhatsApp(app: FastifyInstance): Promise<void> {
   // Webhook verification handshake (Meta calls this when you save the webhook).
   app.get('/whatsapp/webhook', async (req, reply) => {
     const q = req.query as Record<string, string | undefined>;
-    const mode = q['hub.mode'];
-    const token = q['hub.verify_token'];
-    const challenge = q['hub.challenge'];
-    if (mode === 'subscribe' && token === env.WHATSAPP_VERIFY_TOKEN) {
-      return reply.code(200).send(challenge);
+    if (q['hub.mode'] === 'subscribe' && q['hub.verify_token'] === env.WHATSAPP_VERIFY_TOKEN) {
+      return reply.code(200).send(q['hub.challenge']);
     }
     return reply.code(403).send('Forbidden');
   });
@@ -50,32 +48,67 @@ export async function registerWhatsApp(app: FastifyInstance): Promise<void> {
 }
 
 async function handleInbound(body: unknown): Promise<void> {
-  for (const m of extractTextMessages(body)) {
-    const user = await getOrCreateUserByWaId(m.from);
-    const convo = await getOrCreateConversation(user.id, 'whatsapp');
+  for (const m of extractGroupMessages(body)) {
+    const group = await getGroupByWhatsappId(m.groupId);
+    if (!group) {
+      console.warn(`[whatsapp] message for unknown group ${m.groupId}, ignoring`);
+      continue;
+    }
+
+    const member = await resolveMember(group.id, { waId: m.from });
+    const convo = await getOrCreateConversation(group.id, 'whatsapp');
     const history = await loadHistory(convo.id);
-    const { reply } = await runAgent({ ctx: { userId: user.id }, history, userText: m.text });
-    await appendMessages(convo.id, m.text, reply);
-    await sendWhatsAppText(m.from, reply);
+
+    const { reply } = await runAgent({
+      ctx: {
+        groupId: group.id,
+        timezone: group.timezone,
+        source: 'whatsapp',
+        createdById: member?.id,
+      },
+      history,
+      userText: m.text,
+      authorName: member?.name ?? undefined,
+    });
+
+    await appendMessages(convo.id, m.text, reply, member?.name ?? undefined);
+    if (group.whatsappGroupId) {
+      await sendWhatsAppGroupText(group.whatsappGroupId, reply);
+    }
   }
 }
 
-interface InboundText {
+interface InboundGroupMessage {
+  groupId: string;
   from: string;
   text: string;
 }
 
-/** Pull text messages out of a WhatsApp webhook payload. */
-function extractTextMessages(body: unknown): InboundText[] {
-  const out: InboundText[] = [];
+/**
+ * Pull group text messages out of a WhatsApp webhook payload.
+ *
+ * NOTE: the exact location of the group id in group webhooks is not finalized in
+ * the public docs. We check the most likely fields; confirm and adjust once your
+ * number has Groups API access. Non-group (1:1) messages are ignored.
+ */
+function extractGroupMessages(body: unknown): InboundGroupMessage[] {
+  const out: InboundGroupMessage[] = [];
   const entries = (body as any)?.entry;
   if (!Array.isArray(entries)) return out;
+
   for (const entry of entries) {
     for (const change of entry?.changes ?? []) {
-      for (const msg of change?.value?.messages ?? []) {
-        if (msg?.type === 'text' && msg?.text?.body) {
-          out.push({ from: String(msg.from), text: String(msg.text.body) });
-        }
+      const value = change?.value;
+      const groupIdFromValue = value?.metadata?.group_id ?? value?.group_id;
+      for (const msg of value?.messages ?? []) {
+        if (msg?.type !== 'text' || !msg?.text?.body) continue;
+        const groupId = msg.group_id ?? groupIdFromValue;
+        if (!groupId) continue; // ignore 1:1 messages for now
+        out.push({
+          groupId: String(groupId),
+          from: String(msg.from),
+          text: String(msg.text.body),
+        });
       }
     }
   }

@@ -4,6 +4,8 @@ const schema = z.object({
   NODE_ENV: z.string().default('development'),
   API_PORT: z.coerce.number().default(3000),
   PUBLIC_WEB_ORIGIN: z.string().default('http://localhost:5173'),
+  /** Time zone used for the web-chat demo group. */
+  WEB_DEMO_TIMEZONE: z.string().default('UTC'),
 
   DATABASE_URL: z.string(),
   REDIS_URL: z.string().default('redis://localhost:6379'),

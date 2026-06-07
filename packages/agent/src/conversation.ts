@@ -2,26 +2,15 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '@jarvis/db';
 import type { Channel } from '@jarvis/shared';
 
-/** Find or create the app user for a given WhatsApp wa_id (phone). */
-export async function getOrCreateUserByWaId(waId: string) {
-  return prisma.user.upsert({
-    where: { waId },
-    update: {},
-    create: { waId },
-  });
-}
-
-/** Get the most recent conversation for a user+channel, creating one if needed. */
-export async function getOrCreateConversation(userId: string, channel: Channel) {
+export async function getOrCreateConversation(groupId: string, channel: Channel) {
   const existing = await prisma.conversation.findFirst({
-    where: { userId, channel },
+    where: { groupId, channel },
     orderBy: { updatedAt: 'desc' },
   });
   if (existing) return existing;
-  return prisma.conversation.create({ data: { userId, channel } });
+  return prisma.conversation.create({ data: { groupId, channel } });
 }
 
-/** Load recent turns as Anthropic message params (oldest first). */
 export async function loadHistory(
   conversationId: string,
   limit = 20,
@@ -33,19 +22,20 @@ export async function loadHistory(
   });
   return rows.map((r) => ({
     role: r.role === 'assistant' ? ('assistant' as const) : ('user' as const),
-    content: r.content,
+    content:
+      r.authorName && r.role !== 'assistant' ? `${r.authorName}: ${r.content}` : r.content,
   }));
 }
 
-/** Persist a user message and the assistant's reply, bumping the conversation. */
 export async function appendMessages(
   conversationId: string,
   userText: string,
   assistantText: string,
+  authorName?: string,
 ): Promise<void> {
   await prisma.message.createMany({
     data: [
-      { conversationId, role: 'user', content: userText },
+      { conversationId, role: 'user', content: userText, authorName: authorName ?? null },
       { conversationId, role: 'assistant', content: assistantText },
     ],
   });
@@ -53,4 +43,41 @@ export async function appendMessages(
     where: { id: conversationId },
     data: { updatedAt: new Date() },
   });
+}
+
+// --- Group & member resolution ---
+
+export async function getGroupByWhatsappId(whatsappGroupId: string) {
+  return prisma.group.findUnique({ where: { whatsappGroupId } });
+}
+
+export async function resolveMember(
+  groupId: string,
+  opts: { waId?: string; email?: string; name?: string },
+) {
+  const where = opts.waId
+    ? { groupId, waId: opts.waId }
+    : opts.email
+      ? { groupId, email: opts.email }
+      : null;
+  if (!where) return null;
+  const existing = await prisma.member.findFirst({ where });
+  if (existing) return existing;
+  return prisma.member.create({
+    data: { groupId, waId: opts.waId, email: opts.email, name: opts.name },
+  });
+}
+
+/** Find the group a forwarded email belongs to, by matching the sender to a member. */
+export async function findGroupByMemberEmail(email: string) {
+  const member = await prisma.member.findFirst({ where: { email } });
+  if (!member) return null;
+  return { member, groupId: member.groupId };
+}
+
+/** Get or create the demo group used by the web chat playground. */
+export async function getDemoGroup(timezone = 'UTC') {
+  const existing = await prisma.group.findFirst({ where: { name: 'Web Demo' } });
+  if (existing) return existing;
+  return prisma.group.create({ data: { name: 'Web Demo', timezone } });
 }

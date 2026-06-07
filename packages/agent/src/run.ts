@@ -1,32 +1,30 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, MODEL } from './client';
-import { SYSTEM_PROMPT } from './systemPrompt';
+import { buildSystemPrompt } from './systemPrompt';
 import { toolDefinitions, toolHandlers, type ToolContext } from './tools';
 
 export interface RunOptions {
   ctx: ToolContext;
   /** Prior conversation turns (alternating user/assistant). */
   history: Anthropic.MessageParam[];
-  /** The new user message. */
+  /** The new user message text. */
   userText: string;
+  /** Sender's display name (group context). */
+  authorName?: string;
   /** Safety cap on tool-use round trips. */
   maxTurns?: number;
 }
 
 export interface RunResult {
-  /** The assistant's final text reply. */
   reply: string;
-  /** The full message list including this exchange (for persistence/debugging). */
   messages: Anthropic.MessageParam[];
 }
 
-/**
- * Run one user turn through Claude with an agentic tool-use loop.
- * The model may call tools any number of times before producing a final reply.
- */
+/** Run one user turn through Claude with an agentic schedule-tool loop. */
 export async function runAgent(opts: RunOptions): Promise<RunResult> {
-  const { ctx, userText } = opts;
+  const { ctx } = opts;
   const maxTurns = opts.maxTurns ?? 6;
+  const userText = opts.authorName ? `${opts.authorName}: ${opts.userText}` : opts.userText;
 
   const messages: Anthropic.MessageParam[] = [
     ...opts.history,
@@ -37,13 +35,12 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     const response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 2048,
-      system: SYSTEM_PROMPT,
+      system: buildSystemPrompt(ctx.timezone),
       thinking: { type: 'adaptive' },
       tools: toolDefinitions,
       messages,
     });
 
-    // Preserve the assistant turn verbatim (including thinking blocks).
     messages.push({ role: 'assistant', content: response.content });
 
     if (response.stop_reason !== 'tool_use') {
@@ -55,7 +52,6 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
       return { reply, messages };
     }
 
-    // Execute every tool the model requested and feed results back.
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of response.content) {
       if (block.type !== 'tool_use') continue;

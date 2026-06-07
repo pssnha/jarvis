@@ -10,8 +10,8 @@ export function startSchedules(): void {
     void pollMailbox();
   });
 
-  // Send reminders for upcoming events.
-  const reminderCron = process.env.REMINDER_CRON ?? '*/15 * * * *';
+  // Fire reminders as each (possibly recurring) occurrence comes due.
+  const reminderCron = process.env.REMINDER_CRON ?? '* * * * *';
   cron.schedule(reminderCron, () => {
     void sendDueReminders();
   });

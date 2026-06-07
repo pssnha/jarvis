@@ -10,6 +10,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// A person who can sign in to the web app (access control). Distinct from
+/// Member, which is a participant in a group's schedule.
+model AuthUser {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  googleSub String?  @unique
+  /// 'admin' | 'member'
+  role      String   @default("member")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 /// A scheduling group (a family, friend group, team, …). Jarvis hosts one
 /// WhatsApp group per Group and keeps a single shared schedule.
 model Group {
@@ -70,6 +83,10 @@ model Event {
   location    String?
   /// appointment | vacation | reminder | other
   category    String?
+  /// RFC 5545 RRULE value (without the "RRULE:" prefix) for recurring events,
+  /// e.g. "FREQ=WEEKLY;BYDAY=TU". Null for one-off events. `startsAt` is the
+  /// first occurrence / anchor.
+  rrule       String?  @db.Text
 
   /// Where this event came from: whatsapp | email | web.
   source    String

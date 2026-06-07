@@ -1,6 +1,7 @@
-import { prisma } from '@jarvis/db';
-import type { Channel, EventDraft } from '@jarvis/shared';
+import { Prisma, prisma, type Event } from '@jarvis/db';
+import type { Channel, EventDraft, Recurrence } from '@jarvis/shared';
 import { localIsoToUtc } from './datetime';
+import { buildRRule, describeRecurrence, nextOccurrence, occurrencesBetween } from './recurrence';
 
 export interface CreateEventInput {
   groupId: string;
@@ -24,6 +25,7 @@ export async function createEvent(input: CreateEventInput) {
       allDay,
       location: draft.location,
       category: draft.category,
+      rrule: draft.recurrence ? buildRRule(draft.recurrence, timezone) : null,
       source,
       sourceRef,
       rawText,
@@ -32,19 +34,46 @@ export async function createEvent(input: CreateEventInput) {
   });
 }
 
-export async function listUpcomingEvents(
+export async function getEvent(groupId: string, eventId: string) {
+  return prisma.event.findFirst({ where: { id: eventId, groupId } });
+}
+
+export interface UpdateEventInput {
+  title?: string;
+  /** Local ISO start. */
+  start?: string;
+  /** Local ISO end, or null to clear. */
+  end?: string | null;
+  allDay?: boolean;
+  location?: string | null;
+  category?: string | null;
+  /** Structured recurrence, or null to make it one-off. */
+  recurrence?: Recurrence | null;
+}
+
+export async function updateEvent(
   groupId: string,
-  opts?: { from?: Date; to?: Date; limit?: number },
+  eventId: string,
+  patch: UpdateEventInput,
+  timezone: string,
 ) {
-  const from = opts?.from ?? new Date();
-  return prisma.event.findMany({
-    where: {
-      groupId,
-      startsAt: { gte: from, ...(opts?.to ? { lte: opts.to } : {}) },
-    },
-    orderBy: { startsAt: 'asc' },
-    take: opts?.limit ?? 50,
-  });
+  const ev = await prisma.event.findFirst({ where: { id: eventId, groupId } });
+  if (!ev) return null;
+
+  const data: Prisma.EventUpdateInput = {};
+  if (patch.title !== undefined) data.title = patch.title;
+  if (patch.allDay !== undefined) data.allDay = patch.allDay;
+  if (patch.location !== undefined) data.location = patch.location;
+  if (patch.category !== undefined) data.category = patch.category;
+  if (patch.start !== undefined) data.startsAt = localIsoToUtc(patch.start, timezone);
+  if (patch.end !== undefined) {
+    data.endsAt = patch.end ? localIsoToUtc(patch.end, timezone) : null;
+  }
+  if (patch.recurrence !== undefined) {
+    data.rrule = patch.recurrence ? buildRRule(patch.recurrence, timezone) : null;
+  }
+
+  return prisma.event.update({ where: { id: ev.id }, data });
 }
 
 export async function findEvents(groupId: string, query: string) {
@@ -64,4 +93,113 @@ export async function cancelEvent(groupId: string, eventId: string) {
 
 export async function getGroup(groupId: string) {
   return prisma.group.findUnique({ where: { id: groupId } });
+}
+
+/** A schedule entry resolved to its next relevant time (handles recurrence). */
+export interface ScheduleItem {
+  event: Event;
+  /** The effective upcoming time (next occurrence for recurring events). */
+  when: Date;
+  /** Human-readable recurrence, if the event repeats. */
+  recurrence?: string;
+}
+
+/**
+ * Upcoming schedule for a group: one-off events by start time, plus the next
+ * occurrence of each recurring event, merged and sorted.
+ */
+export async function getSchedule(
+  groupId: string,
+  timezone: string,
+  opts?: { from?: Date; to?: Date; limit?: number },
+): Promise<ScheduleItem[]> {
+  const from = opts?.from ?? new Date();
+  const items: ScheduleItem[] = [];
+
+  // One-off events within the window.
+  const oneOff = await prisma.event.findMany({
+    where: {
+      groupId,
+      rrule: null,
+      startsAt: { gte: from, ...(opts?.to ? { lte: opts.to } : {}) },
+    },
+    orderBy: { startsAt: 'asc' },
+  });
+  for (const ev of oneOff) items.push({ event: ev, when: ev.startsAt });
+
+  // Recurring events: compute the next occurrence from `from`.
+  const recurring = await prisma.event.findMany({
+    where: { groupId, NOT: { rrule: null } },
+  });
+  for (const ev of recurring) {
+    if (!ev.rrule) continue;
+    const next = nextOccurrence(ev.rrule, ev.startsAt, timezone, from);
+    if (!next) continue;
+    if (opts?.to && next > opts.to) continue;
+    items.push({ event: ev, when: next, recurrence: describeRecurrence(ev.rrule) });
+  }
+
+  items.sort((a, b) => a.when.getTime() - b.when.getTime());
+  return opts?.limit ? items.slice(0, opts.limit) : items;
+}
+
+/** A single calendar occurrence (recurring events expanded within a window). */
+export interface Occurrence {
+  eventId: string;
+  title: string;
+  start: Date;
+  end: Date | null;
+  allDay: boolean;
+  recurring: boolean;
+  category: string | null;
+  location: string | null;
+}
+
+/** Expand the schedule into individual occurrences within [from, to] for a calendar view. */
+export async function expandCalendar(
+  groupId: string,
+  timezone: string,
+  from: Date,
+  to: Date,
+): Promise<Occurrence[]> {
+  const out: Occurrence[] = [];
+
+  const oneOff = await prisma.event.findMany({
+    where: { groupId, rrule: null, startsAt: { lte: to } },
+  });
+  for (const ev of oneOff) {
+    const endRef = ev.endsAt ?? ev.startsAt;
+    if (endRef < from) continue;
+    out.push({
+      eventId: ev.id,
+      title: ev.title,
+      start: ev.startsAt,
+      end: ev.endsAt,
+      allDay: ev.allDay,
+      recurring: false,
+      category: ev.category,
+      location: ev.location,
+    });
+  }
+
+  const recurring = await prisma.event.findMany({ where: { groupId, NOT: { rrule: null } } });
+  for (const ev of recurring) {
+    if (!ev.rrule) continue;
+    const durationMs = ev.endsAt ? ev.endsAt.getTime() - ev.startsAt.getTime() : 0;
+    for (const start of occurrencesBetween(ev.rrule, ev.startsAt, timezone, from, to)) {
+      out.push({
+        eventId: ev.id,
+        title: ev.title,
+        start,
+        end: durationMs ? new Date(start.getTime() + durationMs) : null,
+        allDay: ev.allDay,
+        recurring: true,
+        category: ev.category,
+        location: ev.location,
+      });
+    }
+  }
+
+  out.sort((a, b) => a.start.getTime() - b.start.getTime());
+  return out;
 }

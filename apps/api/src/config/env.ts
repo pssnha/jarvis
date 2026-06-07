@@ -10,6 +10,16 @@ const schema = z.object({
   DATABASE_URL: z.string(),
   REDIS_URL: z.string().default('redis://localhost:6379'),
 
+  // ---- Auth (Google OAuth + session) ----
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  /** Secret for signing the session cookie. Set a strong value in production. */
+  AUTH_SECRET: z.string().default('dev-insecure-secret-change-me'),
+  /** Public base URL the browser uses (for the OAuth callback + post-login redirect). */
+  AUTH_BASE_URL: z.string().default('http://localhost:5173'),
+  /** Seeded admin account. */
+  ADMIN_EMAIL: z.string().default('passanha@gmail.com'),
+
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default('claude-opus-4-8'),
 

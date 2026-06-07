@@ -6,6 +6,8 @@ export interface ICalEvent {
   end?: Date;
   allDay?: boolean;
   location?: string;
+  /** RFC 5545 RRULE value (without the "RRULE:" prefix) for recurring events. */
+  rrule?: string;
 }
 
 function pad(n: number): string {
@@ -62,6 +64,7 @@ export function buildICalendar(calendarName: string, events: ICalEvent[]): strin
       lines.push(`DTSTART:${formatUtc(e.start)}`);
       if (e.end) lines.push(`DTEND:${formatUtc(e.end)}`);
     }
+    if (e.rrule) lines.push(`RRULE:${e.rrule}`);
     lines.push(`SUMMARY:${escapeText(e.title)}`);
     if (e.location) lines.push(`LOCATION:${escapeText(e.location)}`);
     if (e.description) lines.push(`DESCRIPTION:${escapeText(e.description)}`);

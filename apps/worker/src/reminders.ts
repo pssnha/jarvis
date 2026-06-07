@@ -1,27 +1,56 @@
-import { prisma } from '@jarvis/db';
-
-const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000; // remind for events within the next 24h
+import { prisma, type Group } from '@jarvis/db';
+import {
+  formatEventTime,
+  occurrencesBetween,
+  sendWhatsAppGroupText,
+  whatsappConfigured,
+} from '@jarvis/agent';
 
 /**
- * Find events starting soon that haven't been reminded yet and notify the group.
- * For now this logs and marks them reminded; once the WhatsApp business number is
- * live, swap the log for a group message via the Cloud API.
+ * Fire reminders for events whose time has arrived since the last check —
+ * including each occurrence of a recurring reminder. Announcements go to the
+ * group's WhatsApp group when configured; otherwise they are logged.
  */
 export async function sendDueReminders(): Promise<void> {
   const now = new Date();
-  const until = new Date(now.getTime() + REMINDER_WINDOW_MS);
 
   const events = await prisma.event.findMany({
-    where: { startsAt: { gte: now, lte: until }, remindedAt: null },
+    where: {
+      OR: [
+        { NOT: { rrule: null } }, // recurring: always a candidate
+        { rrule: null, remindedAt: null, startsAt: { lte: now } }, // one-off, due, unsent
+      ],
+    },
     include: { group: true },
-    orderBy: { startsAt: 'asc' },
   });
 
   for (const ev of events) {
-    // TODO: send to ev.group.whatsappGroupId via the WhatsApp Groups API.
-    console.log(
-      `[reminder] ${ev.group.name}: "${ev.title}" at ${ev.startsAt.toISOString()}`,
-    );
-    await prisma.event.update({ where: { id: ev.id }, data: { remindedAt: new Date() } });
+    if (ev.rrule) {
+      const after = new Date((ev.remindedAt ?? new Date(0)).getTime() + 1000);
+      if (after > now) continue;
+      const occ = occurrencesBetween(ev.rrule, ev.startsAt, ev.group.timezone, after, now);
+      if (occ.length === 0) continue;
+      await announce(ev.group, ev.title, occ[occ.length - 1]!);
+      await prisma.event.update({ where: { id: ev.id }, data: { remindedAt: now } });
+    } else {
+      await announce(ev.group, ev.title, ev.startsAt);
+      await prisma.event.update({ where: { id: ev.id }, data: { remindedAt: now } });
+    }
   }
+}
+
+async function announce(group: Group, title: string, when: Date): Promise<void> {
+  const text = `⏰ Reminder: ${title} — ${formatEventTime(when, null, false, group.timezone)}`;
+
+  if (group.whatsappGroupId && whatsappConfigured()) {
+    try {
+      await sendWhatsAppGroupText(group.whatsappGroupId, text);
+      console.log(`[reminder→whatsapp] ${group.name}: ${title}`);
+      return;
+    } catch (err) {
+      console.error(`[reminder] WhatsApp send failed for ${group.name}:`, err);
+    }
+  }
+  // Fallback (no WhatsApp group linked or credentials missing).
+  console.log(`[reminder] ${group.name}: ${text}`);
 }

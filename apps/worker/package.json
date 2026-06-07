@@ -14,6 +14,7 @@
     "@jarvis/db": "workspace:*",
     "@jarvis/shared": "workspace:*",
     "bullmq": "^5.34.0",
+    "dotenv": "^17.4.2",
     "imapflow": "^1.3.6",
     "ioredis": "^5.4.2",
     "mailparser": "^3.9.9",

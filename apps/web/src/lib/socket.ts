@@ -1,5 +1,4 @@
 import { io, type Socket } from 'socket.io-client';
 
-// Same-origin connection. In dev, Vite proxies /socket.io to the API server;
-// in production, nginx proxies it to the API container.
-export const socket: Socket = io({ autoConnect: true });
+// Connect lazily (after auth) and send the session cookie.
+export const socket: Socket = io({ autoConnect: false, withCredentials: true });

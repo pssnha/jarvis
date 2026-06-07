@@ -24,6 +24,7 @@ export async function registerCalendar(app: FastifyInstance): Promise<void> {
         end: e.endsAt ?? undefined,
         allDay: e.allDay,
         location: e.location ?? undefined,
+        rrule: e.rrule ?? undefined,
       })),
     );
 

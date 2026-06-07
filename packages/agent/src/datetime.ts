@@ -18,6 +18,22 @@ export function describeNow(tz: string): string {
   return DateTime.now().setZone(tz).toFormat("cccc, dd LLLL yyyy 'at' HH:mm ZZZZ");
 }
 
+/** Format a Date as a datetime-local / date input value in `tz`. */
+export function toLocalInput(date: Date, tz: string, allDay = false): string {
+  const dt = DateTime.fromJSDate(date).setZone(tz);
+  return allDay ? dt.toFormat('yyyy-MM-dd') : dt.toFormat("yyyy-MM-dd'T'HH:mm");
+}
+
+/** The calendar day (yyyy-MM-dd) a Date falls on in `tz`. */
+export function dateKeyInZone(date: Date, tz: string): string {
+  return DateTime.fromJSDate(date).setZone(tz).toFormat('yyyy-MM-dd');
+}
+
+/** A short time label in `tz`, e.g. "8:00 PM". */
+export function timeLabel(date: Date, tz: string): string {
+  return DateTime.fromJSDate(date).setZone(tz).toFormat('h:mm a');
+}
+
 /** Human-readable event time range rendered in `tz`. */
 export function formatEventTime(
   start: Date,

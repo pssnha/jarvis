@@ -1,49 +1,125 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@jarvis/db';
+import {
+  cancelEvent,
+  createEvent,
+  dateKeyInZone,
+  expandCalendar,
+  getDemoGroup,
+  getEvent,
+  parseRRule,
+  timeLabel,
+  toLocalInput,
+  updateEvent,
+  type UpdateEventInput,
+} from '@jarvis/agent';
+import type { EventDraft, Recurrence } from '@jarvis/shared';
+import { env } from '../config/env';
 
+interface EventBody {
+  title?: string;
+  start?: string;
+  end?: string | null;
+  allDay?: boolean;
+  location?: string | null;
+  category?: string | null;
+  recurrence?: Recurrence | null;
+}
+
+/** Schedule data routes — available to any authenticated user. */
 export async function registerGroups(app: FastifyInstance): Promise<void> {
-  // Create a scheduling group. (WhatsApp group provisioning happens separately
-  // via the Groups API once the business number is live.)
-  app.post('/groups', async (req, reply) => {
-    const body = (req.body ?? {}) as { name?: string; timezone?: string };
-    if (!body.name) return reply.code(400).send({ error: 'name is required' });
-
-    const group = await prisma.group.create({
-      data: { name: body.name, timezone: body.timezone ?? 'UTC' },
-    });
-
-    return {
-      id: group.id,
-      name: group.name,
-      timezone: group.timezone,
-      icalUrl: `/api/calendar/${group.icalToken}.ics`,
-    };
+  // The web app's working group (get-or-create the demo group).
+  app.get('/web/group', async () => {
+    const g = await getDemoGroup(env.WEB_DEMO_TIMEZONE);
+    return { id: g.id, name: g.name, timezone: g.timezone, icalToken: g.icalToken };
   });
 
-  // Add a member to a group (so emails/WhatsApp from them route to this group).
-  app.post('/groups/:id/members', async (req, reply) => {
+  // Calendar view: occurrences within [from, to], recurring events expanded.
+  app.get('/groups/:id/calendar', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { name?: string; waId?: string; email?: string };
+    const { from, to } = req.query as { from?: string; to?: string };
     const group = await prisma.group.findUnique({ where: { id } });
     if (!group) return reply.code(404).send({ error: 'group not found' });
 
-    const member = await prisma.member.create({
-      data: {
-        groupId: id,
-        name: body.name,
-        waId: body.waId,
-        email: body.email?.toLowerCase(),
-      },
-    });
-    return member;
+    const fromD = from ? new Date(from) : new Date();
+    const toD = to ? new Date(to) : new Date(Date.now() + 31 * 86_400_000);
+    const occ = await expandCalendar(id, group.timezone, fromD, toD);
+
+    return occ.map((o) => ({
+      eventId: o.eventId,
+      title: o.title,
+      dateKey: dateKeyInZone(o.start, group.timezone),
+      startLocal: toLocalInput(o.start, group.timezone, o.allDay),
+      timeLabel: o.allDay ? 'all day' : timeLabel(o.start, group.timezone),
+      allDay: o.allDay,
+      recurring: o.recurring,
+      category: o.category,
+      location: o.location,
+    }));
   });
 
-  // List a group's upcoming events.
-  app.get('/groups/:id/events', async (req) => {
+  // Create an event.
+  app.post('/groups/:id/events', async (req, reply) => {
     const { id } = req.params as { id: string };
-    return prisma.event.findMany({
-      where: { groupId: id },
-      orderBy: { startsAt: 'asc' },
-    });
+    const body = (req.body ?? {}) as EventBody;
+    const group = await prisma.group.findUnique({ where: { id } });
+    if (!group) return reply.code(404).send({ error: 'group not found' });
+    if (!body.title || !body.start) {
+      return reply.code(400).send({ error: 'title and start are required' });
+    }
+    const draft: EventDraft = {
+      title: body.title,
+      start: body.start,
+      end: body.end || undefined,
+      allDay: !!body.allDay,
+      location: body.location || undefined,
+      category: (body.category || undefined) as EventDraft['category'],
+      recurrence: body.recurrence || undefined,
+    };
+    return createEvent({ groupId: id, source: 'web', timezone: group.timezone, draft });
+  });
+
+  // Get one event (with form-friendly local times + structured recurrence).
+  app.get('/groups/:id/events/:eventId', async (req, reply) => {
+    const { id, eventId } = req.params as { id: string; eventId: string };
+    const group = await prisma.group.findUnique({ where: { id } });
+    if (!group) return reply.code(404).send({ error: 'group not found' });
+    const ev = await getEvent(id, eventId);
+    if (!ev) return reply.code(404).send({ error: 'event not found' });
+    return {
+      ...ev,
+      startLocal: toLocalInput(ev.startsAt, group.timezone, ev.allDay),
+      endLocal: ev.endsAt ? toLocalInput(ev.endsAt, group.timezone, ev.allDay) : null,
+      recurrence: ev.rrule ? parseRRule(ev.rrule, group.timezone) : null,
+    };
+  });
+
+  // Update an event.
+  app.patch('/groups/:id/events/:eventId', async (req, reply) => {
+    const { id, eventId } = req.params as { id: string; eventId: string };
+    const body = (req.body ?? {}) as EventBody;
+    const group = await prisma.group.findUnique({ where: { id } });
+    if (!group) return reply.code(404).send({ error: 'group not found' });
+
+    const patch: UpdateEventInput = {
+      title: body.title,
+      start: body.start,
+      allDay: body.allDay,
+      end: body.end === undefined ? undefined : body.end || null,
+      location: body.location === undefined ? undefined : body.location || null,
+      category: body.category === undefined ? undefined : body.category || null,
+      recurrence: body.recurrence === undefined ? undefined : body.recurrence || null,
+    };
+    const ev = await updateEvent(id, eventId, patch, group.timezone);
+    if (!ev) return reply.code(404).send({ error: 'event not found' });
+    return ev;
+  });
+
+  // Delete an event (or whole recurring series).
+  app.delete('/groups/:id/events/:eventId', async (req, reply) => {
+    const { id, eventId } = req.params as { id: string; eventId: string };
+    const ev = await cancelEvent(id, eventId);
+    if (!ev) return reply.code(404).send({ error: 'event not found' });
+    return { ok: true };
   });
 }

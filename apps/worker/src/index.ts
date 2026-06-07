@@ -1,3 +1,4 @@
+import './loadEnv';
 import { startJobWorker } from './jobs';
 import { startSchedules } from './schedules';
 

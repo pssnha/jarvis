@@ -1,5 +1,11 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { EVENT_CATEGORIES, type EventDraft } from '@jarvis/shared';
+import {
+  EVENT_CATEGORIES,
+  RECURRENCE_FREQS,
+  WEEKDAYS,
+  type EventDraft,
+  type Recurrence,
+} from '@jarvis/shared';
 import { anthropic, MODEL } from './client';
 import { describeNow } from './datetime';
 
@@ -25,6 +31,18 @@ const EXTRACT_TOOL: Anthropic.Tool = {
             all_day: { type: 'boolean' },
             location: { type: 'string' },
             category: { type: 'string', enum: EVENT_CATEGORIES },
+            recurrence: {
+              type: 'object',
+              description: 'Only if the event clearly repeats. Omit otherwise.',
+              properties: {
+                freq: { type: 'string', enum: RECURRENCE_FREQS },
+                interval: { type: 'number' },
+                byweekday: { type: 'array', items: { type: 'string', enum: WEEKDAYS } },
+                count: { type: 'number' },
+                until: { type: 'string', description: 'Local date "YYYY-MM-DD".' },
+              },
+              required: ['freq'],
+            },
           },
           required: ['title', 'start'],
         },
@@ -83,5 +101,21 @@ function normalizeDraft(e: unknown): EventDraft | null {
     location: typeof o.location === 'string' ? o.location : undefined,
     category:
       typeof o.category === 'string' ? (o.category as EventDraft['category']) : undefined,
+    recurrence: parseRecurrence(o.recurrence),
+  };
+}
+
+function parseRecurrence(input: unknown): Recurrence | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const o = input as Record<string, unknown>;
+  if (typeof o.freq !== 'string') return undefined;
+  return {
+    freq: o.freq as Recurrence['freq'],
+    interval: typeof o.interval === 'number' ? o.interval : undefined,
+    byweekday: Array.isArray(o.byweekday)
+      ? (o.byweekday.filter((d) => typeof d === 'string') as Recurrence['byweekday'])
+      : undefined,
+    count: typeof o.count === 'number' ? o.count : undefined,
+    until: typeof o.until === 'string' ? o.until : undefined,
   };
 }

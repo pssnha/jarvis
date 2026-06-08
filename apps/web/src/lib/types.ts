@@ -28,6 +28,7 @@ export interface CalendarOccurrence {
   title: string;
   dateKey: string; // yyyy-MM-dd in the group's zone
   startLocal: string;
+  endLocal: string | null;
   timeLabel: string;
   allDay: boolean;
   recurring: boolean;

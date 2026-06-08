@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCalendar, listGroups } from '../lib/api';
 import type { CalendarOccurrence, GroupSummary } from '../lib/types';
 import { EventModal } from '../components/EventModal';
@@ -34,6 +34,218 @@ const CAT_COLOR: Record<string, string> = {
 };
 function dotColor(o: CalendarOccurrence): string {
   return o.color || CAT_COLOR[o.category ?? 'other'] || '#7c3aed';
+}
+
+const HOUR_PX = 48;
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+function hourLabel(h: number): string {
+  return `${h < 10 ? '0' : ''}${h}:00`;
+}
+function minutesOf(localIso: string): number {
+  const t = localIso.split('T')[1] ?? '00:00';
+  const [h, m] = t.split(':');
+  return Number(h) * 60 + Number(m);
+}
+
+interface Block {
+  o: CalendarOccurrence;
+  startMin: number;
+  endMin: number;
+  col: number;
+  cols: number;
+}
+
+/** Lay timed events into side-by-side columns so overlaps don't cover each other. */
+function layoutDay(items: CalendarOccurrence[]): Block[] {
+  const blocks: Block[] = items
+    .filter((o) => !o.allDay)
+    .map((o) => {
+      const s = minutesOf(o.startLocal);
+      let e = o.endLocal ? minutesOf(o.endLocal) : s + 60;
+      if (e <= s) e = Math.min(s + 60, 1440);
+      return { o, startMin: s, endMin: Math.min(e, 1440), col: 0, cols: 1 };
+    })
+    .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+
+  let cluster: Block[] = [];
+  let cols: Block[][] = [];
+  let lastEnd = -1;
+  const flush = () => {
+    for (const b of cluster) b.cols = cols.length || 1;
+    cluster = [];
+    cols = [];
+    lastEnd = -1;
+  };
+  for (const b of blocks) {
+    if (cluster.length && b.startMin >= lastEnd) flush();
+    let placed = false;
+    for (let i = 0; i < cols.length; i++) {
+      const col = cols[i]!;
+      if (col[col.length - 1]!.endMin <= b.startMin) {
+        col.push(b);
+        b.col = i;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      cols.push([b]);
+      b.col = cols.length - 1;
+    }
+    cluster.push(b);
+    lastEnd = Math.max(lastEnd, b.endMin);
+  }
+  flush();
+  return blocks;
+}
+
+interface TimeGridProps {
+  days: Date[];
+  byDay: Map<string, CalendarOccurrence[]>;
+  individual: boolean;
+  todayKey: string;
+  onPick: (eventId: string) => void;
+  onAdd: (dateKey: string) => void;
+}
+
+/** Google-Calendar-style time grid: hours down the side, day columns across. */
+function TimeGrid({ days, byDay, individual, todayKey, onPick, onAdd }: TimeGridProps) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const single = days.length === 1;
+  const [nowMin, setNowMin] = useState(() => {
+    const n = new Date();
+    return n.getHours() * 60 + n.getMinutes();
+  });
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const n = new Date();
+      setNowMin(n.getHours() * 60 + n.getMinutes());
+    }, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const firstKey = days[0] ? ymd(days[0]) : '';
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const todayInView = days.some((d) => ymd(d) === todayKey);
+    const n = new Date();
+    const target = todayInView ? n.getHours() * 60 + n.getMinutes() : 8 * 60;
+    el.scrollTop = Math.max(0, (target / 60) * HOUR_PX - 120);
+  }, [firstKey, single, days, todayKey]);
+
+  return (
+    <div className={single ? 'tg tg-single' : 'tg'}>
+      {!single && (
+        <div className="tg-head">
+          <div className="tg-corner" />
+          {days.map((d) => {
+            const key = ymd(d);
+            return (
+              <div key={key} className={'tg-dayhead' + (key === todayKey ? ' today' : '')}>
+                <span className="tg-dow">{DOW[d.getUTCDay()]}</span>
+                <span className="tg-dnum">{d.getUTCDate()}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="tg-allday">
+        <div className="tg-gutter-label">all-day</div>
+        {days.map((d) => {
+          const key = ymd(d);
+          const allday = (byDay.get(key) ?? []).filter((o) => o.allDay);
+          return (
+            <div key={key} className="tg-allday-col" onClick={() => onAdd(key)}>
+              {allday.map((o, i) => {
+                const c = dotColor(o);
+                return (
+                  <button
+                    key={`${o.eventId}-${i}`}
+                    className="tg-allday-pill"
+                    style={{ background: c, color: textOn(c) }}
+                    title={o.title}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPick(o.eventId);
+                    }}
+                  >
+                    {o.title}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="tg-body" ref={bodyRef}>
+        <div className="tg-gutter" style={{ height: 24 * HOUR_PX }}>
+          {HOURS.map((h) => (
+            <div key={h} className="tg-hour" style={{ height: HOUR_PX }}>
+              <span>{hourLabel(h)}</span>
+            </div>
+          ))}
+        </div>
+        {days.map((d) => {
+          const key = ymd(d);
+          const blocks = layoutDay(byDay.get(key) ?? []);
+          const isToday = key === todayKey;
+          return (
+            <div
+              key={key}
+              className="tg-col"
+              style={{
+                height: 24 * HOUR_PX,
+                backgroundImage: `repeating-linear-gradient(to bottom, #eef0f2 0, #eef0f2 1px, transparent 1px, transparent ${HOUR_PX}px)`,
+              }}
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const hh = Math.max(0, Math.min(23, Math.floor((e.clientY - rect.top) / HOUR_PX)));
+                onAdd(`${key}T${hh < 10 ? '0' : ''}${hh}:00`);
+              }}
+            >
+              {blocks.map((b, i) => {
+                const c = dotColor(b.o);
+                return (
+                  <button
+                    key={`${b.o.eventId}-${i}`}
+                    className="tg-event"
+                    style={{
+                      top: (b.startMin / 60) * HOUR_PX,
+                      height: Math.max(((b.endMin - b.startMin) / 60) * HOUR_PX - 2, 16),
+                      left: `calc(${(b.col / b.cols) * 100}% + 2px)`,
+                      width: `calc(${100 / b.cols}% - 4px)`,
+                      background: c,
+                      color: textOn(c),
+                    }}
+                    title={b.o.title}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPick(b.o.eventId);
+                    }}
+                  >
+                    <span className="tg-ev-title">{b.o.title}</span>
+                    <span className="tg-ev-time">
+                      {b.o.timeLabel}
+                      {!individual && b.o.assigneeName ? ` · ${b.o.assigneeName}` : ''}
+                    </span>
+                  </button>
+                );
+              })}
+              {isToday && (
+                <div className="tg-now" style={{ top: (nowMin / 60) * HOUR_PX }}>
+                  <span className="tg-now-dot" />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 type ViewMode = 'month' | 'week' | 'day';
@@ -265,47 +477,14 @@ export function Calendar() {
           })}
         </div>
       ) : (
-        <div className="cal-agenda">
-          {range.cells.map((cd) => {
-            const key = ymd(cd);
-            const items = byDay.get(key) ?? [];
-            return (
-              <div key={key} className={'agenda-day' + (key === todayKey ? ' today' : '')}>
-                <div className="agenda-date">
-                  <span>
-                    {DOW[cd.getUTCDay()]} {cd.getUTCDate()} {MON_SHORT[cd.getUTCMonth()]}
-                  </span>
-                  <button className="link" onClick={() => setModal({ dateKey: key })}>
-                    + add
-                  </button>
-                </div>
-                {items.length === 0 ? (
-                  <div className="agenda-empty muted">No events</div>
-                ) : (
-                  items.map((o, i) => (
-                    <button
-                      key={`${o.eventId}-${i}`}
-                      className="agenda-item"
-                      onClick={() => setModal({ eventId: o.eventId })}
-                    >
-                      <span className="a-dot" style={{ background: dotColor(o) }} />
-                      <span className="a-time">{o.allDay ? 'all day' : o.timeLabel}</span>
-                      <span className="a-body">
-                        <span className="a-title">{o.title}</span>
-                        <span className="a-meta">
-                          {o.location ? ` · ${o.location}` : ''}
-                          {!individual && o.assigneeName ? ` · for ${o.assigneeName}` : ''}
-                          {o.maintainsName ? ` · maintains ${o.maintainsName}` : ''}
-                          {o.recurring ? ' · ↻ repeats' : ''}
-                        </span>
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <TimeGrid
+          days={range.cells}
+          byDay={byDay}
+          individual={individual}
+          todayKey={todayKey}
+          onPick={(eventId) => setModal({ eventId })}
+          onAdd={(dk) => setModal({ dateKey: dk })}
+        />
       )}
 
       {modal && group && (

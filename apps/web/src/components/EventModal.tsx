@@ -43,7 +43,9 @@ export function EventModal({
 
   const [title, setTitle] = useState('');
   const [allDay, setAllDay] = useState(false);
-  const [start, setStart] = useState(initialDateKey ? `${initialDateKey}T09:00` : '');
+  const [start, setStart] = useState(
+    initialDateKey ? (initialDateKey.includes('T') ? initialDateKey : `${initialDateKey}T09:00`) : '',
+  );
   const [end, setEnd] = useState('');
   const [location, setLocation] = useState('');
   const [category, setCategory] = useState('');

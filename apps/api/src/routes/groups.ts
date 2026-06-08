@@ -73,6 +73,7 @@ export async function registerGroups(app: FastifyInstance): Promise<void> {
       title: o.title,
       dateKey: dateKeyInZone(o.start, group.timezone),
       startLocal: toLocalInput(o.start, group.timezone, o.allDay),
+      endLocal: o.end ? toLocalInput(o.end, group.timezone, o.allDay) : null,
       timeLabel: o.allDay ? 'all day' : timeLabel(o.start, group.timezone),
       allDay: o.allDay,
       recurring: o.recurring,

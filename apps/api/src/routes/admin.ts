@@ -1,8 +1,47 @@
 import type { FastifyInstance } from 'fastify';
+import ical from 'node-ical';
 import { prisma } from '@jarvis/db';
+import {
+  createRawEvent,
+  openclawJobsToEvents,
+  type ImportedEvent,
+} from '@jarvis/agent';
 import { createRedis } from '../plugins/redis';
 
 const redis = createRedis();
+
+/** Parse an iCalendar document into importable events. */
+function parseIcs(text: string): { events: ImportedEvent[]; errors: string[] } {
+  const events: ImportedEvent[] = [];
+  const errors: string[] = [];
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = ical.sync.parseICS(text) as Record<string, unknown>;
+  } catch (err) {
+    return { events, errors: [`Invalid ICS: ${(err as Error).message}`] };
+  }
+  for (const key of Object.keys(parsed)) {
+    const c = parsed[key] as any;
+    if (!c || c.type !== 'VEVENT' || !c.start) continue;
+    let rrule: string | null = null;
+    if (c.rrule) {
+      const s = String(c.rrule.toString());
+      const line = s.split('\n').find((l: string) => l.startsWith('RRULE:'));
+      rrule = line ? line.slice('RRULE:'.length) : s.replace(/^RRULE:/, '');
+    }
+    events.push({
+      title: c.summary ? String(c.summary) : 'Untitled',
+      description: c.description ? String(c.description) : null,
+      startsAt: c.start as Date,
+      endsAt: (c.end as Date) ?? null,
+      allDay: c.datetype === 'date',
+      location: c.location ? String(c.location) : null,
+      rrule,
+      sourceRef: c.uid ? String(c.uid) : null,
+    });
+  }
+  return { events, errors };
+}
 
 /** Admin-only routes (site users, groups, members, WhatsApp linking). */
 export async function registerAdmin(app: FastifyInstance): Promise<void> {
@@ -91,6 +130,55 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
       self: self ?? null,
       groups: groups ? (JSON.parse(groups) as { id: string; subject: string }[]) : [],
     };
+  });
+
+  // Import a schedule into a group: .ics calendar OR an openclaw schedules JSON export.
+  app.post('/admin/groups/:id/import', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const group = await prisma.group.findUnique({ where: { id } });
+    if (!group) return reply.code(404).send({ error: 'group not found' });
+
+    const file = await (req as any).file?.();
+    if (!file) return reply.code(400).send({ error: 'no file uploaded' });
+    const text = (await file.toBuffer()).toString('utf8');
+    const filename = String(file.filename ?? '');
+
+    let imported: ImportedEvent[] = [];
+    let skipped = 0;
+    const errors: string[] = [];
+
+    if (filename.toLowerCase().endsWith('.ics') || text.trimStart().startsWith('BEGIN:VCALENDAR')) {
+      const r = parseIcs(text);
+      imported = r.events;
+      errors.push(...r.errors);
+    } else {
+      let data: unknown;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        return reply.code(400).send({ error: 'file is not valid JSON or ICS' });
+      }
+      if (data && typeof data === 'object' && 'jobs' in (data as object)) {
+        const r = openclawJobsToEvents(data, group.timezone);
+        imported = r.events;
+        skipped = r.skipped;
+        errors.push(...r.errors);
+      } else {
+        return reply.code(400).send({ error: 'unrecognized JSON (expected an openclaw export with "jobs")' });
+      }
+    }
+
+    let created = 0;
+    for (const ev of imported) {
+      try {
+        await createRawEvent({ groupId: id, source: 'import', ...ev });
+        created++;
+      } catch (err) {
+        errors.push(`Failed to save "${ev.title}": ${(err as Error).message}`);
+      }
+    }
+
+    return { created, skipped, errors };
   });
 
   // Link a Jarvis group to one of the WhatsApp groups the linked device is in.

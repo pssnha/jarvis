@@ -34,6 +34,39 @@ export async function createEvent(input: CreateEventInput) {
   });
 }
 
+/** Insert an event with already-resolved UTC times and an optional raw RRULE (used by importers). */
+export interface RawEventInput {
+  groupId: string;
+  title: string;
+  description?: string | null;
+  startsAt: Date;
+  endsAt?: Date | null;
+  allDay?: boolean;
+  location?: string | null;
+  category?: string | null;
+  rrule?: string | null;
+  source: string;
+  sourceRef?: string | null;
+}
+
+export async function createRawEvent(input: RawEventInput) {
+  return prisma.event.create({
+    data: {
+      groupId: input.groupId,
+      title: input.title,
+      description: input.description ?? null,
+      startsAt: input.startsAt,
+      endsAt: input.endsAt ?? null,
+      allDay: input.allDay ?? false,
+      location: input.location ?? null,
+      category: input.category ?? null,
+      rrule: input.rrule ?? null,
+      source: input.source,
+      sourceRef: input.sourceRef ?? null,
+    },
+  });
+}
+
 export async function getEvent(groupId: string, eventId: string) {
   return prisma.event.findFirst({ where: { id: eventId, groupId } });
 }

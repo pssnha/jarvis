@@ -87,6 +87,16 @@ export async function adminWhatsAppStatus(): Promise<WhatsAppStatus> {
   return fetch('/api/admin/whatsapp/status').then((r) => json<WhatsAppStatus>(r));
 }
 
+export async function adminImportSchedule(
+  groupId: string,
+  file: File,
+): Promise<{ created: number; skipped: number; errors: string[] }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`/api/admin/groups/${groupId}/import`, { method: 'POST', body: fd });
+  return json(res);
+}
+
 export async function adminLinkGroupWhatsApp(
   groupId: string,
   whatsappGroupId: string,

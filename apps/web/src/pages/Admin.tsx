@@ -5,6 +5,7 @@ import {
   adminCreateGroup,
   adminDeleteMember,
   adminDeleteUser,
+  adminImportSchedule,
   adminLinkGroupWhatsApp,
   adminListGroups,
   adminListMembers,
@@ -209,10 +210,30 @@ function GroupDetail({
   const [mEmail, setMEmail] = useState('');
   const [mWa, setMWa] = useState('');
   const [waJid, setWaJid] = useState(group.whatsappGroupId ?? '');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   const load = useCallback(() => {
     adminListMembers(group.id).then(setMembers).catch(onError);
   }, [group.id, onError]);
+
+  async function doImport() {
+    if (!importFile) return;
+    setImportBusy(true);
+    setImportMsg(null);
+    try {
+      const r = await adminImportSchedule(group.id, importFile);
+      const errs = r.errors.length ? ` · ${r.errors.length} issue(s)` : '';
+      setImportMsg(`Imported ${r.created} event(s)${r.skipped ? `, skipped ${r.skipped}` : ''}${errs}.`);
+      setImportFile(null);
+      onChanged();
+    } catch (e) {
+      setImportMsg(`Failed: ${(e as Error).message}`);
+    } finally {
+      setImportBusy(false);
+    }
+  }
   useEffect(load, [load]);
 
   async function addMember() {
@@ -306,6 +327,25 @@ function GroupDetail({
         {waGroups.length === 0 && (
           <p className="muted">No WhatsApp groups visible yet — connect the device above first.</p>
         )}
+      </div>
+
+      <div className="subsec">
+        <h4>Import schedule</h4>
+        <p className="muted">
+          Upload an <strong>.ics</strong> calendar or an openclaw <strong>.json</strong> export to
+          bulk-add events into this group.
+        </p>
+        <div className="admin-form">
+          <input
+            type="file"
+            accept=".ics,.json,text/calendar,application/json"
+            onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
+          />
+          <button className="primary" onClick={doImport} disabled={!importFile || importBusy}>
+            {importBusy ? 'Importing…' : 'Import'}
+          </button>
+        </div>
+        {importMsg && <p className="muted">{importMsg}</p>}
       </div>
     </div>
   );

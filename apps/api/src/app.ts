@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import { env } from './config/env';
 import { registerCookieAndGuards, registerAuthRoutes } from './auth';
 import { registerHealth } from './routes/health';
@@ -12,6 +13,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
 
   await app.register(cors, { origin: env.PUBLIC_WEB_ORIGIN, credentials: true });
+
+  // File uploads (ICS / JSON schedule imports).
+  await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024 } });
 
   // Cookie plugin + requireAuth / requireAdmin guards (root scope).
   await registerCookieAndGuards(app);

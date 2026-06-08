@@ -82,7 +82,7 @@ export async function startWhatsApp(): Promise<void> {
     if (ev.type !== 'notify') return;
     for (const msg of ev.messages as WAMessage[]) {
       try {
-        await handleInboundMessage(msg, sendGroupText, selfNumber);
+        await handleInboundMessage(msg, sendGroupText);
       } catch (err) {
         console.error('[wa] inbound handling failed:', err);
       }

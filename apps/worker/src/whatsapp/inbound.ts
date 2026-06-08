@@ -27,16 +27,13 @@ function extractText(msg: WAMessage): string | null {
 
 /**
  * Handle an inbound WhatsApp message.
- * - Group chat: Jarvis replies only when addressed (@mention or "Jarvis …").
- *   Admins get the full assistant; non-admins are restricted to scheduling.
+ * - Group chat: the group exists solely for Jarvis, so it responds to every
+ *   message. Admins get the full assistant; non-admins are restricted to
+ *   scheduling.
  * - Direct (1:1) chat: only admins are served — they get maintenance + general
  *   help. Non-admins are redirected to their group chat.
  */
-export async function handleInboundMessage(
-  msg: WAMessage,
-  send: Sender,
-  selfNumber: string | null,
-): Promise<void> {
+export async function handleInboundMessage(msg: WAMessage, send: Sender): Promise<void> {
   if (!msg.key || msg.key.fromMe) return;
   const jid = msg.key.remoteJid;
   if (!jid) return;
@@ -50,15 +47,7 @@ export async function handleInboundMessage(
   const isAdmin = senderNumber ? await isAdminWhatsApp(senderNumber) : false;
 
   if (isGroup) {
-    const wrapped = msg.message?.ephemeralMessage?.message ?? msg.message;
-    const mentioned = wrapped?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
-    const addressedByMention = Boolean(
-      selfNumber && mentioned.some((j) => j.startsWith(selfNumber)),
-    );
-    const addressedByName = /^\s*jarvis\b/i.test(text);
-    if (!addressedByMention && !addressedByName) return;
-
-    const userText = addressedByName ? text.replace(/^\s*jarvis[\s,:]*/i, '').trim() : text;
+    const userText = text.trim();
     if (!userText) return;
 
     const group = await getGroupByWhatsappId(jid);

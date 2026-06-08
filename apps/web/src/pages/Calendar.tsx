@@ -7,7 +7,10 @@ const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
+const MON_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const DAY = 86_400_000;
 
 function pad(n: number): string {
   return n < 10 ? `0${n}` : String(n);
@@ -15,8 +18,6 @@ function pad(n: number): string {
 function ymd(d: Date): string {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
-
-/** Pick a readable text color (black/white) for a given background hex. */
 function textOn(hex: string): string {
   const c = hex.replace('#', '');
   if (c.length < 6) return '#111';
@@ -25,49 +26,66 @@ function textOn(hex: string): string {
   const b = parseInt(c.slice(4, 6), 16);
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#111' : '#fff';
 }
-
-interface Cell {
-  key: string;
-  day: number;
-  inMonth: boolean;
+const CAT_COLOR: Record<string, string> = {
+  appointment: '#2563eb',
+  vacation: '#16a34a',
+  reminder: '#d97706',
+  other: '#7c3aed',
+};
+function dotColor(o: CalendarOccurrence): string {
+  return o.color || CAT_COLOR[o.category ?? 'other'] || '#7c3aed';
 }
 
-function buildGrid(year: number, month: number): { cells: Cell[]; from: Date; to: Date } {
-  const first = new Date(Date.UTC(year, month, 1));
-  const startDow = first.getUTCDay();
-  const gridStart = new Date(Date.UTC(year, month, 1 - startDow));
-  const cells: Cell[] = [];
-  for (let i = 0; i < 42; i++) {
-    const d = new Date(gridStart.getTime() + i * 86_400_000);
-    cells.push({ key: ymd(d), day: d.getUTCDate(), inMonth: d.getUTCMonth() === month });
+type ViewMode = 'month' | 'week' | 'day';
+type Anchor = { y: number; m: number; d: number };
+
+interface Range {
+  from: Date;
+  to: Date;
+  /** dateKeys to render (month: 42 grid cells; week: 7; day: 1). */
+  cells: Date[];
+}
+
+function computeRange(view: ViewMode, a: Anchor): Range {
+  if (view === 'month') {
+    const first = new Date(Date.UTC(a.y, a.m, 1));
+    const start = new Date(Date.UTC(a.y, a.m, 1 - first.getUTCDay()));
+    const cells = Array.from({ length: 42 }, (_, i) => new Date(start.getTime() + i * DAY));
+    return { from: start, to: new Date(start.getTime() + 42 * DAY), cells };
   }
-  const to = new Date(gridStart.getTime() + 42 * 86_400_000);
-  return { cells, from: gridStart, to };
-}
-
-interface Scope {
-  groupId: string;
-  memberId?: string;
+  if (view === 'week') {
+    const base = new Date(Date.UTC(a.y, a.m, a.d));
+    const ws = new Date(base.getTime() - base.getUTCDay() * DAY);
+    const cells = Array.from({ length: 7 }, (_, i) => new Date(ws.getTime() + i * DAY));
+    return { from: ws, to: new Date(ws.getTime() + 7 * DAY), cells };
+  }
+  const base = new Date(Date.UTC(a.y, a.m, a.d));
+  return { from: base, to: new Date(base.getTime() + DAY), cells: [base] };
 }
 
 export function Calendar() {
   const today = new Date();
+  const todayAnchor: Anchor = { y: today.getFullYear(), m: today.getMonth(), d: today.getDate() };
   const [groups, setGroups] = useState<GroupSummary[]>([]);
-  const [scope, setScope] = useState<Scope | null>(null);
-  const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() });
+  const [scope, setScope] = useState<{ groupId: string; memberId?: string } | null>(null);
+  const [view, setView] = useState<ViewMode>('month');
+  const [anchor, setAnchor] = useState<Anchor>(todayAnchor);
   const [byDay, setByDay] = useState<Map<string, CalendarOccurrence[]>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<{ eventId?: string; dateKey?: string } | null>(null);
 
-  const { cells, from, to } = useMemo(() => buildGrid(cursor.year, cursor.month), [cursor]);
-  const todayKey = ymd(new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())));
+  const range = useMemo(() => computeRange(view, anchor), [view, anchor]);
+  const todayKey = ymd(new Date(Date.UTC(todayAnchor.y, todayAnchor.m, todayAnchor.d)));
   const group = scope ? (groups.find((g) => g.id === scope.groupId) ?? null) : null;
   const individual = !!scope?.memberId;
 
   const load = useCallback(
     async (groupId: string, memberId: string | undefined) => {
       try {
-        const occ = await getCalendar(groupId, from.toISOString(), to.toISOString(), memberId);
+        // Pad ±1 day so tz-shifted occurrences still land in the visible cells.
+        const from = new Date(range.from.getTime() - DAY).toISOString();
+        const to = new Date(range.to.getTime() + DAY).toISOString();
+        const occ = await getCalendar(groupId, from, to, memberId);
         const map = new Map<string, CalendarOccurrence[]>();
         for (const o of occ) {
           const list = map.get(o.dateKey) ?? [];
@@ -80,7 +98,7 @@ export function Calendar() {
         setError(String((e as Error).message ?? e));
       }
     },
-    [from, to],
+    [range],
   );
 
   useEffect(() => {
@@ -96,17 +114,21 @@ export function Calendar() {
     if (scope) void load(scope.groupId, scope.memberId);
   }, [scope, load]);
 
-  function shiftMonth(delta: number) {
-    setCursor((c) => {
-      const m = c.month + delta;
-      return { year: c.year + Math.floor(m / 12), month: ((m % 12) + 12) % 12 };
+  function shift(delta: number) {
+    setAnchor((a) => {
+      if (view === 'month') {
+        const m = a.m + delta;
+        return { y: a.y + Math.floor(m / 12), m: ((m % 12) + 12) % 12, d: 1 };
+      }
+      const step = view === 'week' ? 7 : 1;
+      const nd = new Date(Date.UTC(a.y, a.m, a.d + delta * step));
+      return { y: nd.getUTCFullYear(), m: nd.getUTCMonth(), d: nd.getUTCDate() };
     });
   }
   function onSaved() {
     setModal(null);
     if (scope) void load(scope.groupId, scope.memberId);
   }
-
   function onScopeChange(value: string) {
     if (value.includes('::')) {
       const [groupId, memberId] = value.split('::');
@@ -115,7 +137,23 @@ export function Calendar() {
       setScope({ groupId: value });
     }
   }
-  const scopeValue = scope ? (scope.memberId ? `${scope.groupId}::${scope.memberId}` : scope.groupId) : '';
+
+  const scopeValue = scope
+    ? scope.memberId
+      ? `${scope.groupId}::${scope.memberId}`
+      : scope.groupId
+    : '';
+
+  const title = useMemo(() => {
+    if (view === 'month') return `${MONTHS[anchor.m]} ${anchor.y}`;
+    if (view === 'week') {
+      const a = range.cells[0]!;
+      const b = range.cells[6]!;
+      return `${MON_SHORT[a.getUTCMonth()]} ${a.getUTCDate()} – ${MON_SHORT[b.getUTCMonth()]} ${b.getUTCDate()}, ${b.getUTCFullYear()}`;
+    }
+    const d = range.cells[0]!;
+    return `${DOW[d.getUTCDay()]}, ${MON_SHORT[d.getUTCMonth()]} ${d.getUTCDate()} ${d.getUTCFullYear()}`;
+  }, [view, anchor, range]);
 
   if (groups.length === 0) {
     return (
@@ -133,14 +171,23 @@ export function Calendar() {
     <div className="calendar">
       <div className="cal-toolbar">
         <div className="cal-nav">
-          <button onClick={() => shiftMonth(-1)} aria-label="Previous month">‹</button>
-          <button onClick={() => setCursor({ year: today.getFullYear(), month: today.getMonth() })}>
-            Today
-          </button>
-          <button onClick={() => shiftMonth(1)} aria-label="Next month">›</button>
-          <h2>{MONTHS[cursor.month]} {cursor.year}</h2>
+          <button onClick={() => shift(-1)} aria-label="Previous">‹</button>
+          <button onClick={() => setAnchor(todayAnchor)}>Today</button>
+          <button onClick={() => shift(1)} aria-label="Next">›</button>
+          <h2>{title}</h2>
         </div>
         <div className="cal-actions">
+          <div className="view-toggle">
+            {(['month', 'week', 'day'] as ViewMode[]).map((v) => (
+              <button
+                key={v}
+                className={view === v ? 'vt on' : 'vt'}
+                onClick={() => setView(v)}
+              >
+                {v[0]!.toUpperCase() + v.slice(1)}
+              </button>
+            ))}
+          </div>
           <select value={scopeValue} onChange={(e) => onScopeChange(e.target.value)}>
             {groups.map((g) => (
               <optgroup key={g.id} label={g.name}>
@@ -156,12 +203,12 @@ export function Calendar() {
             ))}
           </select>
           {group && (
-            <a className="ical-link" href={`/api/calendar/${group.icalToken}.ics`} title="Subscribe in a calendar app">
+            <a className="ical-link" href={`/api/calendar/${group.icalToken}.ics`} title="Subscribe">
               iCal feed
             </a>
           )}
-          <button className="primary" onClick={() => setModal({ dateKey: todayKey })}>
-            + New event
+          <button className="primary" onClick={() => setModal({ dateKey: ymd(range.cells[0]!) })}>
+            + New
           </button>
         </div>
       </div>
@@ -169,48 +216,97 @@ export function Calendar() {
       {error && <p className="error">{error}</p>}
       {group && (
         <p className="muted tz-note">
-          Times shown in {group.timezone}
-          {individual && ' · showing one person'}
+          Times in {group.timezone}
+          {individual && ' · one person'}
         </p>
       )}
 
-      <div className="cal-grid">
-        {DOW.map((d) => (
-          <div key={d} className="cal-dow">{d}</div>
-        ))}
-        {cells.map((cell) => {
-          const items = byDay.get(cell.key) ?? [];
-          return (
-            <div
-              key={cell.key}
-              className={'cal-cell' + (cell.inMonth ? '' : ' out') + (cell.key === todayKey ? ' today' : '')}
-              onClick={() => setModal({ dateKey: cell.key })}
-            >
-              <div className="cal-daynum">{cell.day}</div>
-              <div className="cal-events">
-                {items.map((o, i) => (
-                  <button
-                    key={`${o.eventId}-${i}`}
-                    className={o.color ? 'chip' : `chip cat-${o.category ?? 'none'}`}
-                    style={o.color ? { background: o.color, color: textOn(o.color) } : undefined}
-                    title={`${o.title}${o.assigneeName ? ` · ${o.assigneeName}` : ''}${o.location ? ` @ ${o.location}` : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setModal({ eventId: o.eventId });
-                    }}
-                  >
-                    <span className="chip-time">{o.allDay ? '•' : o.timeLabel}</span>{' '}
-                    <span className="chip-title">{o.title}</span>
-                    {!individual && o.assigneeName && <span className="chip-who"> · {o.assigneeName}</span>}
-                    {o.maintainsName && <span className="chip-who"> → {o.maintainsName}</span>}
-                    {o.recurring && <span className="chip-rec"> ↻</span>}
-                  </button>
-                ))}
+      {view === 'month' ? (
+        <div className="cal-grid">
+          {DOW.map((d) => (
+            <div key={d} className="cal-dow">{d}</div>
+          ))}
+          {range.cells.map((cd) => {
+            const key = ymd(cd);
+            const items = byDay.get(key) ?? [];
+            return (
+              <div
+                key={key}
+                className={
+                  'cal-cell' +
+                  (cd.getUTCMonth() === anchor.m ? '' : ' out') +
+                  (key === todayKey ? ' today' : '')
+                }
+                onClick={() => setModal({ dateKey: key })}
+              >
+                <div className="cal-daynum">{cd.getUTCDate()}</div>
+                <div className="cal-events">
+                  {items.map((o, i) => (
+                    <button
+                      key={`${o.eventId}-${i}`}
+                      className={o.color ? 'chip' : `chip cat-${o.category ?? 'none'}`}
+                      style={o.color ? { background: o.color, color: textOn(o.color) } : undefined}
+                      title={`${o.title}${o.assigneeName ? ` · ${o.assigneeName}` : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setModal({ eventId: o.eventId });
+                      }}
+                    >
+                      <span className="chip-time">{o.allDay ? '•' : o.timeLabel}</span>{' '}
+                      <span className="chip-title">{o.title}</span>
+                      {!individual && o.assigneeName && <span className="chip-who"> · {o.assigneeName}</span>}
+                      {o.maintainsName && <span className="chip-who"> → {o.maintainsName}</span>}
+                      {o.recurring && <span className="chip-rec"> ↻</span>}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="cal-agenda">
+          {range.cells.map((cd) => {
+            const key = ymd(cd);
+            const items = byDay.get(key) ?? [];
+            return (
+              <div key={key} className={'agenda-day' + (key === todayKey ? ' today' : '')}>
+                <div className="agenda-date">
+                  <span>
+                    {DOW[cd.getUTCDay()]} {cd.getUTCDate()} {MON_SHORT[cd.getUTCMonth()]}
+                  </span>
+                  <button className="link" onClick={() => setModal({ dateKey: key })}>
+                    + add
+                  </button>
+                </div>
+                {items.length === 0 ? (
+                  <div className="agenda-empty muted">No events</div>
+                ) : (
+                  items.map((o, i) => (
+                    <button
+                      key={`${o.eventId}-${i}`}
+                      className="agenda-item"
+                      onClick={() => setModal({ eventId: o.eventId })}
+                    >
+                      <span className="a-dot" style={{ background: dotColor(o) }} />
+                      <span className="a-time">{o.allDay ? 'all day' : o.timeLabel}</span>
+                      <span className="a-body">
+                        <span className="a-title">{o.title}</span>
+                        <span className="a-meta">
+                          {o.location ? ` · ${o.location}` : ''}
+                          {!individual && o.assigneeName ? ` · for ${o.assigneeName}` : ''}
+                          {o.maintainsName ? ` · maintains ${o.maintainsName}` : ''}
+                          {o.recurring ? ' · ↻ repeats' : ''}
+                        </span>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {modal && group && (
         <EventModal

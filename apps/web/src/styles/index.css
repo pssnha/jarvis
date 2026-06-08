@@ -361,6 +361,118 @@ button.danger {
 .chip.cat-other,
 .chip.cat-none { background: #ede9fe; color: #5b21b6; }
 
+/* View toggle (Month / Week / Day) */
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid #d3d6da;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.view-toggle .vt {
+  border: none;
+  border-radius: 0;
+  background: #fff;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  border-left: 1px solid #e3e5e8;
+}
+.view-toggle .vt:first-child {
+  border-left: none;
+}
+.view-toggle .vt.on {
+  background: #2563eb;
+  color: #fff;
+}
+
+/* Week / Day agenda views */
+.cal-agenda {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.agenda-day {
+  background: #fff;
+  border: 1px solid #e3e5e8;
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+}
+.agenda-day.today {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+.agenda-date {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 0.88rem;
+  margin-bottom: 0.35rem;
+}
+.agenda-date .link {
+  border: none;
+  background: none;
+  color: #2563eb;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0;
+}
+.agenda-empty {
+  font-size: 0.85rem;
+  padding: 0.15rem 0;
+}
+.agenda-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  cursor: pointer;
+  margin-bottom: 0.25rem;
+}
+.agenda-item:last-child {
+  margin-bottom: 0;
+}
+.agenda-item:hover {
+  background: #eef2f7;
+}
+.agenda-item .a-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  align-self: center;
+}
+.agenda-item .a-time {
+  flex: 0 0 auto;
+  min-width: 68px;
+  font-size: 0.78rem;
+  color: #475569;
+  font-variant-numeric: tabular-nums;
+}
+.agenda-item .a-body {
+  min-width: 0;
+}
+.agenda-item .a-title {
+  font-size: 0.9rem;
+}
+.agenda-item .a-meta {
+  color: #8a8f98;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 768px) {
+  .agenda-item .a-time {
+    min-width: 56px;
+    font-size: 0.74rem;
+  }
+}
+
 @media (max-width: 768px) {
   .calendar {
     padding: 0.6rem;

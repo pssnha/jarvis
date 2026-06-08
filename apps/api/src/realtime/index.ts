@@ -27,6 +27,7 @@ export function attachRealtime(app: FastifyInstance): IOServer {
       if (!userId) return next(new Error('unauthorized'));
       const user = await prisma.authUser.findUnique({ where: { id: userId } });
       if (!user) return next(new Error('unauthorized'));
+      (socket.data as { role?: string }).role = user.role;
       next();
     } catch {
       next(new Error('unauthorized'));
@@ -54,8 +55,15 @@ export function attachRealtime(app: FastifyInstance): IOServer {
           const history = await loadHistory(convo.id);
           const authorName = data.authorName?.trim() || undefined;
 
+          const isAdmin = (socket.data as { role?: string }).role === 'admin';
           const { reply } = await runAgent({
-            ctx: { groupId: group.id, timezone: group.timezone, source: 'web' },
+            ctx: {
+              groupId: group.id,
+              timezone: group.timezone,
+              source: 'web',
+              isAdmin,
+              maintenance: group.kind === 'maintenance',
+            },
             history,
             userText: text,
             authorName,

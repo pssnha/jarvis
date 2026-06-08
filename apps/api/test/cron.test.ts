@@ -1,5 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { cronToRRule, openclawJobsToEvents } from '@jarvis/agent';
+import { cronToRRule, isMaintenanceText, openclawJobsToEvents } from '@jarvis/agent';
+
+describe('isMaintenanceText', () => {
+  it('flags maintenance/poller/health-check tasks', () => {
+    expect(isMaintenanceText('Maintenance: family inbox poller (private)')).toBe(true);
+    expect(isMaintenanceText('Maintenance: 6:00 AM group chat health check')).toBe(true);
+    expect(isMaintenanceText('Email poll', 'run check_gmail_forwarded.py')).toBe(true);
+  });
+  it('does not flag normal reminders', () => {
+    expect(isMaintenanceText('Karate reminder (Mondays 30m before)')).toBe(false);
+    expect(isMaintenanceText('Vinit math class reminder')).toBe(false);
+    expect(isMaintenanceText('Smitha dental appointment tomorrow')).toBe(false);
+  });
+});
 
 describe('cronToRRule', () => {
   it('weekly on a weekday with time', () => {

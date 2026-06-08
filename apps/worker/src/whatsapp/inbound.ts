@@ -1,6 +1,7 @@
 import type { WAMessage } from '@whiskeysockets/baileys';
 import {
   appendMessages,
+  ensureMaintenanceGroup,
   getGroupByWhatsappId,
   getOrCreateConversation,
   loadHistory,
@@ -10,6 +11,19 @@ import {
 
 type Sender = (jid: string, text: string) => Promise<void>;
 
+const DEFAULT_TZ = process.env.DEFAULT_TIMEZONE ?? 'America/Los_Angeles';
+
+function digits(s: string): string {
+  return s.replace(/\D/g, '');
+}
+
+const ADMIN_NUMBERS = new Set(
+  (process.env.ADMIN_WHATSAPP ?? '')
+    .split(',')
+    .map((s) => digits(s))
+    .filter(Boolean),
+);
+
 /** Extract plain text from a (possibly wrapped) WhatsApp message. */
 function extractText(msg: WAMessage): string | null {
   const m = msg.message?.ephemeralMessage?.message ?? msg.message;
@@ -18,56 +32,90 @@ function extractText(msg: WAMessage): string | null {
 }
 
 /**
- * Handle an inbound WhatsApp group message. Jarvis only responds when it's
- * addressed — either @mentioned or the message starts with "Jarvis" — to avoid
- * replying to ordinary group chatter.
+ * Handle an inbound WhatsApp message.
+ * - Group chat: Jarvis replies only when addressed (@mention or "Jarvis …").
+ *   Admins get the full assistant; non-admins are restricted to scheduling.
+ * - Direct (1:1) chat: only admins are served — they get maintenance + general
+ *   help. Non-admins are redirected to their group chat.
  */
-export async function handleInboundGroupMessage(
+export async function handleInboundMessage(
   msg: WAMessage,
   send: Sender,
   selfNumber: string | null,
 ): Promise<void> {
   if (!msg.key || msg.key.fromMe) return;
   const jid = msg.key.remoteJid;
-  if (!jid || !jid.endsWith('@g.us')) return; // groups only
+  if (!jid) return;
 
   const text = extractText(msg);
   if (!text) return;
 
-  const wrapped = msg.message?.ephemeralMessage?.message ?? msg.message;
-  const mentioned = wrapped?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
-  const addressedByMention = Boolean(
-    selfNumber && mentioned.some((j) => j.startsWith(selfNumber)),
-  );
-  const addressedByName = /^\s*jarvis\b/i.test(text);
-  if (!addressedByMention && !addressedByName) return;
+  const isGroup = jid.endsWith('@g.us');
+  const senderJid = isGroup ? (msg.key.participant ?? '') : jid;
+  const senderNumber = digits(senderJid.split('@')[0] ?? '');
+  const isAdmin = ADMIN_NUMBERS.has(senderNumber);
 
-  const userText = addressedByName ? text.replace(/^\s*jarvis[\s,:]*/i, '').trim() : text;
-  if (!userText) return;
+  if (isGroup) {
+    const wrapped = msg.message?.ephemeralMessage?.message ?? msg.message;
+    const mentioned = wrapped?.extendedTextMessage?.contextInfo?.mentionedJid ?? [];
+    const addressedByMention = Boolean(
+      selfNumber && mentioned.some((j) => j.startsWith(selfNumber)),
+    );
+    const addressedByName = /^\s*jarvis\b/i.test(text);
+    if (!addressedByMention && !addressedByName) return;
 
-  const group = await getGroupByWhatsappId(jid);
-  if (!group) return; // this WhatsApp group isn't mapped to a Jarvis group yet
+    const userText = addressedByName ? text.replace(/^\s*jarvis[\s,:]*/i, '').trim() : text;
+    if (!userText) return;
 
-  const participant = msg.key.participant ?? '';
-  const waId = participant.split('@')[0] || participant;
-  const pushName = msg.pushName ?? undefined;
+    const group = await getGroupByWhatsappId(jid);
+    if (!group) return; // not mapped to a Jarvis group
 
-  const member = await resolveMember(group.id, { waId, name: pushName });
-  const convo = await getOrCreateConversation(group.id, 'whatsapp');
+    const pushName = msg.pushName ?? undefined;
+    const member = await resolveMember(group.id, { waId: senderNumber, name: pushName });
+    const convo = await getOrCreateConversation(group.id, 'whatsapp');
+    const history = await loadHistory(convo.id);
+
+    const { reply } = await runAgent({
+      ctx: {
+        groupId: group.id,
+        timezone: group.timezone,
+        source: 'whatsapp',
+        createdById: member?.id,
+        isAdmin,
+      },
+      history,
+      userText,
+      authorName: member?.name ?? pushName,
+    });
+    await appendMessages(convo.id, userText, reply, member?.name ?? pushName);
+    await send(jid, reply);
+    return;
+  }
+
+  // Direct (1:1) message.
+  if (!isAdmin) {
+    await send(
+      jid,
+      "Hi! I manage group schedules. Please use your family/group chat to add or check the schedule.",
+    );
+    return;
+  }
+
+  // Admin direct chat → maintenance calendar + general help.
+  const maint = await ensureMaintenanceGroup(DEFAULT_TZ);
+  const convo = await getOrCreateConversation(maint.id, 'whatsapp');
   const history = await loadHistory(convo.id);
-
   const { reply } = await runAgent({
     ctx: {
-      groupId: group.id,
-      timezone: group.timezone,
+      groupId: maint.id,
+      timezone: maint.timezone,
       source: 'whatsapp',
-      createdById: member?.id,
+      isAdmin: true,
+      maintenance: true,
     },
     history,
-    userText,
-    authorName: member?.name ?? pushName,
+    userText: text,
   });
-
-  await appendMessages(convo.id, userText, reply, member?.name ?? pushName);
+  await appendMessages(convo.id, text, reply);
   await send(jid, reply);
 }

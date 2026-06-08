@@ -36,7 +36,10 @@ async function dispatch(
 export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const userText = opts.authorName ? `${opts.authorName}: ${opts.userText}` : opts.userText;
   const reply = await getProvider().runConversation({
-    system: buildSystemPrompt(opts.ctx.timezone),
+    system: buildSystemPrompt(opts.ctx.timezone, {
+      isAdmin: opts.ctx.isAdmin,
+      maintenance: opts.ctx.maintenance,
+    }),
     history: opts.history,
     userText,
     tools: toolSpecs,

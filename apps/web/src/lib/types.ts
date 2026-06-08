@@ -34,6 +34,7 @@ export interface CalendarOccurrence {
   category: string | null;
   location: string | null;
   assigneeName: string | null;
+  maintainsName: string | null;
 }
 
 export interface EventDetail {

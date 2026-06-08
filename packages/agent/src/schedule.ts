@@ -12,6 +12,7 @@ export interface CreateEventInput {
   rawText?: string;
   createdById?: string;
   assigneeId?: string | null;
+  maintainsGroupId?: string | null;
 }
 
 export async function createEvent(input: CreateEventInput) {
@@ -32,6 +33,7 @@ export async function createEvent(input: CreateEventInput) {
       rawText,
       createdById,
       assigneeId: assigneeId ?? null,
+      maintainsGroupId: input.maintainsGroupId ?? null,
     },
   });
 }
@@ -50,6 +52,7 @@ export interface RawEventInput {
   source: string;
   sourceRef?: string | null;
   assigneeId?: string | null;
+  maintainsGroupId?: string | null;
 }
 
 export async function createRawEvent(input: RawEventInput) {
@@ -67,6 +70,7 @@ export async function createRawEvent(input: RawEventInput) {
       source: input.source,
       sourceRef: input.sourceRef ?? null,
       assigneeId: input.assigneeId ?? null,
+      maintainsGroupId: input.maintainsGroupId ?? null,
     },
   });
 }
@@ -212,6 +216,7 @@ export interface Occurrence {
   category: string | null;
   location: string | null;
   assigneeName: string | null;
+  maintainsName: string | null;
 }
 
 /** Expand the schedule into individual occurrences within [from, to] for a calendar view. */
@@ -224,7 +229,10 @@ export async function expandCalendar(
 ): Promise<Occurrence[]> {
   const out: Occurrence[] = [];
   const assigneeFilter = memberId ? { assigneeId: memberId } : {};
-  const include = { assignee: { select: { name: true } } } as const;
+  const include = {
+    assignee: { select: { name: true } },
+    maintainsGroup: { select: { name: true } },
+  } as const;
 
   const oneOff = await prisma.event.findMany({
     where: { groupId, rrule: null, startsAt: { lte: to }, ...assigneeFilter },
@@ -243,6 +251,7 @@ export async function expandCalendar(
       category: ev.category,
       location: ev.location,
       assigneeName: ev.assignee?.name ?? null,
+      maintainsName: ev.maintainsGroup?.name ?? null,
     });
   }
 
@@ -264,6 +273,7 @@ export async function expandCalendar(
         category: ev.category,
         location: ev.location,
         assigneeName: ev.assignee?.name ?? null,
+        maintainsName: ev.maintainsGroup?.name ?? null,
       });
     }
   }

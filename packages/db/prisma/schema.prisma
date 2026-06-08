@@ -28,6 +28,10 @@ model AuthUser {
 model Group {
   id              String  @id @default(cuid())
   name            String
+  /// 'group' for a normal user group, 'maintenance' for the single internal
+  /// maintenance calendar (cron/pollers). Maintenance groups never link to a
+  /// WhatsApp group, so their reminders never reach a chat.
+  kind            String  @default("group")
   /// IANA time zone (e.g. "America/New_York"). One zone per group.
   timezone        String  @default("UTC")
   /// The WhatsApp group id once Jarvis has created/hosted the group.
@@ -43,6 +47,8 @@ model Group {
   members       Member[]
   events        Event[]
   conversations Conversation[]
+  /// Maintenance events that target this group.
+  maintainedBy  Event[]        @relation("EventMaintains")
 
   @@index([whatsappGroupId])
 }
@@ -102,6 +108,10 @@ model Event {
   /// The individual this event is for (null = whole group).
   assigneeId String?
   assignee   Member? @relation("EventAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  /// For maintenance events: which group this task maintains (null = global).
+  maintainsGroupId String?
+  maintainsGroup   Group?  @relation("EventMaintains", fields: [maintainsGroupId], references: [id], onDelete: SetNull)
 
   /// When a reminder was last sent for this event.
   remindedAt DateTime?

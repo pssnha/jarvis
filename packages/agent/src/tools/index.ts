@@ -12,6 +12,10 @@ export interface ToolContext {
   timezone: string;
   source: Channel;
   createdById?: string;
+  /** Admins get general Q&A + maintenance; non-admins are schedule-only. */
+  isAdmin?: boolean;
+  /** True when this turn operates on the maintenance calendar. */
+  maintenance?: boolean;
 }
 
 export interface AgentTool {

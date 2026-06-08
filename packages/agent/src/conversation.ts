@@ -65,6 +65,18 @@ export async function resolveMember(
   });
 }
 
+/** The single internal maintenance calendar (cron/pollers), or null. */
+export async function getMaintenanceGroup() {
+  return prisma.group.findFirst({ where: { kind: 'maintenance' } });
+}
+
+/** Ensure the maintenance calendar exists (never linked to WhatsApp). */
+export async function ensureMaintenanceGroup(timezone: string) {
+  const existing = await getMaintenanceGroup();
+  if (existing) return existing;
+  return prisma.group.create({ data: { name: 'Maintenance', kind: 'maintenance', timezone } });
+}
+
 /** Find a member of a group by (partial) name. */
 export async function findMemberByName(groupId: string, name: string) {
   const n = name.trim();

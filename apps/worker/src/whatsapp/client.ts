@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import pino from 'pino';
 import { upsertWhatsAppGroup } from '@jarvis/agent';
 import { createRedis } from '../lib/redis';
-import { handleInboundGroupMessage } from './inbound';
+import { handleInboundMessage } from './inbound';
 
 const AUTH_DIR = process.env.WA_AUTH_DIR ?? '/data/wa-auth';
 const DEFAULT_TZ = process.env.DEFAULT_TIMEZONE ?? 'America/Los_Angeles';
@@ -82,7 +82,7 @@ export async function startWhatsApp(): Promise<void> {
     if (ev.type !== 'notify') return;
     for (const msg of ev.messages as WAMessage[]) {
       try {
-        await handleInboundGroupMessage(msg, sendGroupText, selfNumber);
+        await handleInboundMessage(msg, sendGroupText, selfNumber);
       } catch (err) {
         console.error('[wa] inbound handling failed:', err);
       }

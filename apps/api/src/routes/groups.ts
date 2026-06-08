@@ -28,19 +28,23 @@ interface EventBody {
 /** Schedule data routes — available to any authenticated user. */
 export async function registerGroups(app: FastifyInstance): Promise<void> {
   // Groups the user can view/manage (for the Calendar & Chat pickers), with members.
-  app.get('/groups', async () =>
-    prisma.group.findMany({
+  // The maintenance calendar is only visible to admins.
+  app.get('/groups', async (req) => {
+    const isAdmin = req.authUser?.role === 'admin';
+    return prisma.group.findMany({
+      where: isAdmin ? {} : { kind: { not: 'maintenance' } },
       orderBy: { name: 'asc' },
       select: {
         id: true,
         name: true,
+        kind: true,
         timezone: true,
         icalToken: true,
         whatsappGroupId: true,
         members: { select: { id: true, name: true }, orderBy: { createdAt: 'asc' } },
       },
-    }),
-  );
+    });
+  });
 
   // Members of a group (for the event-form assignee picker).
   app.get('/groups/:id/members', async (req) => {
@@ -74,6 +78,7 @@ export async function registerGroups(app: FastifyInstance): Promise<void> {
       category: o.category,
       location: o.location,
       assigneeName: o.assigneeName,
+      maintainsName: o.maintainsName,
     }));
   });
 

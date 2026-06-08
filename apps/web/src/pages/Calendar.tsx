@@ -191,6 +191,7 @@ export function Calendar() {
                     <span className="chip-time">{o.allDay ? '•' : o.timeLabel}</span>{' '}
                     <span className="chip-title">{o.title}</span>
                     {!individual && o.assigneeName && <span className="chip-who"> · {o.assigneeName}</span>}
+                    {o.maintainsName && <span className="chip-who"> → {o.maintainsName}</span>}
                     {o.recurring && <span className="chip-rec"> ↻</span>}
                   </button>
                 ))}

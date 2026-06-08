@@ -11,6 +11,16 @@ export interface ImportedEvent {
   category?: string | null;
   rrule?: string | null;
   sourceRef?: string | null;
+  /** True for internal maintenance tasks (pollers, health checks) — routed to the maintenance calendar. */
+  maintenance?: boolean;
+}
+
+const MAINTENANCE_RE =
+  /mainten|poller|inbox poll|health\s*check|email poll|check_gmail|\.py\b|reconcile|normalize group/i;
+
+/** Heuristic: is this title/description an internal maintenance task (not a user reminder)? */
+export function isMaintenanceText(...parts: (string | null | undefined)[]): boolean {
+  return MAINTENANCE_RE.test(parts.filter(Boolean).join(' '));
 }
 
 export interface ImportResult {
@@ -121,6 +131,7 @@ export function openclawJobsToEvents(data: unknown, fallbackTz: string): ImportR
     const tz = sch.tz || fallbackTz;
     const title = job.name?.trim() || 'Imported reminder';
     const description = job.payload?.message ?? job.payload?.text ?? null;
+    const maintenance = isMaintenanceText(title, description);
 
     try {
       if (sch.kind === 'cron' && sch.expr) {
@@ -137,6 +148,7 @@ export function openclawJobsToEvents(data: unknown, fallbackTz: string): ImportR
           category: 'reminder',
           rrule,
           sourceRef: job.id ?? null,
+          maintenance,
         });
       } else if (sch.kind === 'every' && typeof sch.everyMs === 'number') {
         const rrule = everyMsToRRule(sch.everyMs);
@@ -152,6 +164,7 @@ export function openclawJobsToEvents(data: unknown, fallbackTz: string): ImportR
           category: 'reminder',
           rrule,
           sourceRef: job.id ?? null,
+          maintenance,
         });
       } else if (sch.kind === 'at' && sch.at) {
         result.events.push({
@@ -162,6 +175,7 @@ export function openclawJobsToEvents(data: unknown, fallbackTz: string): ImportR
           category: 'reminder',
           rrule: null,
           sourceRef: job.id ?? null,
+          maintenance,
         });
       } else {
         result.errors.push(`Unsupported schedule for "${title}"`);

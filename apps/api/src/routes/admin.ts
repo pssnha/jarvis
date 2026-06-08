@@ -3,6 +3,8 @@ import ical from 'node-ical';
 import { prisma } from '@jarvis/db';
 import {
   createRawEvent,
+  ensureMaintenanceGroup,
+  isMaintenanceText,
   openclawJobsToEvents,
   type ImportedEvent,
 } from '@jarvis/agent';
@@ -168,17 +170,50 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
       }
     }
 
+    // Maintenance tasks go to the (internal) maintenance calendar, tagged with
+    // the group they maintain; everything else goes to the chosen group.
+    const maint = imported.some((e) => e.maintenance)
+      ? await ensureMaintenanceGroup(group.timezone)
+      : null;
+
     let created = 0;
+    let maintenanceCount = 0;
     for (const ev of imported) {
+      const { maintenance, ...rest } = ev;
       try {
-        await createRawEvent({ groupId: id, source: 'import', ...ev });
+        if (maintenance && maint) {
+          await createRawEvent({ ...rest, groupId: maint.id, source: 'import', maintainsGroupId: id });
+          maintenanceCount++;
+        } else {
+          await createRawEvent({ ...rest, groupId: id, source: 'import' });
+        }
         created++;
       } catch (err) {
         errors.push(`Failed to save "${ev.title}": ${(err as Error).message}`);
       }
     }
 
-    return { created, skipped, errors };
+    return { created, skipped, maintenance: maintenanceCount, errors };
+  });
+
+  // One-time: move existing maintenance-looking events out of user groups into
+  // the maintenance calendar (so they stop showing in groups / WhatsApp).
+  app.post('/admin/maintenance/migrate', async () => {
+    const maint = await ensureMaintenanceGroup('America/Los_Angeles');
+    const candidates = await prisma.event.findMany({
+      where: { group: { kind: { not: 'maintenance' } } },
+      select: { id: true, title: true, description: true, groupId: true },
+    });
+    let moved = 0;
+    for (const ev of candidates) {
+      if (!isMaintenanceText(ev.title, ev.description)) continue;
+      await prisma.event.update({
+        where: { id: ev.id },
+        data: { groupId: maint.id, maintainsGroupId: ev.groupId },
+      });
+      moved++;
+    }
+    return { moved };
   });
 
 }

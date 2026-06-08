@@ -16,6 +16,16 @@ function ymd(d: Date): string {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
 
+/** Pick a readable text color (black/white) for a given background hex. */
+function textOn(hex: string): string {
+  const c = hex.replace('#', '');
+  if (c.length < 6) return '#111';
+  const r = parseInt(c.slice(0, 2), 16);
+  const g = parseInt(c.slice(2, 4), 16);
+  const b = parseInt(c.slice(4, 6), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#111' : '#fff';
+}
+
 interface Cell {
   key: string;
   day: number;
@@ -181,7 +191,8 @@ export function Calendar() {
                 {items.map((o, i) => (
                   <button
                     key={`${o.eventId}-${i}`}
-                    className={`chip cat-${o.category ?? 'none'}`}
+                    className={o.color ? 'chip' : `chip cat-${o.category ?? 'none'}`}
+                    style={o.color ? { background: o.color, color: textOn(o.color) } : undefined}
                     title={`${o.title}${o.assigneeName ? ` · ${o.assigneeName}` : ''}${o.location ? ` @ ${o.location}` : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();

@@ -13,6 +13,7 @@ export interface CreateEventInput {
   createdById?: string;
   assigneeId?: string | null;
   maintainsGroupId?: string | null;
+  color?: string | null;
 }
 
 export async function createEvent(input: CreateEventInput) {
@@ -27,6 +28,7 @@ export async function createEvent(input: CreateEventInput) {
       allDay,
       location: draft.location,
       category: draft.category,
+      color: input.color ?? null,
       rrule: draft.recurrence ? buildRRule(draft.recurrence, timezone) : null,
       source,
       sourceRef,
@@ -53,6 +55,7 @@ export interface RawEventInput {
   sourceRef?: string | null;
   assigneeId?: string | null;
   maintainsGroupId?: string | null;
+  color?: string | null;
 }
 
 export async function createRawEvent(input: RawEventInput) {
@@ -66,6 +69,7 @@ export async function createRawEvent(input: RawEventInput) {
       allDay: input.allDay ?? false,
       location: input.location ?? null,
       category: input.category ?? null,
+      color: input.color ?? null,
       rrule: input.rrule ?? null,
       source: input.source,
       sourceRef: input.sourceRef ?? null,
@@ -92,6 +96,8 @@ export interface UpdateEventInput {
   recurrence?: Recurrence | null;
   /** Member id this event is for, or null to unassign. */
   assigneeId?: string | null;
+  /** Hex color, or null to clear (use the category color). */
+  color?: string | null;
 }
 
 export async function updateEvent(
@@ -120,6 +126,7 @@ export async function updateEvent(
       ? { connect: { id: patch.assigneeId } }
       : { disconnect: true };
   }
+  if (patch.color !== undefined) data.color = patch.color;
 
   return prisma.event.update({ where: { id: ev.id }, data });
 }
@@ -214,6 +221,7 @@ export interface Occurrence {
   allDay: boolean;
   recurring: boolean;
   category: string | null;
+  color: string | null;
   location: string | null;
   assigneeName: string | null;
   maintainsName: string | null;
@@ -249,6 +257,7 @@ export async function expandCalendar(
       allDay: ev.allDay,
       recurring: false,
       category: ev.category,
+      color: ev.color,
       location: ev.location,
       assigneeName: ev.assignee?.name ?? null,
       maintainsName: ev.maintainsGroup?.name ?? null,
@@ -271,6 +280,7 @@ export async function expandCalendar(
         allDay: ev.allDay,
         recurring: true,
         category: ev.category,
+        color: ev.color,
         location: ev.location,
         assigneeName: ev.assignee?.name ?? null,
         maintainsName: ev.maintainsGroup?.name ?? null,

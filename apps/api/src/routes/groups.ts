@@ -23,6 +23,7 @@ interface EventBody {
   category?: string | null;
   recurrence?: Recurrence | null;
   assigneeId?: string | null;
+  color?: string | null;
 }
 
 /** Schedule data routes — available to any authenticated user. */
@@ -76,6 +77,7 @@ export async function registerGroups(app: FastifyInstance): Promise<void> {
       allDay: o.allDay,
       recurring: o.recurring,
       category: o.category,
+      color: o.color,
       location: o.location,
       assigneeName: o.assigneeName,
       maintainsName: o.maintainsName,
@@ -106,6 +108,7 @@ export async function registerGroups(app: FastifyInstance): Promise<void> {
       timezone: group.timezone,
       draft,
       assigneeId: body.assigneeId ?? null,
+      color: body.color ?? null,
     });
   });
 
@@ -140,6 +143,7 @@ export async function registerGroups(app: FastifyInstance): Promise<void> {
       category: body.category === undefined ? undefined : body.category || null,
       recurrence: body.recurrence === undefined ? undefined : body.recurrence || null,
       assigneeId: body.assigneeId === undefined ? undefined : body.assigneeId || null,
+      color: body.color === undefined ? undefined : body.color || null,
     };
     const ev = await updateEvent(id, eventId, patch, group.timezone);
     if (!ev) return reply.code(404).send({ error: 'event not found' });

@@ -17,6 +17,7 @@ const FREQ_OPTIONS: { value: RecurrenceFreq | 'none'; label: string }[] = [
   { value: 'yearly', label: 'Yearly' },
 ];
 const CATEGORIES = ['', 'appointment', 'vacation', 'reminder', 'other'];
+const COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0d9488', '#db2777', '#64748b'];
 
 interface Props {
   groupId: string;
@@ -48,6 +49,7 @@ export function EventModal({
   const [category, setCategory] = useState('');
   const [members, setMembers] = useState<MemberLite[]>([]);
   const [assigneeId, setAssigneeId] = useState(defaultAssigneeId ?? '');
+  const [color, setColor] = useState('');
   const [freq, setFreq] = useState<RecurrenceFreq | 'none'>('none');
   const [repeatEvery, setRepeatEvery] = useState(1);
   const [weekdays, setWeekdays] = useState<Set<Weekday>>(new Set());
@@ -70,6 +72,7 @@ export function EventModal({
         setLocation(ev.location ?? '');
         setCategory(ev.category ?? '');
         setAssigneeId(ev.assigneeId ?? '');
+        setColor(ev.color ?? '');
         if (ev.recurrence) {
           setFreq(ev.recurrence.freq);
           setRepeatEvery(ev.recurrence.interval ?? 1);
@@ -128,6 +131,7 @@ export function EventModal({
       location: location || null,
       category: category || null,
       assigneeId: assigneeId || null,
+      color: color || null,
       recurrence,
     };
     try {
@@ -211,6 +215,30 @@ export function EventModal({
                 </select>
               </label>
             </div>
+
+            <label>
+              Color
+              <div className="swatches">
+                <button
+                  type="button"
+                  className={color === '' ? 'swatch auto on' : 'swatch auto'}
+                  onClick={() => setColor('')}
+                  title="Default (by category)"
+                >
+                  Auto
+                </button>
+                {COLORS.map((c) => (
+                  <button
+                    type="button"
+                    key={c}
+                    className={color === c ? 'swatch on' : 'swatch'}
+                    style={{ background: c }}
+                    onClick={() => setColor(c)}
+                    aria-label={c}
+                  />
+                ))}
+              </div>
+            </label>
 
             <label>
               For

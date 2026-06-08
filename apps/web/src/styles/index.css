@@ -629,6 +629,36 @@ button.danger {
   color: #fff;
   border-color: #2563eb;
 }
+.swatches {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.3rem;
+}
+.swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #d3d6da;
+  cursor: pointer;
+  padding: 0;
+}
+.swatch.on {
+  box-shadow: 0 0 0 2px #111827;
+}
+.swatch.auto {
+  width: auto;
+  height: 26px;
+  border-radius: 13px;
+  padding: 0 0.6rem;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.72rem;
+}
+.swatch.auto.on {
+  box-shadow: 0 0 0 2px #111827;
+}
 .modal-actions {
   display: flex;
   align-items: center;

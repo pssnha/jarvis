@@ -32,6 +32,7 @@ export interface CalendarOccurrence {
   allDay: boolean;
   recurring: boolean;
   category: string | null;
+  color: string | null;
   location: string | null;
   assigneeName: string | null;
   maintainsName: string | null;
@@ -47,6 +48,7 @@ export interface EventDetail {
   category: string | null;
   recurrence: Recurrence | null;
   assigneeId: string | null;
+  color: string | null;
 }
 
 export interface Me {
@@ -103,4 +105,5 @@ export interface EventPayload {
   category?: string | null;
   recurrence?: Recurrence | null;
   assigneeId?: string | null;
+  color?: string | null;
 }

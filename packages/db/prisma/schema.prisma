@@ -95,6 +95,8 @@ model Event {
   location    String?
   /// appointment | vacation | reminder | other
   category    String?
+  /// Optional hex color (e.g. "#2563eb"); falls back to the category color.
+  color       String?
   /// RFC 5545 RRULE value (without the "RRULE:" prefix) for recurring events,
   /// e.g. "FREQ=WEEKLY;BYDAY=TU". Null for one-off events. `startsAt` is the
   /// first occurrence / anchor.

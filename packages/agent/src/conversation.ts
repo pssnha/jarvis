@@ -1,6 +1,6 @@
-import type Anthropic from '@anthropic-ai/sdk';
 import { prisma } from '@jarvis/db';
 import type { Channel } from '@jarvis/shared';
+import type { LlmMessage } from './llm/types';
 
 export async function getOrCreateConversation(groupId: string, channel: Channel) {
   const existing = await prisma.conversation.findFirst({
@@ -11,10 +11,7 @@ export async function getOrCreateConversation(groupId: string, channel: Channel)
   return prisma.conversation.create({ data: { groupId, channel } });
 }
 
-export async function loadHistory(
-  conversationId: string,
-  limit = 20,
-): Promise<Anthropic.MessageParam[]> {
+export async function loadHistory(conversationId: string, limit = 20): Promise<LlmMessage[]> {
   const rows = await prisma.message.findMany({
     where: { conversationId },
     orderBy: { createdAt: 'asc' },

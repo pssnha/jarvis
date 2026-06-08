@@ -7,6 +7,7 @@ import type {
   GroupMember,
   GroupSummary,
   Me,
+  MemberLite,
   WhatsAppStatus,
 } from './types';
 
@@ -106,11 +107,17 @@ export async function getCalendar(
   groupId: string,
   fromISO: string,
   toISO: string,
+  memberId?: string,
 ): Promise<CalendarOccurrence[]> {
   const u = new URL(`/api/groups/${groupId}/calendar`, window.location.origin);
   u.searchParams.set('from', fromISO);
   u.searchParams.set('to', toISO);
+  if (memberId) u.searchParams.set('memberId', memberId);
   return fetch(u).then((r) => json<CalendarOccurrence[]>(r));
+}
+
+export async function listGroupMembers(groupId: string): Promise<MemberLite[]> {
+  return fetch(`/api/groups/${groupId}/members`).then((r) => json<MemberLite[]>(r));
 }
 
 export async function getEvent(groupId: string, eventId: string): Promise<EventDetail> {

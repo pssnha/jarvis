@@ -35,10 +35,15 @@ function buildGrid(year: number, month: number): { cells: Cell[]; from: Date; to
   return { cells, from: gridStart, to };
 }
 
+interface Scope {
+  groupId: string;
+  memberId?: string;
+}
+
 export function Calendar() {
   const today = new Date();
   const [groups, setGroups] = useState<GroupSummary[]>([]);
-  const [group, setGroup] = useState<GroupSummary | null>(null);
+  const [scope, setScope] = useState<Scope | null>(null);
   const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() });
   const [byDay, setByDay] = useState<Map<string, CalendarOccurrence[]>>(new Map());
   const [error, setError] = useState<string | null>(null);
@@ -46,11 +51,13 @@ export function Calendar() {
 
   const { cells, from, to } = useMemo(() => buildGrid(cursor.year, cursor.month), [cursor]);
   const todayKey = ymd(new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())));
+  const group = scope ? (groups.find((g) => g.id === scope.groupId) ?? null) : null;
+  const individual = !!scope?.memberId;
 
   const load = useCallback(
-    async (groupId: string) => {
+    async (groupId: string, memberId: string | undefined) => {
       try {
-        const occ = await getCalendar(groupId, from.toISOString(), to.toISOString());
+        const occ = await getCalendar(groupId, from.toISOString(), to.toISOString(), memberId);
         const map = new Map<string, CalendarOccurrence[]>();
         for (const o of occ) {
           const list = map.get(o.dateKey) ?? [];
@@ -70,14 +77,14 @@ export function Calendar() {
     listGroups()
       .then((gs) => {
         setGroups(gs);
-        setGroup((g) => g ?? gs[0] ?? null);
+        setScope((s) => s ?? (gs[0] ? { groupId: gs[0].id } : null));
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, []);
 
   useEffect(() => {
-    if (group) void load(group.id);
-  }, [group, load]);
+    if (scope) void load(scope.groupId, scope.memberId);
+  }, [scope, load]);
 
   function shiftMonth(delta: number) {
     setCursor((c) => {
@@ -85,20 +92,27 @@ export function Calendar() {
       return { year: c.year + Math.floor(m / 12), month: ((m % 12) + 12) % 12 };
     });
   }
-  function goToday() {
-    setCursor({ year: today.getFullYear(), month: today.getMonth() });
-  }
   function onSaved() {
     setModal(null);
-    if (group) void load(group.id);
+    if (scope) void load(scope.groupId, scope.memberId);
   }
+
+  function onScopeChange(value: string) {
+    if (value.includes('::')) {
+      const [groupId, memberId] = value.split('::');
+      setScope({ groupId: groupId!, memberId });
+    } else {
+      setScope({ groupId: value });
+    }
+  }
+  const scopeValue = scope ? (scope.memberId ? `${scope.groupId}::${scope.memberId}` : scope.groupId) : '';
 
   if (groups.length === 0) {
     return (
       <div className="calendar">
         {error && <p className="error">{error}</p>}
         <p className="empty">
-          No groups yet. Connect WhatsApp (the groups your number is in appear automatically), or
+          No calendars yet. Connect WhatsApp (the groups your number is in appear automatically), or
           add a group in the Admin tab.
         </p>
       </div>
@@ -110,17 +124,25 @@ export function Calendar() {
       <div className="cal-toolbar">
         <div className="cal-nav">
           <button onClick={() => shiftMonth(-1)} aria-label="Previous month">‹</button>
-          <button onClick={goToday}>Today</button>
+          <button onClick={() => setCursor({ year: today.getFullYear(), month: today.getMonth() })}>
+            Today
+          </button>
           <button onClick={() => shiftMonth(1)} aria-label="Next month">›</button>
           <h2>{MONTHS[cursor.month]} {cursor.year}</h2>
         </div>
         <div className="cal-actions">
-          <select
-            value={group?.id ?? ''}
-            onChange={(e) => setGroup(groups.find((g) => g.id === e.target.value) ?? null)}
-          >
+          <select value={scopeValue} onChange={(e) => onScopeChange(e.target.value)}>
             {groups.map((g) => (
-              <option key={g.id} value={g.id}>{g.name}</option>
+              <optgroup key={g.id} label={g.name}>
+                <option value={g.id}>Everyone — {g.name}</option>
+                {g.members
+                  .filter((m) => m.name)
+                  .map((m) => (
+                    <option key={m.id} value={`${g.id}::${m.id}`}>
+                      {m.name}
+                    </option>
+                  ))}
+              </optgroup>
             ))}
           </select>
           {group && (
@@ -135,7 +157,12 @@ export function Calendar() {
       </div>
 
       {error && <p className="error">{error}</p>}
-      {group && <p className="muted tz-note">Times shown in {group.timezone}</p>}
+      {group && (
+        <p className="muted tz-note">
+          Times shown in {group.timezone}
+          {individual && ' · showing one person'}
+        </p>
+      )}
 
       <div className="cal-grid">
         {DOW.map((d) => (
@@ -155,7 +182,7 @@ export function Calendar() {
                   <button
                     key={`${o.eventId}-${i}`}
                     className={`chip cat-${o.category ?? 'none'}`}
-                    title={`${o.title}${o.location ? ` @ ${o.location}` : ''}`}
+                    title={`${o.title}${o.assigneeName ? ` · ${o.assigneeName}` : ''}${o.location ? ` @ ${o.location}` : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       setModal({ eventId: o.eventId });
@@ -163,6 +190,7 @@ export function Calendar() {
                   >
                     <span className="chip-time">{o.allDay ? '•' : o.timeLabel}</span>{' '}
                     <span className="chip-title">{o.title}</span>
+                    {!individual && o.assigneeName && <span className="chip-who"> · {o.assigneeName}</span>}
                     {o.recurring && <span className="chip-rec"> ↻</span>}
                   </button>
                 ))}
@@ -177,6 +205,7 @@ export function Calendar() {
           groupId={group.id}
           eventId={modal.eventId}
           initialDateKey={modal.dateKey}
+          defaultAssigneeId={scope?.memberId}
           onClose={() => setModal(null)}
           onSaved={onSaved}
         />

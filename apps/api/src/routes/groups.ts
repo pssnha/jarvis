@@ -22,28 +22,46 @@ interface EventBody {
   location?: string | null;
   category?: string | null;
   recurrence?: Recurrence | null;
+  assigneeId?: string | null;
 }
 
 /** Schedule data routes — available to any authenticated user. */
 export async function registerGroups(app: FastifyInstance): Promise<void> {
-  // Groups the user can view/manage (for the Calendar & Chat pickers).
+  // Groups the user can view/manage (for the Calendar & Chat pickers), with members.
   app.get('/groups', async () =>
     prisma.group.findMany({
       orderBy: { name: 'asc' },
-      select: { id: true, name: true, timezone: true, icalToken: true, whatsappGroupId: true },
+      select: {
+        id: true,
+        name: true,
+        timezone: true,
+        icalToken: true,
+        whatsappGroupId: true,
+        members: { select: { id: true, name: true }, orderBy: { createdAt: 'asc' } },
+      },
     }),
   );
+
+  // Members of a group (for the event-form assignee picker).
+  app.get('/groups/:id/members', async (req) => {
+    const { id } = req.params as { id: string };
+    return prisma.member.findMany({
+      where: { groupId: id },
+      select: { id: true, name: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  });
 
   // Calendar view: occurrences within [from, to], recurring events expanded.
   app.get('/groups/:id/calendar', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { from, to } = req.query as { from?: string; to?: string };
+    const { from, to, memberId } = req.query as { from?: string; to?: string; memberId?: string };
     const group = await prisma.group.findUnique({ where: { id } });
     if (!group) return reply.code(404).send({ error: 'group not found' });
 
     const fromD = from ? new Date(from) : new Date();
     const toD = to ? new Date(to) : new Date(Date.now() + 31 * 86_400_000);
-    const occ = await expandCalendar(id, group.timezone, fromD, toD);
+    const occ = await expandCalendar(id, group.timezone, fromD, toD, memberId || undefined);
 
     return occ.map((o) => ({
       eventId: o.eventId,
@@ -55,6 +73,7 @@ export async function registerGroups(app: FastifyInstance): Promise<void> {
       recurring: o.recurring,
       category: o.category,
       location: o.location,
+      assigneeName: o.assigneeName,
     }));
   });
 
@@ -76,7 +95,13 @@ export async function registerGroups(app: FastifyInstance): Promise<void> {
       category: (body.category || undefined) as EventDraft['category'],
       recurrence: body.recurrence || undefined,
     };
-    return createEvent({ groupId: id, source: 'web', timezone: group.timezone, draft });
+    return createEvent({
+      groupId: id,
+      source: 'web',
+      timezone: group.timezone,
+      draft,
+      assigneeId: body.assigneeId ?? null,
+    });
   });
 
   // Get one event (with form-friendly local times + structured recurrence).
@@ -109,6 +134,7 @@ export async function registerGroups(app: FastifyInstance): Promise<void> {
       location: body.location === undefined ? undefined : body.location || null,
       category: body.category === undefined ? undefined : body.category || null,
       recurrence: body.recurrence === undefined ? undefined : body.recurrence || null,
+      assigneeId: body.assigneeId === undefined ? undefined : body.assigneeId || null,
     };
     const ev = await updateEvent(id, eventId, patch, group.timezone);
     if (!ev) return reply.code(404).send({ error: 'event not found' });

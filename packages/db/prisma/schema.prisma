@@ -62,7 +62,8 @@ model Member {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  createdEvents Event[] @relation("EventCreator")
+  createdEvents  Event[] @relation("EventCreator")
+  assignedEvents Event[] @relation("EventAssignee")
 
   @@index([groupId])
   @@index([waId])
@@ -98,6 +99,10 @@ model Event {
   createdById String?
   createdBy   Member? @relation("EventCreator", fields: [createdById], references: [id], onDelete: SetNull)
 
+  /// The individual this event is for (null = whole group).
+  assigneeId String?
+  assignee   Member? @relation("EventAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
   /// When a reminder was last sent for this event.
   remindedAt DateTime?
 
@@ -106,6 +111,7 @@ model Event {
 
   @@index([groupId, startsAt])
   @@index([source, sourceRef])
+  @@index([assigneeId])
 }
 
 /// Per-group, per-channel conversation history used for agent context.

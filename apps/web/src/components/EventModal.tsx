@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
-import { createEvent, deleteEvent, getEvent, updateEvent } from '../lib/api';
-import type { EventPayload, RecurrenceFreq, Weekday } from '../lib/types';
+import {
+  createEvent,
+  deleteEvent,
+  getEvent,
+  listGroupMembers,
+  updateEvent,
+} from '../lib/api';
+import type { EventPayload, MemberLite, RecurrenceFreq, Weekday } from '../lib/types';
 
 const WEEKDAYS: Weekday[] = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 const FREQ_OPTIONS: { value: RecurrenceFreq | 'none'; label: string }[] = [
@@ -16,11 +22,19 @@ interface Props {
   groupId: string;
   eventId?: string | null;
   initialDateKey?: string;
+  defaultAssigneeId?: string;
   onClose: () => void;
   onSaved: () => void;
 }
 
-export function EventModal({ groupId, eventId, initialDateKey, onClose, onSaved }: Props) {
+export function EventModal({
+  groupId,
+  eventId,
+  initialDateKey,
+  defaultAssigneeId,
+  onClose,
+  onSaved,
+}: Props) {
   const editing = Boolean(eventId);
   const [loading, setLoading] = useState(editing);
   const [busy, setBusy] = useState(false);
@@ -32,10 +46,16 @@ export function EventModal({ groupId, eventId, initialDateKey, onClose, onSaved 
   const [end, setEnd] = useState('');
   const [location, setLocation] = useState('');
   const [category, setCategory] = useState('');
+  const [members, setMembers] = useState<MemberLite[]>([]);
+  const [assigneeId, setAssigneeId] = useState(defaultAssigneeId ?? '');
   const [freq, setFreq] = useState<RecurrenceFreq | 'none'>('none');
   const [repeatEvery, setRepeatEvery] = useState(1);
   const [weekdays, setWeekdays] = useState<Set<Weekday>>(new Set());
   const [until, setUntil] = useState('');
+
+  useEffect(() => {
+    listGroupMembers(groupId).then(setMembers).catch(() => {});
+  }, [groupId]);
 
   useEffect(() => {
     if (!eventId) return;
@@ -49,6 +69,7 @@ export function EventModal({ groupId, eventId, initialDateKey, onClose, onSaved 
         setEnd(ev.endLocal ?? '');
         setLocation(ev.location ?? '');
         setCategory(ev.category ?? '');
+        setAssigneeId(ev.assigneeId ?? '');
         if (ev.recurrence) {
           setFreq(ev.recurrence.freq);
           setRepeatEvery(ev.recurrence.interval ?? 1);
@@ -106,6 +127,7 @@ export function EventModal({ groupId, eventId, initialDateKey, onClose, onSaved 
       allDay,
       location: location || null,
       category: category || null,
+      assigneeId: assigneeId || null,
       recurrence,
     };
     try {
@@ -189,6 +211,20 @@ export function EventModal({ groupId, eventId, initialDateKey, onClose, onSaved 
                 </select>
               </label>
             </div>
+
+            <label>
+              For
+              <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+                <option value="">Whole group</option>
+                {members
+                  .filter((m) => m.name)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
 
             <label>
               Repeat

@@ -9,12 +9,18 @@ export interface Recurrence {
   until?: string;
 }
 
+export interface MemberLite {
+  id: string;
+  name: string | null;
+}
+
 export interface GroupSummary {
   id: string;
   name: string;
   timezone: string;
   icalToken: string;
   whatsappGroupId: string | null;
+  members: MemberLite[];
 }
 
 export interface CalendarOccurrence {
@@ -27,6 +33,7 @@ export interface CalendarOccurrence {
   recurring: boolean;
   category: string | null;
   location: string | null;
+  assigneeName: string | null;
 }
 
 export interface EventDetail {
@@ -38,6 +45,7 @@ export interface EventDetail {
   location: string | null;
   category: string | null;
   recurrence: Recurrence | null;
+  assigneeId: string | null;
 }
 
 export interface Me {
@@ -92,4 +100,5 @@ export interface EventPayload {
   location?: string | null;
   category?: string | null;
   recurrence?: Recurrence | null;
+  assigneeId?: string | null;
 }

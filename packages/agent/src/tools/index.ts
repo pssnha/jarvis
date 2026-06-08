@@ -1,5 +1,6 @@
 import { EVENT_CATEGORIES, RECURRENCE_FREQS, WEEKDAYS, type Channel, type EventDraft } from '@jarvis/shared';
 import { cancelEvent, createEvent, findEvents, getSchedule } from '../schedule';
+import { findMemberByName } from '../conversation';
 import { formatEventTime } from '../datetime';
 import { describeRecurrence } from '../recurrence';
 import type { JsonSchema } from '../llm/schema';
@@ -74,6 +75,11 @@ export const tools: AgentTool[] = [
           all_day: { type: 'boolean' },
           location: { type: 'string' },
           category: { type: 'string', enum: EVENT_CATEGORIES },
+          assignee: {
+            type: 'string',
+            description:
+              'Name of the individual this event is for, if a specific person is mentioned (e.g. "Vinit"). Omit for the whole group.',
+          },
           recurrence: recurrenceSchema,
         },
         required: ['title', 'start'],
@@ -92,15 +98,26 @@ export const tools: AgentTool[] = [
             : undefined,
         recurrence: parseRecurrence(input.recurrence),
       };
+      let assigneeId: string | null = null;
+      let assigneeName: string | null = null;
+      if (typeof input.assignee === 'string' && input.assignee.trim()) {
+        const m = await findMemberByName(ctx.groupId, input.assignee.trim());
+        if (m) {
+          assigneeId = m.id;
+          assigneeName = m.name ?? input.assignee.trim();
+        }
+      }
       const ev = await createEvent({
         groupId: ctx.groupId,
         draft,
         source: ctx.source,
         timezone: ctx.timezone,
         createdById: ctx.createdById,
+        assigneeId,
       });
-      const base = `Created "${ev.title}" — ${formatEventTime(ev.startsAt, ev.endsAt, ev.allDay, ctx.timezone)}`;
-      return ev.rrule ? `${base}, repeating ${describeRecurrence(ev.rrule)}.` : `${base}.`;
+      let base = `Created "${ev.title}"${assigneeName ? ` for ${assigneeName}` : ''} — ${formatEventTime(ev.startsAt, ev.endsAt, ev.allDay, ctx.timezone)}`;
+      if (ev.rrule) base += `, repeating ${describeRecurrence(ev.rrule)}`;
+      return `${base}.`;
     },
   },
   {
@@ -129,7 +146,8 @@ export const tools: AgentTool[] = [
           const time = formatEventTime(it.when, end, it.event.allDay, ctx.timezone);
           const repeat = it.recurrence ? ` (repeats ${it.recurrence})` : '';
           const loc = it.event.location ? ` @ ${it.event.location}` : '';
-          return `• ${it.event.title} — ${time}${repeat}${loc} [id:${it.event.id}]`;
+          const who = it.assigneeName ? ` — for ${it.assigneeName}` : '';
+          return `• ${it.event.title}${who} — ${time}${repeat}${loc} [id:${it.event.id}]`;
         })
         .join('\n');
     },

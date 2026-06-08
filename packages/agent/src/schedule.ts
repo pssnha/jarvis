@@ -11,10 +11,11 @@ export interface CreateEventInput {
   sourceRef?: string;
   rawText?: string;
   createdById?: string;
+  assigneeId?: string | null;
 }
 
 export async function createEvent(input: CreateEventInput) {
-  const { groupId, draft, source, timezone, sourceRef, rawText, createdById } = input;
+  const { groupId, draft, source, timezone, sourceRef, rawText, createdById, assigneeId } = input;
   const allDay = draft.allDay ?? false;
   return prisma.event.create({
     data: {
@@ -30,6 +31,7 @@ export async function createEvent(input: CreateEventInput) {
       sourceRef,
       rawText,
       createdById,
+      assigneeId: assigneeId ?? null,
     },
   });
 }
@@ -47,6 +49,7 @@ export interface RawEventInput {
   rrule?: string | null;
   source: string;
   sourceRef?: string | null;
+  assigneeId?: string | null;
 }
 
 export async function createRawEvent(input: RawEventInput) {
@@ -63,6 +66,7 @@ export async function createRawEvent(input: RawEventInput) {
       rrule: input.rrule ?? null,
       source: input.source,
       sourceRef: input.sourceRef ?? null,
+      assigneeId: input.assigneeId ?? null,
     },
   });
 }
@@ -82,6 +86,8 @@ export interface UpdateEventInput {
   category?: string | null;
   /** Structured recurrence, or null to make it one-off. */
   recurrence?: Recurrence | null;
+  /** Member id this event is for, or null to unassign. */
+  assigneeId?: string | null;
 }
 
 export async function updateEvent(
@@ -104,6 +110,11 @@ export async function updateEvent(
   }
   if (patch.recurrence !== undefined) {
     data.rrule = patch.recurrence ? buildRRule(patch.recurrence, timezone) : null;
+  }
+  if (patch.assigneeId !== undefined) {
+    data.assignee = patch.assigneeId
+      ? { connect: { id: patch.assigneeId } }
+      : { disconnect: true };
   }
 
   return prisma.event.update({ where: { id: ev.id }, data });
@@ -135,6 +146,8 @@ export interface ScheduleItem {
   when: Date;
   /** Human-readable recurrence, if the event repeats. */
   recurrence?: string;
+  /** Name of the individual this event is for, if any. */
+  assigneeName?: string | null;
 }
 
 /**
@@ -144,10 +157,13 @@ export interface ScheduleItem {
 export async function getSchedule(
   groupId: string,
   timezone: string,
-  opts?: { from?: Date; to?: Date; limit?: number },
+  opts?: { from?: Date; to?: Date; limit?: number; memberId?: string },
 ): Promise<ScheduleItem[]> {
   const from = opts?.from ?? new Date();
   const items: ScheduleItem[] = [];
+  const assigneeFilter = opts?.memberId ? { assigneeId: opts.memberId } : {};
+
+  const include = { assignee: { select: { name: true } } } as const;
 
   // One-off events within the window.
   const oneOff = await prisma.event.findMany({
@@ -155,21 +171,30 @@ export async function getSchedule(
       groupId,
       rrule: null,
       startsAt: { gte: from, ...(opts?.to ? { lte: opts.to } : {}) },
+      ...assigneeFilter,
     },
     orderBy: { startsAt: 'asc' },
+    include,
   });
-  for (const ev of oneOff) items.push({ event: ev, when: ev.startsAt });
+  for (const ev of oneOff)
+    items.push({ event: ev, when: ev.startsAt, assigneeName: ev.assignee?.name ?? null });
 
   // Recurring events: compute the next occurrence from `from`.
   const recurring = await prisma.event.findMany({
-    where: { groupId, NOT: { rrule: null } },
+    where: { groupId, NOT: { rrule: null }, ...assigneeFilter },
+    include,
   });
   for (const ev of recurring) {
     if (!ev.rrule) continue;
     const next = nextOccurrence(ev.rrule, ev.startsAt, timezone, from);
     if (!next) continue;
     if (opts?.to && next > opts.to) continue;
-    items.push({ event: ev, when: next, recurrence: describeRecurrence(ev.rrule) });
+    items.push({
+      event: ev,
+      when: next,
+      recurrence: describeRecurrence(ev.rrule),
+      assigneeName: ev.assignee?.name ?? null,
+    });
   }
 
   items.sort((a, b) => a.when.getTime() - b.when.getTime());
@@ -186,6 +211,7 @@ export interface Occurrence {
   recurring: boolean;
   category: string | null;
   location: string | null;
+  assigneeName: string | null;
 }
 
 /** Expand the schedule into individual occurrences within [from, to] for a calendar view. */
@@ -194,11 +220,15 @@ export async function expandCalendar(
   timezone: string,
   from: Date,
   to: Date,
+  memberId?: string,
 ): Promise<Occurrence[]> {
   const out: Occurrence[] = [];
+  const assigneeFilter = memberId ? { assigneeId: memberId } : {};
+  const include = { assignee: { select: { name: true } } } as const;
 
   const oneOff = await prisma.event.findMany({
-    where: { groupId, rrule: null, startsAt: { lte: to } },
+    where: { groupId, rrule: null, startsAt: { lte: to }, ...assigneeFilter },
+    include,
   });
   for (const ev of oneOff) {
     const endRef = ev.endsAt ?? ev.startsAt;
@@ -212,10 +242,14 @@ export async function expandCalendar(
       recurring: false,
       category: ev.category,
       location: ev.location,
+      assigneeName: ev.assignee?.name ?? null,
     });
   }
 
-  const recurring = await prisma.event.findMany({ where: { groupId, NOT: { rrule: null } } });
+  const recurring = await prisma.event.findMany({
+    where: { groupId, NOT: { rrule: null }, ...assigneeFilter },
+    include,
+  });
   for (const ev of recurring) {
     if (!ev.rrule) continue;
     const durationMs = ev.endsAt ? ev.endsAt.getTime() - ev.startsAt.getTime() : 0;
@@ -229,6 +263,7 @@ export async function expandCalendar(
         recurring: true,
         category: ev.category,
         location: ev.location,
+        assigneeName: ev.assignee?.name ?? null,
       });
     }
   }

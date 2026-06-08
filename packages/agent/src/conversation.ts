@@ -65,6 +65,13 @@ export async function resolveMember(
   });
 }
 
+/** Find a member of a group by (partial) name. */
+export async function findMemberByName(groupId: string, name: string) {
+  const n = name.trim();
+  if (!n) return null;
+  return prisma.member.findFirst({ where: { groupId, name: { contains: n } } });
+}
+
 /** Find the group a forwarded email belongs to, by matching the sender to a member. */
 export async function findGroupByMemberEmail(email: string) {
   const member = await prisma.member.findFirst({ where: { email } });

@@ -11,6 +11,7 @@ type View = 'calendar' | 'chat' | 'admin';
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [view, setView] = useState<View>('calendar');
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     getMe()
@@ -20,7 +21,7 @@ export function App() {
 
   if (me === undefined) {
     return (
-      <div className="app">
+      <div className="shell">
         <p className="empty">Loading…</p>
       </div>
     );
@@ -31,45 +32,52 @@ export function App() {
     await logout();
     setMe(null);
   }
+  function go(v: View) {
+    setView(v);
+    setNavOpen(false);
+  }
+  const item = (v: View, label: string) => (
+    <button className={view === v ? 'side-item active' : 'side-item'} onClick={() => go(v)}>
+      {label}
+    </button>
+  );
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1>Jarvis</h1>
-        <nav className="nav">
-          <button
-            className={view === 'calendar' ? 'nav-btn active' : 'nav-btn'}
-            onClick={() => setView('calendar')}
-          >
-            Calendar
-          </button>
-          <button
-            className={view === 'chat' ? 'nav-btn active' : 'nav-btn'}
-            onClick={() => setView('chat')}
-          >
-            Chat
-          </button>
-          {me.role === 'admin' && (
-            <button
-              className={view === 'admin' ? 'nav-btn active' : 'nav-btn'}
-              onClick={() => setView('admin')}
-            >
-              Admin
-            </button>
-          )}
-        </nav>
-        <div className="user-box">
-          <span className="muted">{me.email}</span>
-          <button className="nav-btn" onClick={signOut}>
-            Sign out
-          </button>
-        </div>
+    <div className="shell">
+      <header className="topbar">
+        <button
+          className="hamburger"
+          onClick={() => setNavOpen((o) => !o)}
+          aria-label="Toggle menu"
+        >
+          ☰
+        </button>
+        <span className="brand-sm">Jarvis</span>
       </header>
-      <main className="main">
-        {view === 'calendar' && <Calendar />}
-        {view === 'chat' && <Chat />}
-        {view === 'admin' && me.role === 'admin' && <Admin />}
-      </main>
+
+      <div className="body">
+        {navOpen && <div className="backdrop" onClick={() => setNavOpen(false)} />}
+        <aside className={navOpen ? 'sidebar open' : 'sidebar'}>
+          <div className="brand">Jarvis</div>
+          <nav className="side-nav">
+            {item('calendar', 'Calendar')}
+            {item('chat', 'Chat')}
+            {me.role === 'admin' && item('admin', 'Admin')}
+          </nav>
+          <div className="side-foot">
+            <div className="side-email">{me.email}</div>
+            <button className="side-item" onClick={signOut}>
+              Sign out
+            </button>
+          </div>
+        </aside>
+
+        <main className="content">
+          {view === 'calendar' && <Calendar />}
+          {view === 'chat' && <Chat />}
+          {view === 'admin' && me.role === 'admin' && <Admin />}
+        </main>
+      </div>
     </div>
   );
 }

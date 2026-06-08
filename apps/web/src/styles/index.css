@@ -2,69 +2,16 @@
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: #1a1a1a;
 }
-
 * {
   box-sizing: border-box;
 }
-
 body {
   margin: 0;
   background: #f5f6f8;
 }
-
 button {
   font-family: inherit;
 }
-
-.app {
-  max-width: 960px;
-  margin: 0 auto;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background: #f5f6f8;
-}
-
-/* ---------- Header / nav ---------- */
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1rem;
-  background: #fff;
-  border-bottom: 1px solid #e3e5e8;
-}
-.header h1 {
-  font-size: 1.1rem;
-  margin: 0;
-}
-.nav {
-  display: flex;
-  gap: 0.25rem;
-  background: #eef0f3;
-  padding: 0.2rem;
-  border-radius: 8px;
-}
-.nav-btn {
-  border: none;
-  background: transparent;
-  padding: 0.35rem 0.9rem;
-  border-radius: 6px;
-  cursor: pointer;
-  color: #4b5563;
-}
-.nav-btn.active {
-  background: #fff;
-  color: #111;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-}
-
-.main {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-
 .muted {
   color: #8a8f98;
   font-weight: 400;
@@ -73,13 +20,148 @@ button {
   color: #b91c1c;
   margin: 0.5rem 1rem;
 }
+.empty {
+  color: #8a8f98;
+  text-align: center;
+  margin-top: 2rem;
+}
+
+/* ---------- App shell (sidebar + content) ---------- */
+.shell {
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.topbar {
+  display: none; /* desktop: hidden; shown on mobile */
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1rem;
+  background: #fff;
+  border-bottom: 1px solid #e3e5e8;
+}
+.hamburger {
+  border: none;
+  background: transparent;
+  font-size: 1.3rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0.2rem 0.4rem;
+}
+.brand-sm {
+  font-weight: 700;
+}
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.sidebar {
+  width: 224px;
+  flex-shrink: 0;
+  background: #fff;
+  border-right: 1px solid #e3e5e8;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
+}
+.brand {
+  font-weight: 700;
+  font-size: 1.25rem;
+  padding: 0.5rem 0.6rem;
+}
+.side-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.5rem;
+}
+.side-item {
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0.6rem 0.7rem;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #374151;
+  font-size: 0.95rem;
+}
+.side-item:hover {
+  background: #f1f5f9;
+}
+.side-item.active {
+  background: #eef2ff;
+  color: #1e40af;
+  font-weight: 600;
+}
+.side-foot {
+  margin-top: auto;
+  border-top: 1px solid #e3e5e8;
+  padding-top: 0.5rem;
+}
+.side-email {
+  font-size: 0.78rem;
+  color: #8a8f98;
+  padding: 0.3rem 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+.backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .topbar {
+    display: flex;
+  }
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 250px;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    z-index: 60;
+    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.15);
+  }
+  .sidebar.open {
+    transform: none;
+  }
+  .backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 55;
+  }
+}
 
 /* ---------- Chat ---------- */
 .chatview {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+.chat-toolbar {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #e3e5e8;
+  background: #fff;
+}
+.chat-toolbar select {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #d3d6da;
+  border-radius: 6px;
 }
 .chat {
   flex: 1;
@@ -89,13 +171,8 @@ button {
   flex-direction: column;
   gap: 0.5rem;
 }
-.empty {
-  color: #8a8f98;
-  text-align: center;
-  margin-top: 2rem;
-}
 .msg {
-  max-width: 75%;
+  max-width: 80%;
   padding: 0.6rem 0.8rem;
   border-radius: 12px;
   white-space: pre-wrap;
@@ -122,6 +199,7 @@ button {
 }
 .composer input {
   flex: 1;
+  min-width: 0;
   padding: 0.6rem 0.8rem;
   border: 1px solid #d3d6da;
   border-radius: 8px;
@@ -140,6 +218,7 @@ button {
 /* ---------- Calendar ---------- */
 .calendar {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   padding: 1rem;
@@ -150,30 +229,32 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.75rem;
   flex-wrap: wrap;
 }
 .cal-nav {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 .cal-nav h2 {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   margin: 0 0 0 0.25rem;
 }
 .cal-nav button,
-.cal-actions button {
+.cal-actions button,
+.cal-actions select {
   border: 1px solid #d3d6da;
   background: #fff;
   border-radius: 8px;
-  padding: 0.4rem 0.7rem;
+  padding: 0.4rem 0.6rem;
   cursor: pointer;
 }
 .cal-actions {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 .ical-link {
   font-size: 0.85rem;
@@ -201,7 +282,7 @@ button.danger {
 .cal-grid {
   margin-top: 0.5rem;
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 1px;
   background: #e3e5e8;
   border: 1px solid #e3e5e8;
@@ -211,19 +292,22 @@ button.danger {
 .cal-dow {
   background: #fafbfc;
   text-align: center;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: #6b7280;
   padding: 0.4rem 0;
   font-weight: 600;
+  min-width: 0;
 }
 .cal-cell {
   background: #fff;
-  min-height: 96px;
+  min-width: 0;
+  min-height: 92px;
   padding: 0.3rem;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.2rem;
   cursor: pointer;
+  overflow: hidden;
 }
 .cal-cell.out {
   background: #fafbfc;
@@ -233,7 +317,7 @@ button.danger {
   background: #eff6ff;
 }
 .cal-daynum {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   text-align: right;
   color: #6b7280;
 }
@@ -245,13 +329,17 @@ button.danger {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 .chip {
+  display: block;
+  width: 100%;
+  max-width: 100%;
   text-align: left;
   border: none;
   border-radius: 4px;
   padding: 1px 4px;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   cursor: pointer;
   background: #e0e7ff;
   color: #1e3a8a;
@@ -263,30 +351,9 @@ button.danger {
   font-variant-numeric: tabular-nums;
   opacity: 0.8;
 }
-.chip-rec {
-  opacity: 0.7;
-}
+.chip-rec,
 .chip-who {
-  opacity: 0.65;
-  font-style: italic;
-}
-
-.chat-toolbar {
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid #e3e5e8;
-  background: #fff;
-}
-.chat-toolbar select {
-  padding: 0.3rem 0.5rem;
-  border: 1px solid #d3d6da;
-  border-radius: 6px;
-}
-.add-group {
-  margin-top: 0.5rem;
-}
-.add-group summary {
-  cursor: pointer;
-  font-size: 0.85rem;
+  opacity: 0.7;
 }
 .chip.cat-appointment { background: #dbeafe; color: #1e40af; }
 .chip.cat-vacation { background: #dcfce7; color: #166534; }
@@ -294,116 +361,33 @@ button.danger {
 .chip.cat-other,
 .chip.cat-none { background: #ede9fe; color: #5b21b6; }
 
-/* ---------- Modal ---------- */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  z-index: 50;
-}
-.modal {
-  background: #fff;
-  border-radius: 12px;
-  padding: 1.25rem;
-  width: 100%;
-  max-width: 460px;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-}
-.modal h2 {
-  margin: 0 0 0.75rem;
-  font-size: 1.1rem;
-}
-.modal label {
-  display: block;
-  font-size: 0.85rem;
-  color: #374151;
-  margin-bottom: 0.7rem;
-}
-.modal label.row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.modal input,
-.modal select {
-  display: block;
-  width: 100%;
-  margin-top: 0.2rem;
-  padding: 0.5rem;
-  border: 1px solid #d3d6da;
-  border-radius: 8px;
-  font-size: 0.95rem;
-}
-.modal label.row input {
-  display: inline-block;
-  width: auto;
-  margin-top: 0;
-}
-.grid2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.6rem;
-}
-.recurrence {
-  background: #f8fafc;
-  border: 1px solid #e3e5e8;
-  border-radius: 8px;
-  padding: 0.6rem;
-  margin-bottom: 0.7rem;
-}
-.weekdays {
-  display: flex;
-  gap: 0.25rem;
-  margin: 0.4rem 0 0.7rem;
-  flex-wrap: wrap;
-}
-.wd {
-  border: 1px solid #d3d6da;
-  background: #fff;
-  border-radius: 6px;
-  padding: 0.3rem 0.45rem;
-  cursor: pointer;
-  font-size: 0.75rem;
-}
-.wd.on {
-  background: #2563eb;
-  color: #fff;
-  border-color: #2563eb;
-}
-.modal-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-}
-.modal-actions button {
-  border: 1px solid #d3d6da;
-  background: #fff;
-  border-radius: 8px;
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-}
-
-/* ---------- Header user box ---------- */
-.user-box {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
+@media (max-width: 768px) {
+  .calendar {
+    padding: 0.6rem;
+  }
+  .cal-cell {
+    min-height: 64px;
+    padding: 0.2rem;
+  }
+  .cal-daynum {
+    font-size: 0.7rem;
+  }
+  .chip {
+    font-size: 0.62rem;
+  }
+  .cal-dow {
+    font-size: 0.62rem;
+  }
 }
 
 /* ---------- Login ---------- */
 .login {
   height: 100vh;
+  height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 1rem;
 }
 .login-card {
   background: #fff;
@@ -431,6 +415,7 @@ button.danger {
 /* ---------- Admin ---------- */
 .admin {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   padding: 1rem;
@@ -463,9 +448,11 @@ button.danger {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.5rem;
   padding: 0.4rem 0.6rem;
   background: #f8fafc;
   border-radius: 6px;
+  flex-wrap: wrap;
 }
 .group-row {
   flex-direction: column;
@@ -551,4 +538,111 @@ button.danger {
   border: 1px solid #d3d6da;
   border-radius: 6px;
   font-size: 0.8rem;
+}
+.add-group {
+  margin-top: 0.5rem;
+}
+.add-group summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+/* ---------- Modal ---------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 80;
+}
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.25rem;
+  width: 100%;
+  max-width: 460px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+.modal h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+.modal label {
+  display: block;
+  font-size: 0.85rem;
+  color: #374151;
+  margin-bottom: 0.7rem;
+}
+.modal label.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.modal input,
+.modal select {
+  display: block;
+  width: 100%;
+  margin-top: 0.2rem;
+  padding: 0.5rem;
+  border: 1px solid #d3d6da;
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+.modal label.row input {
+  display: inline-block;
+  width: auto;
+  margin-top: 0;
+}
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+.recurrence {
+  background: #f8fafc;
+  border: 1px solid #e3e5e8;
+  border-radius: 8px;
+  padding: 0.6rem;
+  margin-bottom: 0.7rem;
+}
+.weekdays {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.4rem 0 0.7rem;
+  flex-wrap: wrap;
+}
+.wd {
+  border: 1px solid #d3d6da;
+  background: #fff;
+  border-radius: 6px;
+  padding: 0.3rem 0.45rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+.wd.on {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.modal-actions button {
+  border: 1px solid #d3d6da;
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+.wa-qr img {
+  max-width: 100%;
+  height: auto;
 }

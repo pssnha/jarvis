@@ -2,6 +2,7 @@ import cookie from '@fastify/cookie';
 import oauth2 from '@fastify/oauth2';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '@jarvis/db';
+import { setUserWhatsApp } from '@jarvis/agent';
 import { env } from '../config/env';
 import { SESSION_COOKIE } from './constants';
 
@@ -10,11 +11,16 @@ const isProd = env.NODE_ENV === 'production';
 /** Ensure the seeded admin account exists. */
 export async function ensureAdmin(): Promise<void> {
   const email = env.ADMIN_EMAIL.toLowerCase();
-  await prisma.authUser.upsert({
+  const admin = await prisma.authUser.upsert({
     where: { email },
     update: { role: 'admin' },
     create: { email, role: 'admin' },
   });
+  // One-time bootstrap: migrate a configured ADMIN_WHATSAPP into the encrypted
+  // column so the admin's 1:1 chat is recognized without an env list.
+  if (process.env.ADMIN_WHATSAPP && !admin.waHash) {
+    await setUserWhatsApp(admin.id, process.env.ADMIN_WHATSAPP);
+  }
 }
 
 /** Resolve the signed-in user from the session cookie, or null. */

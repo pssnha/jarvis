@@ -19,6 +19,9 @@ model AuthUser {
   googleSub String?  @unique
   /// 'admin' | 'member'
   role      String   @default("member")
+  /// Encrypted WhatsApp number (for admin direct chat) + blind index.
+  waEnc     String?
+  waHash    String?  @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -60,8 +63,10 @@ model Member {
   group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   name  String?
-  /// WhatsApp wa_id / phone number.
-  waId  String?
+  /// Encrypted WhatsApp number (AES-256-GCM, base64).
+  waEnc  String? @db.Text
+  /// Blind index (HMAC) of the WhatsApp number, for equality lookups.
+  waHash String?
   /// Personal email address used when forwarding schedules to Jarvis.
   email String?
 
@@ -72,7 +77,7 @@ model Member {
   assignedEvents Event[] @relation("EventAssignee")
 
   @@index([groupId])
-  @@index([waId])
+  @@index([waHash])
   @@index([email])
 }
 

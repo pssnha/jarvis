@@ -62,6 +62,7 @@ export interface AdminUser {
   name: string | null;
   role: string;
   createdAt: string;
+  waId: string | null;
 }
 
 export interface AdminGroup {

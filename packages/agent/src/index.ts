@@ -1,4 +1,5 @@
 export * from './client';
+export * from './crypto';
 export * from './systemPrompt';
 export * from './datetime';
 export * from './recurrence';

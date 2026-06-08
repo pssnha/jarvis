@@ -55,6 +55,13 @@ export async function adminAddUser(email: string, role: string): Promise<void> {
 export async function adminDeleteUser(id: string): Promise<void> {
   await fetch(`/api/admin/users/${id}`, { method: 'DELETE' }).then((r) => json(r));
 }
+export async function adminSetUserWhatsApp(id: string, number: string): Promise<void> {
+  await fetch(`/api/admin/users/${id}/whatsapp`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ number }),
+  }).then((r) => json(r));
+}
 
 export async function adminListGroups(): Promise<AdminGroup[]> {
   return fetch('/api/admin/groups').then((r) => json<AdminGroup[]>(r));

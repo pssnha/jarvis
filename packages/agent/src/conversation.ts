@@ -1,6 +1,7 @@
 import { prisma } from '@jarvis/db';
 import type { Channel } from '@jarvis/shared';
 import type { LlmMessage } from './llm/types';
+import { encryptPhone, phoneHash } from './crypto';
 
 export async function getOrCreateConversation(groupId: string, channel: Channel) {
   const existing = await prisma.conversation.findFirst({
@@ -52,17 +53,36 @@ export async function resolveMember(
   groupId: string,
   opts: { waId?: string; email?: string; name?: string },
 ) {
-  const where = opts.waId
-    ? { groupId, waId: opts.waId }
-    : opts.email
-      ? { groupId, email: opts.email }
-      : null;
-  if (!where) return null;
-  const existing = await prisma.member.findFirst({ where });
-  if (existing) return existing;
-  return prisma.member.create({
-    data: { groupId, waId: opts.waId, email: opts.email, name: opts.name },
+  if (opts.waId) {
+    const hash = phoneHash(opts.waId);
+    const existing = await prisma.member.findFirst({ where: { groupId, waHash: hash } });
+    if (existing) return existing;
+    const { enc } = encryptPhone(opts.waId);
+    return prisma.member.create({ data: { groupId, waEnc: enc, waHash: hash, name: opts.name } });
+  }
+  if (opts.email) {
+    const existing = await prisma.member.findFirst({ where: { groupId, email: opts.email } });
+    if (existing) return existing;
+    return prisma.member.create({ data: { groupId, email: opts.email, name: opts.name } });
+  }
+  return null;
+}
+
+/** Is this WhatsApp number a registered admin (encrypted blind-index match)? */
+export async function isAdminWhatsApp(number: string): Promise<boolean> {
+  const user = await prisma.authUser.findFirst({
+    where: { waHash: phoneHash(number), role: 'admin' },
   });
+  return user !== null;
+}
+
+/** Set (or clear) an auth user's WhatsApp number, stored encrypted. */
+export async function setUserWhatsApp(userId: string, number: string | null) {
+  if (!number) {
+    return prisma.authUser.update({ where: { id: userId }, data: { waEnc: null, waHash: null } });
+  }
+  const { enc, hash } = encryptPhone(number);
+  return prisma.authUser.update({ where: { id: userId }, data: { waEnc: enc, waHash: hash } });
 }
 
 /** The single internal maintenance calendar (cron/pollers), or null. */

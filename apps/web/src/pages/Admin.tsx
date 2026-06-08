@@ -9,6 +9,7 @@ import {
   adminListGroups,
   adminListMembers,
   adminListUsers,
+  adminSetUserWhatsApp,
   adminWhatsAppStatus,
 } from '../lib/api';
 import type { AdminGroup, AdminUser, GroupMember, WhatsAppStatus } from '../lib/types';
@@ -106,14 +107,7 @@ function UsersSection({ onError }: { onError: (e: unknown) => void }) {
       <p className="muted">People allowed to sign in (via Google).</p>
       <ul className="admin-list">
         {users.map((u) => (
-          <li key={u.id}>
-            <span>
-              {u.email} <span className={`badge ${u.role}`}>{u.role}</span>
-            </span>
-            <button className="link-danger" onClick={() => remove(u.id)}>
-              remove
-            </button>
-          </li>
+          <UserRow key={u.id} user={u} onError={onError} onChanged={load} onRemove={remove} />
         ))}
       </ul>
       <div className="admin-form">
@@ -131,6 +125,64 @@ function UsersSection({ onError }: { onError: (e: unknown) => void }) {
         </button>
       </div>
     </section>
+  );
+}
+
+function UserRow({
+  user,
+  onError,
+  onChanged,
+  onRemove,
+}: {
+  user: AdminUser;
+  onError: (e: unknown) => void;
+  onChanged: () => void;
+  onRemove: (id: string) => void;
+}) {
+  const [num, setNum] = useState('');
+  const [editing, setEditing] = useState(false);
+
+  async function save() {
+    try {
+      await adminSetUserWhatsApp(user.id, num.trim());
+      setEditing(false);
+      setNum('');
+      onChanged();
+    } catch (e) {
+      onError(e);
+    }
+  }
+
+  return (
+    <li>
+      <span>
+        {user.email} <span className={`badge ${user.role}`}>{user.role}</span>
+        {user.waId && <span className="muted"> · 📱 {user.waId}</span>}
+        {user.role === 'admin' &&
+          (editing ? (
+            <span className="wa-set">
+              <input
+                placeholder="WhatsApp number"
+                value={num}
+                onChange={(e) => setNum(e.target.value)}
+              />
+              <button className="link" onClick={save}>
+                save
+              </button>
+              <button className="link" onClick={() => setEditing(false)}>
+                cancel
+              </button>
+            </span>
+          ) : (
+            <button className="link" onClick={() => setEditing(true)}>
+              {user.waId ? 'change #' : 'set WhatsApp #'}
+            </button>
+          ))}
+      </span>
+      <button className="link-danger" onClick={() => onRemove(user.id)}>
+        remove
+      </button>
+    </li>
   );
 }
 

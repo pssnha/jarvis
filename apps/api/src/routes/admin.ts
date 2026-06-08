@@ -3,9 +3,13 @@ import ical from 'node-ical';
 import { prisma } from '@jarvis/db';
 import {
   createRawEvent,
+  decryptValue,
+  encryptPhone,
   ensureMaintenanceGroup,
   isMaintenanceText,
+  maskPhone,
   openclawJobsToEvents,
+  setUserWhatsApp,
   type ImportedEvent,
 } from '@jarvis/agent';
 import { createRedis } from '../plugins/redis';
@@ -48,9 +52,27 @@ function parseIcs(text: string): { events: ImportedEvent[]; errors: string[] } {
 /** Admin-only routes (site users, groups, members, WhatsApp linking). */
 export async function registerAdmin(app: FastifyInstance): Promise<void> {
   // ----- Site users (access control) -----
-  app.get('/admin/users', async () =>
-    prisma.authUser.findMany({ orderBy: { createdAt: 'asc' } }),
-  );
+  app.get('/admin/users', async () => {
+    const users = await prisma.authUser.findMany({ orderBy: { createdAt: 'asc' } });
+    return users.map((u) => ({
+      id: u.id,
+      email: u.email,
+      name: u.name,
+      role: u.role,
+      createdAt: u.createdAt,
+      waId: u.waEnc ? maskPhone(decryptValue(u.waEnc)) : null,
+    }));
+  });
+
+  // Set/clear an admin's WhatsApp number (stored encrypted) so their 1:1 chat is recognized.
+  app.post('/admin/users/:id/whatsapp', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { number?: string };
+    const u = await prisma.authUser.findUnique({ where: { id } });
+    if (!u) return reply.code(404).send({ error: 'user not found' });
+    await setUserWhatsApp(id, body.number?.trim() || null);
+    return { ok: true };
+  });
 
   app.post('/admin/users', async (req, reply) => {
     const body = (req.body ?? {}) as { email?: string; name?: string; role?: string };
@@ -97,7 +119,16 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
   // ----- Group members (schedule participants for WhatsApp/email routing) -----
   app.get('/admin/groups/:id/members', async (req) => {
     const { id } = req.params as { id: string };
-    return prisma.member.findMany({ where: { groupId: id }, orderBy: { createdAt: 'asc' } });
+    const members = await prisma.member.findMany({
+      where: { groupId: id },
+      orderBy: { createdAt: 'asc' },
+    });
+    return members.map((m) => ({
+      id: m.id,
+      name: m.name,
+      email: m.email,
+      waId: m.waEnc ? maskPhone(decryptValue(m.waEnc)) : null,
+    }));
   });
 
   app.post('/admin/groups/:id/members', async (req, reply) => {
@@ -105,9 +136,19 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     const body = (req.body ?? {}) as { name?: string; waId?: string; email?: string };
     const group = await prisma.group.findUnique({ where: { id } });
     if (!group) return reply.code(404).send({ error: 'group not found' });
-    return prisma.member.create({
-      data: { groupId: id, name: body.name, waId: body.waId, email: body.email?.toLowerCase() },
-    });
+
+    const data: { groupId: string; name?: string; email?: string; waEnc?: string; waHash?: string } = {
+      groupId: id,
+      name: body.name,
+      email: body.email?.toLowerCase(),
+    };
+    if (body.waId) {
+      const { enc, hash } = encryptPhone(body.waId);
+      data.waEnc = enc;
+      data.waHash = hash;
+    }
+    const m = await prisma.member.create({ data });
+    return { id: m.id, name: m.name, email: m.email, waId: body.waId ? maskPhone(body.waId) : null };
   });
 
   app.delete('/admin/groups/:id/members/:memberId', async (req, reply) => {

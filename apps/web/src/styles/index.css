@@ -533,3 +533,22 @@ button.danger {
   cursor: pointer;
   font-size: 0.8rem;
 }
+.link {
+  border: none;
+  background: none;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0 0.25rem;
+}
+.wa-set {
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+.wa-set input {
+  padding: 0.2rem 0.4rem;
+  border: 1px solid #d3d6da;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}

@@ -4,6 +4,7 @@ import {
   ensureMaintenanceGroup,
   getGroupByWhatsappId,
   getOrCreateConversation,
+  isAdminWhatsApp,
   loadHistory,
   resolveMember,
   runAgent,
@@ -16,13 +17,6 @@ const DEFAULT_TZ = process.env.DEFAULT_TIMEZONE ?? 'America/Los_Angeles';
 function digits(s: string): string {
   return s.replace(/\D/g, '');
 }
-
-const ADMIN_NUMBERS = new Set(
-  (process.env.ADMIN_WHATSAPP ?? '')
-    .split(',')
-    .map((s) => digits(s))
-    .filter(Boolean),
-);
 
 /** Extract plain text from a (possibly wrapped) WhatsApp message. */
 function extractText(msg: WAMessage): string | null {
@@ -53,7 +47,7 @@ export async function handleInboundMessage(
   const isGroup = jid.endsWith('@g.us');
   const senderJid = isGroup ? (msg.key.participant ?? '') : jid;
   const senderNumber = digits(senderJid.split('@')[0] ?? '');
-  const isAdmin = ADMIN_NUMBERS.has(senderNumber);
+  const isAdmin = senderNumber ? await isAdminWhatsApp(senderNumber) : false;
 
   if (isGroup) {
     const wrapped = msg.message?.ephemeralMessage?.message ?? msg.message;

@@ -181,18 +181,4 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     return { created, skipped, errors };
   });
 
-  // Link a Jarvis group to one of the WhatsApp groups the linked device is in.
-  app.post('/admin/groups/:id/whatsapp', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { whatsappGroupId?: string };
-    const group = await prisma.group.findUnique({ where: { id } });
-    if (!group) return reply.code(404).send({ error: 'group not found' });
-    if (!body.whatsappGroupId) {
-      return reply.code(400).send({ error: 'whatsappGroupId (JID) is required' });
-    }
-    return prisma.group.update({
-      where: { id },
-      data: { whatsappGroupId: body.whatsappGroupId },
-    });
-  });
 }

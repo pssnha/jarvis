@@ -5,8 +5,8 @@ import type {
   EventDetail,
   EventPayload,
   GroupMember,
+  GroupSummary,
   Me,
-  WebGroup,
   WhatsAppStatus,
 } from './types';
 
@@ -97,19 +97,9 @@ export async function adminImportSchedule(
   return json(res);
 }
 
-export async function adminLinkGroupWhatsApp(
-  groupId: string,
-  whatsappGroupId: string,
-): Promise<void> {
-  await fetch(`/api/admin/groups/${groupId}/whatsapp`, {
-    method: 'POST',
-    headers: jsonHeaders,
-    body: JSON.stringify({ whatsappGroupId }),
-  }).then((r) => json(r));
-}
 
-export async function getWebGroup(): Promise<WebGroup> {
-  return fetch('/api/web/group').then((r) => json<WebGroup>(r));
+export async function listGroups(): Promise<GroupSummary[]> {
+  return fetch('/api/groups').then((r) => json<GroupSummary[]>(r));
 }
 
 export async function getCalendar(

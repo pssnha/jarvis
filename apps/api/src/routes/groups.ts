@@ -5,7 +5,6 @@ import {
   createEvent,
   dateKeyInZone,
   expandCalendar,
-  getDemoGroup,
   getEvent,
   parseRRule,
   timeLabel,
@@ -14,7 +13,6 @@ import {
   type UpdateEventInput,
 } from '@jarvis/agent';
 import type { EventDraft, Recurrence } from '@jarvis/shared';
-import { env } from '../config/env';
 
 interface EventBody {
   title?: string;
@@ -28,11 +26,13 @@ interface EventBody {
 
 /** Schedule data routes — available to any authenticated user. */
 export async function registerGroups(app: FastifyInstance): Promise<void> {
-  // The web app's working group (get-or-create the demo group).
-  app.get('/web/group', async () => {
-    const g = await getDemoGroup(env.WEB_DEMO_TIMEZONE);
-    return { id: g.id, name: g.name, timezone: g.timezone, icalToken: g.icalToken };
-  });
+  // Groups the user can view/manage (for the Calendar & Chat pickers).
+  app.get('/groups', async () =>
+    prisma.group.findMany({
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, timezone: true, icalToken: true, whatsappGroupId: true },
+    }),
+  );
 
   // Calendar view: occurrences within [from, to], recurring events expanded.
   app.get('/groups/:id/calendar', async (req, reply) => {

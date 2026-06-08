@@ -72,9 +72,19 @@ export async function findGroupByMemberEmail(email: string) {
   return { member, groupId: member.groupId };
 }
 
-/** Get or create the demo group used by the web chat playground. */
-export async function getDemoGroup(timezone = 'UTC') {
-  const existing = await prisma.group.findFirst({ where: { name: 'Web Demo' } });
-  if (existing) return existing;
-  return prisma.group.create({ data: { name: 'Web Demo', timezone } });
+/**
+ * Ensure a Jarvis group exists for a WhatsApp group the linked number is in.
+ * Called by the worker whenever the device's group list is fetched, so every
+ * group the assistant's number belongs to appears automatically.
+ */
+export async function upsertWhatsAppGroup(
+  whatsappGroupId: string,
+  subject: string,
+  timezone: string,
+) {
+  return prisma.group.upsert({
+    where: { whatsappGroupId },
+    update: subject ? { name: subject } : {},
+    create: { whatsappGroupId, name: subject || 'WhatsApp group', timezone },
+  });
 }

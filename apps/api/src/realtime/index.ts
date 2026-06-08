@@ -1,13 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { Server as IOServer } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
-import {
-  appendMessages,
-  getDemoGroup,
-  getOrCreateConversation,
-  loadHistory,
-  runAgent,
-} from '@jarvis/agent';
+import { appendMessages, getOrCreateConversation, loadHistory, runAgent } from '@jarvis/agent';
 import { prisma } from '@jarvis/db';
 import { env } from '../config/env';
 import { createRedis } from '../plugins/redis';
@@ -19,7 +13,6 @@ export function attachRealtime(app: FastifyInstance): IOServer {
     cors: { origin: env.PUBLIC_WEB_ORIGIN, credentials: true },
   });
 
-  // Multi-instance fan-out via Redis (also used by BullMQ).
   const pubClient = createRedis();
   const subClient = pubClient.duplicate();
   io.adapter(createAdapter(pubClient, subClient));
@@ -43,13 +36,20 @@ export function attachRealtime(app: FastifyInstance): IOServer {
   io.on('connection', (socket) => {
     socket.on(
       'chat:message',
-      async (data: { text?: string; authorName?: string }) => {
+      async (data: { text?: string; authorName?: string; groupId?: string }) => {
         try {
           const text = (data?.text ?? '').trim();
           if (!text) return;
+          if (!data.groupId) {
+            socket.emit('chat:error', { message: 'No group selected.' });
+            return;
+          }
+          const group = await prisma.group.findUnique({ where: { id: data.groupId } });
+          if (!group) {
+            socket.emit('chat:error', { message: 'Group not found.' });
+            return;
+          }
 
-          // The web playground operates on a shared demo group.
-          const group = await getDemoGroup(env.WEB_DEMO_TIMEZONE);
           const convo = await getOrCreateConversation(group.id, 'web');
           const history = await loadHistory(convo.id);
           const authorName = data.authorName?.trim() || undefined;

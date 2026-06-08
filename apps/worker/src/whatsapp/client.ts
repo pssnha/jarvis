@@ -1,10 +1,12 @@
 import type { WASocket, WAMessage } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import pino from 'pino';
+import { upsertWhatsAppGroup } from '@jarvis/agent';
 import { createRedis } from '../lib/redis';
 import { handleInboundGroupMessage } from './inbound';
 
 const AUTH_DIR = process.env.WA_AUTH_DIR ?? '/data/wa-auth';
+const DEFAULT_TZ = process.env.DEFAULT_TIMEZONE ?? 'America/Los_Angeles';
 const logger = pino({ level: 'silent' });
 const redis = createRedis();
 
@@ -97,6 +99,14 @@ async function refreshGroups(): Promise<void> {
     const groups = await sock.groupFetchAllParticipating();
     const list = Object.values(groups).map((g) => ({ id: g.id, subject: g.subject }));
     await redis.set('wa:groups', JSON.stringify(list));
+    // Every group the assistant's number is in becomes a Jarvis group automatically.
+    for (const g of list) {
+      try {
+        await upsertWhatsAppGroup(g.id, g.subject ?? '', DEFAULT_TZ);
+      } catch (err) {
+        console.error(`[wa] group sync failed for ${g.id}:`, err);
+      }
+    }
   } catch (err) {
     console.error('[wa] group fetch failed:', err);
   }

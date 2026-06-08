@@ -6,13 +6,12 @@ import {
   adminDeleteMember,
   adminDeleteUser,
   adminImportSchedule,
-  adminLinkGroupWhatsApp,
   adminListGroups,
   adminListMembers,
   adminListUsers,
   adminWhatsAppStatus,
 } from '../lib/api';
-import type { AdminGroup, AdminUser, GroupMember, WhatsAppGroup, WhatsAppStatus } from '../lib/types';
+import type { AdminGroup, AdminUser, GroupMember, WhatsAppStatus } from '../lib/types';
 
 export function Admin() {
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +32,7 @@ export function Admin() {
       {error && <p className="error">{error}</p>}
       <WhatsAppPanel wa={wa} />
       <UsersSection onError={fail} />
-      <GroupsSection onError={fail} waGroups={wa?.groups ?? []} />
+      <GroupsSection onError={fail} />
     </div>
   );
 }
@@ -43,6 +42,9 @@ function WhatsAppPanel({ wa }: { wa: WhatsAppStatus | null }) {
   return (
     <section className="admin-card">
       <h2>WhatsApp connection</h2>
+      <p className="muted">
+        Every WhatsApp group the connected number is in becomes a group below automatically.
+      </p>
       {status === 'open' ? (
         <p>
           <span className="badge admin">Connected</span> linked as{' '}
@@ -132,13 +134,7 @@ function UsersSection({ onError }: { onError: (e: unknown) => void }) {
   );
 }
 
-function GroupsSection({
-  onError,
-  waGroups,
-}: {
-  onError: (e: unknown) => void;
-  waGroups: WhatsAppGroup[];
-}) {
+function GroupsSection({ onError }: { onError: (e: unknown) => void }) {
   const [groups, setGroups] = useState<AdminGroup[]>([]);
   const [name, setName] = useState('');
   const [tz, setTz] = useState('America/Los_Angeles');
@@ -163,45 +159,49 @@ function GroupsSection({
   return (
     <section className="admin-card">
       <h2>Groups</h2>
+      <p className="muted">
+        WhatsApp groups appear here automatically. Expand a group to manage members or import a
+        schedule.
+      </p>
       <ul className="admin-list">
         {groups.map((g) => (
           <li key={g.id} className="group-row">
             <div className="group-head" onClick={() => setOpenId(openId === g.id ? null : g.id)}>
               <span>
-                <strong>{g.name}</strong> <span className="muted">({g.timezone})</span>{' '}
+                <strong>{g.name}</strong>{' '}
                 {g.whatsappGroupId ? (
-                  <span className="badge admin">WhatsApp linked</span>
+                  <span className="badge admin">WhatsApp</span>
                 ) : (
-                  <span className="badge member">no WhatsApp</span>
-                )}
+                  <span className="badge member">manual</span>
+                )}{' '}
+                <span className="muted">· {g._count?.events ?? 0} events</span>
               </span>
               <span className="muted">{openId === g.id ? '▲' : '▼'}</span>
             </div>
-            {openId === g.id && (
-              <GroupDetail group={g} waGroups={waGroups} onError={onError} onChanged={load} />
-            )}
+            {openId === g.id && <GroupDetail group={g} onError={onError} onChanged={load} />}
           </li>
         ))}
       </ul>
-      <div className="admin-form">
-        <input placeholder="Group name" value={name} onChange={(e) => setName(e.target.value)} />
-        <input placeholder="IANA timezone" value={tz} onChange={(e) => setTz(e.target.value)} />
-        <button className="primary" onClick={create}>
-          Create group
-        </button>
-      </div>
+      <details className="add-group">
+        <summary className="muted">Add a group manually</summary>
+        <div className="admin-form">
+          <input placeholder="Group name" value={name} onChange={(e) => setName(e.target.value)} />
+          <input placeholder="IANA timezone" value={tz} onChange={(e) => setTz(e.target.value)} />
+          <button className="primary" onClick={create}>
+            Create
+          </button>
+        </div>
+      </details>
     </section>
   );
 }
 
 function GroupDetail({
   group,
-  waGroups,
   onError,
   onChanged,
 }: {
   group: AdminGroup;
-  waGroups: WhatsAppGroup[];
   onError: (e: unknown) => void;
   onChanged: () => void;
 }) {
@@ -209,7 +209,6 @@ function GroupDetail({
   const [mName, setMName] = useState('');
   const [mEmail, setMEmail] = useState('');
   const [mWa, setMWa] = useState('');
-  const [waJid, setWaJid] = useState(group.whatsappGroupId ?? '');
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
@@ -217,23 +216,6 @@ function GroupDetail({
   const load = useCallback(() => {
     adminListMembers(group.id).then(setMembers).catch(onError);
   }, [group.id, onError]);
-
-  async function doImport() {
-    if (!importFile) return;
-    setImportBusy(true);
-    setImportMsg(null);
-    try {
-      const r = await adminImportSchedule(group.id, importFile);
-      const errs = r.errors.length ? ` · ${r.errors.length} issue(s)` : '';
-      setImportMsg(`Imported ${r.created} event(s)${r.skipped ? `, skipped ${r.skipped}` : ''}${errs}.`);
-      setImportFile(null);
-      onChanged();
-    } catch (e) {
-      setImportMsg(`Failed: ${(e as Error).message}`);
-    } finally {
-      setImportBusy(false);
-    }
-  }
   useEffect(load, [load]);
 
   async function addMember() {
@@ -256,22 +238,29 @@ function GroupDetail({
       onError(e);
     }
   }
-  async function linkWhatsApp() {
-    if (!waJid) return;
+  async function doImport() {
+    if (!importFile) return;
+    setImportBusy(true);
+    setImportMsg(null);
     try {
-      await adminLinkGroupWhatsApp(group.id, waJid);
+      const r = await adminImportSchedule(group.id, importFile);
+      const errs = r.errors.length ? ` · ${r.errors.length} issue(s)` : '';
+      setImportMsg(
+        `Imported ${r.created} event(s)${r.skipped ? `, skipped ${r.skipped}` : ''}${errs}.`,
+      );
+      setImportFile(null);
       onChanged();
     } catch (e) {
-      onError(e);
+      setImportMsg(`Failed: ${(e as Error).message}`);
+    } finally {
+      setImportBusy(false);
     }
   }
-
-  const linkedSubject = waGroups.find((g) => g.id === group.whatsappGroupId)?.subject;
 
   return (
     <div className="group-detail">
       <div className="subsec">
-        <h4>Members (schedule routing)</h4>
+        <h4>Members</h4>
         <p className="muted">Match WhatsApp numbers / forwarding emails to this group.</p>
         <ul className="admin-list compact">
           {members.map((m) => (
@@ -289,44 +278,11 @@ function GroupDetail({
         <div className="admin-form">
           <input placeholder="name" value={mName} onChange={(e) => setMName(e.target.value)} />
           <input placeholder="email" value={mEmail} onChange={(e) => setMEmail(e.target.value)} />
-          <input
-            placeholder="WhatsApp number"
-            value={mWa}
-            onChange={(e) => setMWa(e.target.value)}
-          />
+          <input placeholder="WhatsApp number" value={mWa} onChange={(e) => setMWa(e.target.value)} />
           <button className="primary" onClick={addMember}>
             Add
           </button>
         </div>
-      </div>
-
-      <div className="subsec">
-        <h4>WhatsApp group</h4>
-        <p className="muted">
-          Pick which WhatsApp group (the linked device is in) maps to this Jarvis group. Jarvis
-          replies when @mentioned or addressed as “Jarvis”, and sends reminders here.
-        </p>
-        {group.whatsappGroupId && (
-          <p className="muted">
-            Currently linked: <strong>{linkedSubject ?? group.whatsappGroupId}</strong>
-          </p>
-        )}
-        <div className="admin-form">
-          <select value={waJid} onChange={(e) => setWaJid(e.target.value)}>
-            <option value="">— select a WhatsApp group —</option>
-            {waGroups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.subject}
-              </option>
-            ))}
-          </select>
-          <button className="primary" onClick={linkWhatsApp} disabled={!waJid}>
-            Link
-          </button>
-        </div>
-        {waGroups.length === 0 && (
-          <p className="muted">No WhatsApp groups visible yet — connect the device above first.</p>
-        )}
       </div>
 
       <div className="subsec">

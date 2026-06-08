@@ -9,11 +9,12 @@ export interface Recurrence {
   until?: string;
 }
 
-export interface WebGroup {
+export interface GroupSummary {
   id: string;
   name: string;
   timezone: string;
   icalToken: string;
+  whatsappGroupId: string | null;
 }
 
 export interface CalendarOccurrence {

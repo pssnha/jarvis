@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getCalendar, getWebGroup } from '../lib/api';
-import type { CalendarOccurrence, WebGroup } from '../lib/types';
+import { getCalendar, listGroups } from '../lib/api';
+import type { CalendarOccurrence, GroupSummary } from '../lib/types';
 import { EventModal } from '../components/EventModal';
 
 const MONTHS = [
@@ -37,16 +37,14 @@ function buildGrid(year: number, month: number): { cells: Cell[]; from: Date; to
 
 export function Calendar() {
   const today = new Date();
-  const [group, setGroup] = useState<WebGroup | null>(null);
+  const [groups, setGroups] = useState<GroupSummary[]>([]);
+  const [group, setGroup] = useState<GroupSummary | null>(null);
   const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() });
   const [byDay, setByDay] = useState<Map<string, CalendarOccurrence[]>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<{ eventId?: string; dateKey?: string } | null>(null);
 
-  const { cells, from, to } = useMemo(
-    () => buildGrid(cursor.year, cursor.month),
-    [cursor],
-  );
+  const { cells, from, to } = useMemo(() => buildGrid(cursor.year, cursor.month), [cursor]);
   const todayKey = ymd(new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())));
 
   const load = useCallback(
@@ -69,8 +67,11 @@ export function Calendar() {
   );
 
   useEffect(() => {
-    getWebGroup()
-      .then(setGroup)
+    listGroups()
+      .then((gs) => {
+        setGroups(gs);
+        setGroup((g) => g ?? gs[0] ?? null);
+      })
       .catch((e) => setError(String(e.message ?? e)));
   }, []);
 
@@ -87,34 +88,43 @@ export function Calendar() {
   function goToday() {
     setCursor({ year: today.getFullYear(), month: today.getMonth() });
   }
-
   function onSaved() {
     setModal(null);
     if (group) void load(group.id);
+  }
+
+  if (groups.length === 0) {
+    return (
+      <div className="calendar">
+        {error && <p className="error">{error}</p>}
+        <p className="empty">
+          No groups yet. Connect WhatsApp (the groups your number is in appear automatically), or
+          add a group in the Admin tab.
+        </p>
+      </div>
+    );
   }
 
   return (
     <div className="calendar">
       <div className="cal-toolbar">
         <div className="cal-nav">
-          <button onClick={() => shiftMonth(-1)} aria-label="Previous month">
-            ‹
-          </button>
+          <button onClick={() => shiftMonth(-1)} aria-label="Previous month">‹</button>
           <button onClick={goToday}>Today</button>
-          <button onClick={() => shiftMonth(1)} aria-label="Next month">
-            ›
-          </button>
-          <h2>
-            {MONTHS[cursor.month]} {cursor.year}
-          </h2>
+          <button onClick={() => shiftMonth(1)} aria-label="Next month">›</button>
+          <h2>{MONTHS[cursor.month]} {cursor.year}</h2>
         </div>
         <div className="cal-actions">
+          <select
+            value={group?.id ?? ''}
+            onChange={(e) => setGroup(groups.find((g) => g.id === e.target.value) ?? null)}
+          >
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
           {group && (
-            <a
-              className="ical-link"
-              href={`/api/calendar/${group.icalToken}.ics`}
-              title="Subscribe in a calendar app"
-            >
+            <a className="ical-link" href={`/api/calendar/${group.icalToken}.ics`} title="Subscribe in a calendar app">
               iCal feed
             </a>
           )}
@@ -129,20 +139,14 @@ export function Calendar() {
 
       <div className="cal-grid">
         {DOW.map((d) => (
-          <div key={d} className="cal-dow">
-            {d}
-          </div>
+          <div key={d} className="cal-dow">{d}</div>
         ))}
         {cells.map((cell) => {
           const items = byDay.get(cell.key) ?? [];
           return (
             <div
               key={cell.key}
-              className={
-                'cal-cell' +
-                (cell.inMonth ? '' : ' out') +
-                (cell.key === todayKey ? ' today' : '')
-              }
+              className={'cal-cell' + (cell.inMonth ? '' : ' out') + (cell.key === todayKey ? ' today' : '')}
               onClick={() => setModal({ dateKey: cell.key })}
             >
               <div className="cal-daynum">{cell.day}</div>

@@ -11,6 +11,8 @@ export interface RunOptions {
   userText: string;
   /** Sender's display name (group context). */
   authorName?: string;
+  /** Email proposals awaiting confirmation in this group. */
+  pendingProposals?: { code: string; kind: string; summary: string }[];
   maxTurns?: number;
 }
 
@@ -39,6 +41,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     system: buildSystemPrompt(opts.ctx.timezone, {
       isAdmin: opts.ctx.isAdmin,
       maintenance: opts.ctx.maintenance,
+      pendingProposals: opts.pendingProposals,
     }),
     history: opts.history,
     userText,

@@ -44,6 +44,19 @@ model Group {
   /// Secret token for the read-only iCal subscription feed.
   icalToken       String  @unique @default(cuid())
 
+  /// Dedicated mailbox (IMAP) Jarvis polls for scheduling emails.
+  emailAddress       String?  @unique
+  /// Encrypted IMAP app-password (encryptValue); never returned by the API.
+  emailEncCred       String?  @db.Text
+  emailHost          String?
+  emailPort          Int?
+  emailEnabled       Boolean  @default(false)
+  /// True once the initial full-mailbox scan has completed.
+  emailFirstScanDone Boolean  @default(false)
+  /// Highest processed IMAP UID (incremental polling after the first scan).
+  emailLastUid       Int?
+  emailLastPolledAt  DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -51,6 +64,7 @@ model Group {
   events        Event[]
   conversations Conversation[]
   vacations     Vacation[]
+  proposals     EmailProposal[]
   /// Maintenance events that target this group.
   maintainedBy  Event[]        @relation("EventMaintains")
 
@@ -203,6 +217,38 @@ model VacationItem {
   updatedAt DateTime @updatedAt
 
   @@index([vacationId, startsAt])
+}
+
+/// A scheduling item detected in a polled email, awaiting group confirmation
+/// over WhatsApp before it is created. `payload` is JSON used to recreate the
+/// right entity (reminder/event/vacation) on confirmation.
+model EmailProposal {
+  id         String   @id @default(cuid())
+  groupId    String
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// Short human ref shown in WhatsApp (e.g. "A1"), unique among pending ones.
+  code       String
+  /// reminder | event | vacation
+  kind       String
+  title      String
+  /// Human-readable line shown in the WhatsApp confirmation digest.
+  summary    String   @db.Text
+  /// JSON: an EventDraft (+kind/lead) or a vacation { trip, item? }.
+  payload    String   @db.Text
+  fromEmail  String?
+  subject    String?
+  /// Email Message-ID, used to de-duplicate across polls.
+  messageId  String?
+  /// pending | confirmed | rejected
+  status     String   @default("pending")
+  /// When the proposal was posted to the WhatsApp group (null = not yet).
+  notifiedAt DateTime?
+  decidedAt  DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([groupId, status])
+  @@index([messageId])
 }
 
 /// Per-group, per-channel conversation history used for agent context.

@@ -5,6 +5,7 @@ import type {
   Conflict,
   EventDetail,
   EventPayload,
+  GroupEmailConfig,
   GroupMember,
   GroupSummary,
   Me,
@@ -98,6 +99,23 @@ export async function adminDeleteMember(groupId: string, memberId: string): Prom
 }
 export async function adminWhatsAppStatus(): Promise<WhatsAppStatus> {
   return fetch('/api/admin/whatsapp/status').then((r) => json<WhatsAppStatus>(r));
+}
+
+export async function adminGetGroupEmail(groupId: string): Promise<GroupEmailConfig> {
+  return fetch(`/api/admin/groups/${groupId}/email`).then((r) => json<GroupEmailConfig>(r));
+}
+export async function adminSetGroupEmail(
+  groupId: string,
+  cfg: { address: string; credential?: string; host?: string; port?: number; enabled?: boolean },
+): Promise<void> {
+  await fetch(`/api/admin/groups/${groupId}/email`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(cfg),
+  }).then((r) => json(r));
+}
+export async function adminDeleteGroupEmail(groupId: string): Promise<void> {
+  await fetch(`/api/admin/groups/${groupId}/email`, { method: 'DELETE' }).then((r) => json(r));
 }
 
 export async function adminImportSchedule(

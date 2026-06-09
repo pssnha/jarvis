@@ -5,6 +5,7 @@ import {
   createRawEvent,
   decryptValue,
   encryptPhone,
+  encryptValue,
   ensureMaintenanceGroup,
   isMaintenanceText,
   maskPhone,
@@ -156,6 +157,70 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     const m = await prisma.member.findFirst({ where: { id: memberId, groupId: id } });
     if (!m) return reply.code(404).send({ error: 'member not found' });
     await prisma.member.delete({ where: { id: m.id } });
+    return { ok: true };
+  });
+
+  // ----- Per-group email polling config (IMAP) -----
+  // The credential (app-password) is stored encrypted and never returned.
+  app.get('/admin/groups/:id/email', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const g = await prisma.group.findUnique({ where: { id } });
+    if (!g) return reply.code(404).send({ error: 'group not found' });
+    return {
+      address: g.emailAddress,
+      host: g.emailHost,
+      port: g.emailPort,
+      enabled: g.emailEnabled,
+      hasCredential: Boolean(g.emailEncCred),
+      firstScanDone: g.emailFirstScanDone,
+      lastPolledAt: g.emailLastPolledAt,
+    };
+  });
+
+  app.post('/admin/groups/:id/email', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as {
+      address?: string;
+      credential?: string;
+      host?: string;
+      port?: number;
+      enabled?: boolean;
+    };
+    const g = await prisma.group.findUnique({ where: { id } });
+    if (!g) return reply.code(404).send({ error: 'group not found' });
+    if (!body.address) return reply.code(400).send({ error: 'address is required' });
+
+    await prisma.group.update({
+      where: { id },
+      data: {
+        emailAddress: body.address.trim().toLowerCase(),
+        emailHost: body.host?.trim() || 'imap.gmail.com',
+        emailPort: body.port ?? 993,
+        emailEnabled: body.enabled ?? true,
+        // Only overwrite the credential when a new one is supplied.
+        ...(body.credential ? { emailEncCred: encryptValue(body.credential) } : {}),
+      },
+    });
+    return { ok: true };
+  });
+
+  app.delete('/admin/groups/:id/email', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const g = await prisma.group.findUnique({ where: { id } });
+    if (!g) return reply.code(404).send({ error: 'group not found' });
+    await prisma.group.update({
+      where: { id },
+      data: {
+        emailAddress: null,
+        emailEncCred: null,
+        emailHost: null,
+        emailPort: null,
+        emailEnabled: false,
+        emailFirstScanDone: false,
+        emailLastUid: null,
+        emailLastPolledAt: null,
+      },
+    });
     return { ok: true };
   });
 

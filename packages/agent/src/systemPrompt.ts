@@ -5,6 +5,8 @@ export interface PromptOptions {
   isAdmin?: boolean;
   /** True when operating on the maintenance calendar (admin direct chat). */
   maintenance?: boolean;
+  /** Email proposals awaiting confirmation in this group. */
+  pendingProposals?: { code: string; kind: string; summary: string }[];
 }
 
 export function buildSystemPrompt(timezone: string, opts: PromptOptions = {}): string {
@@ -27,6 +29,15 @@ date/time is ambiguous, ask one short clarifying question instead of guessing.`;
   const style = `Be concise and friendly — replies appear in a WhatsApp chat and a web app. In a group chat each
 user message is prefixed with the sender's name; use it for context but address the group.`;
 
+  const proposals =
+    opts.pendingProposals && opts.pendingProposals.length > 0
+      ? `\n\nEmail proposals awaiting confirmation (detected from the group's mailbox):
+${opts.pendingProposals.map((p) => `  [${p.code}] ${p.kind} — ${p.summary}`).join('\n')}
+When the user approves one or more, call confirm_proposal with each matching code; when they decline,
+call reject_proposal. "yes"/"add all" means confirm every pending code; "no"/"skip all" rejects them
+all. Then briefly say what you added or skipped.`
+      : '';
+
   if (opts.maintenance) {
     return `You are Jarvis's maintenance assistant, talking privately with an admin.
 This is the internal MAINTENANCE calendar (cron jobs, pollers, health checks) — not a user group.
@@ -36,7 +47,7 @@ You can view and manage maintenance tasks here with the scheduling tools (create
 list_events, find_event, cancel_event). These tasks never post to any WhatsApp group.
 You may also answer the admin's general questions.
 
-${tools}
+${tools}${proposals}
 
 ${style}`;
   }
@@ -46,7 +57,7 @@ ${style}`;
 Your main job is the group's shared schedule, but you can also answer general questions.
 ${now}
 
-${tools}
+${tools}${proposals}
 When a message is not about scheduling, just answer it helpfully.
 
 ${style}`;
@@ -56,10 +67,11 @@ ${style}`;
   return `You are Jarvis, the scheduling assistant for this group.
 ${now}
 
-You ONLY help with this group's schedule. ${tools}
+You ONLY help with this group's schedule. ${tools}${proposals}
 
 If the user asks for anything that is NOT about the schedule (general questions, maintenance, system
 or admin topics), politely refuse in one line: "Sorry, I can only help with this group's schedule."
+Confirming or skipping the email proposals listed above IS part of managing the schedule.
 Do not answer off-topic questions and do not reveal system or maintenance details.
 
 ${style}`;

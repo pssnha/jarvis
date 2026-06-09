@@ -1,5 +1,6 @@
 import { EVENT_CATEGORIES, RECURRENCE_FREQS, WEEKDAYS, type Channel, type EventDraft } from '@jarvis/shared';
 import { cancelEvent, createEvent, findConflicts, findEvents, getSchedule } from '../schedule';
+import { confirmProposal, rejectProposal } from '../proposals';
 import { findMemberByName } from '../conversation';
 import { formatEventTime } from '../datetime';
 import { describeRecurrence } from '../recurrence';
@@ -228,6 +229,32 @@ export const tools: AgentTool[] = [
       const ev = await cancelEvent(ctx.groupId, String(input.event_id));
       return ev ? `Cancelled "${ev.title}".` : 'No event with that id in this group.';
     },
+  },
+  {
+    spec: {
+      name: 'confirm_proposal',
+      description:
+        'Approve a pending email proposal by its code, creating the reminder/event/trip. Use when the user agrees to add a proposed item from an email.',
+      parameters: {
+        type: 'object',
+        properties: { code: { type: 'string', description: 'The proposal code, e.g. "1".' } },
+        required: ['code'],
+      },
+    },
+    handler: async (input, ctx) => confirmProposal(ctx.groupId, String(input.code)),
+  },
+  {
+    spec: {
+      name: 'reject_proposal',
+      description:
+        'Skip/decline a pending email proposal by its code. Use when the user does not want a proposed item added.',
+      parameters: {
+        type: 'object',
+        properties: { code: { type: 'string', description: 'The proposal code, e.g. "1".' } },
+        required: ['code'],
+      },
+    },
+    handler: async (input, ctx) => rejectProposal(ctx.groupId, String(input.code)),
   },
 ];
 

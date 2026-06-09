@@ -5,6 +5,7 @@ import {
   getGroupByWhatsappId,
   getOrCreateConversation,
   isAdminWhatsApp,
+  listPendingProposals,
   loadHistory,
   resolveMember,
   runAgent,
@@ -57,6 +58,7 @@ export async function handleInboundMessage(msg: WAMessage, send: Sender): Promis
     const member = await resolveMember(group.id, { waId: senderNumber, name: pushName });
     const convo = await getOrCreateConversation(group.id, 'whatsapp');
     const history = await loadHistory(convo.id);
+    const pending = await listPendingProposals(group.id);
 
     const { reply } = await runAgent({
       ctx: {
@@ -69,6 +71,7 @@ export async function handleInboundMessage(msg: WAMessage, send: Sender): Promis
       history,
       userText,
       authorName: member?.name ?? pushName,
+      pendingProposals: pending.map((p) => ({ code: p.code, kind: p.kind, summary: p.summary })),
     });
     await appendMessages(convo.id, userText, reply, member?.name ?? pushName);
     await send(jid, reply);

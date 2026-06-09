@@ -108,6 +108,16 @@ export interface GroupMember {
   waId: string | null;
 }
 
+export interface GroupEmailConfig {
+  address: string | null;
+  host: string | null;
+  port: number | null;
+  enabled: boolean;
+  hasCredential: boolean;
+  firstScanDone: boolean;
+  lastPolledAt: string | null;
+}
+
 export interface EventPayload {
   title: string;
   start: string;

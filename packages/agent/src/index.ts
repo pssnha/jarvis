@@ -7,6 +7,7 @@ export * from './schedule';
 export * from './vacations';
 export * from './cron';
 export * from './extract';
+export * from './proposals';
 export * from './ingest';
 export * from './tools';
 export * from './run';

@@ -3,16 +3,25 @@ import {
   adminAddMember,
   adminAddUser,
   adminCreateGroup,
+  adminDeleteGroupEmail,
   adminDeleteMember,
   adminDeleteUser,
+  adminGetGroupEmail,
   adminImportSchedule,
   adminListGroups,
   adminListMembers,
   adminListUsers,
+  adminSetGroupEmail,
   adminSetUserWhatsApp,
   adminWhatsAppStatus,
 } from '../lib/api';
-import type { AdminGroup, AdminUser, GroupMember, WhatsAppStatus } from '../lib/types';
+import type {
+  AdminGroup,
+  AdminUser,
+  GroupEmailConfig,
+  GroupMember,
+  WhatsAppStatus,
+} from '../lib/types';
 
 export function Admin() {
   const [error, setError] = useState<string | null>(null);
@@ -248,6 +257,125 @@ function GroupsSection({ onError }: { onError: (e: unknown) => void }) {
   );
 }
 
+function EmailPollingSection({
+  groupId,
+  onError,
+}: {
+  groupId: string;
+  onError: (e: unknown) => void;
+}) {
+  const [cfg, setCfg] = useState<GroupEmailConfig | null>(null);
+  const [address, setAddress] = useState('');
+  const [host, setHost] = useState('imap.gmail.com');
+  const [port, setPort] = useState('993');
+  const [credential, setCredential] = useState('');
+  const [enabled, setEnabled] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    adminGetGroupEmail(groupId)
+      .then((c) => {
+        setCfg(c);
+        setAddress(c.address ?? '');
+        setHost(c.host ?? 'imap.gmail.com');
+        setPort(String(c.port ?? 993));
+        setEnabled(c.enabled);
+      })
+      .catch(onError);
+  }, [groupId, onError]);
+  useEffect(load, [load]);
+
+  async function save() {
+    if (!address.trim()) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await adminSetGroupEmail(groupId, {
+        address: address.trim(),
+        credential: credential || undefined,
+        host: host.trim(),
+        port: Number(port) || 993,
+        enabled,
+      });
+      setCredential('');
+      setMsg('Saved.');
+      load();
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove() {
+    if (!confirm('Remove email polling for this group?')) return;
+    setBusy(true);
+    try {
+      await adminDeleteGroupEmail(groupId);
+      setAddress('');
+      setCredential('');
+      setEnabled(true);
+      setMsg(null);
+      load();
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="subsec">
+      <h4>Email polling</h4>
+      <p className="muted">
+        A dedicated mailbox Jarvis polls every couple hours. New mail is classified and the group is
+        asked on WhatsApp before anything is added. Use an IMAP <strong>app-password</strong>.
+      </p>
+      <div className="admin-form">
+        <input
+          placeholder="jarvis-family@gmail.com"
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+        />
+        <input placeholder="IMAP host" value={host} onChange={(e) => setHost(e.target.value)} />
+        <input
+          placeholder="port"
+          value={port}
+          onChange={(e) => setPort(e.target.value)}
+          style={{ maxWidth: 80 }}
+        />
+        <input
+          type="password"
+          placeholder={cfg?.hasCredential ? 'app-password (saved)' : 'app-password'}
+          value={credential}
+          onChange={(e) => setCredential(e.target.value)}
+        />
+        <label className="row" style={{ gap: '0.3rem' }}>
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          Enabled
+        </label>
+        <button className="primary" onClick={save} disabled={busy}>
+          Save
+        </button>
+        {cfg?.address && (
+          <button className="link-danger" onClick={remove} disabled={busy}>
+            remove
+          </button>
+        )}
+      </div>
+      {(msg || cfg?.address) && (
+        <p className="muted">
+          {msg && `${msg} `}
+          {cfg?.address &&
+            (cfg.firstScanDone
+              ? `Last polled: ${cfg.lastPolledAt ? new Date(cfg.lastPolledAt).toLocaleString() : '—'}`
+              : 'Not yet polled — a full scan runs on the first poll.')}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function GroupDetail({
   group,
   onError,
@@ -336,6 +464,8 @@ function GroupDetail({
           </button>
         </div>
       </div>
+
+      <EmailPollingSection groupId={group.id} onError={onError} />
 
       <div className="subsec">
         <h4>Import schedule</h4>

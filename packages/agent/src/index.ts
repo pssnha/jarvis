@@ -4,6 +4,7 @@ export * from './systemPrompt';
 export * from './datetime';
 export * from './recurrence';
 export * from './schedule';
+export * from './vacations';
 export * from './cron';
 export * from './extract';
 export * from './ingest';

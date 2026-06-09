@@ -6,6 +6,7 @@ import { registerCookieAndGuards, registerAuthRoutes } from './auth';
 import { registerHealth } from './routes/health';
 import { registerCalendar } from './routes/calendar';
 import { registerGroups } from './routes/groups';
+import { registerVacations } from './routes/vacations';
 import { registerAdmin } from './routes/admin';
 import { registerWhatsApp } from './whatsapp';
 
@@ -48,6 +49,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(async (scoped) => {
         scoped.addHook('preHandler', app.requireAuth);
         await registerGroups(scoped);
+        await registerVacations(scoped);
       });
 
       // --- Admins only ---

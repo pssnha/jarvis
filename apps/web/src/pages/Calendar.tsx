@@ -2,6 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCalendar, listGroups } from '../lib/api';
 import type { CalendarOccurrence, GroupSummary } from '../lib/types';
 import { EventModal } from '../components/EventModal';
+import {
+  HOUR_PX,
+  HOURS,
+  hourLabel,
+  layoutColumns,
+  minutesOf,
+  type LaidOutBlock,
+} from '../lib/timegrid';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -36,28 +44,11 @@ function dotColor(o: CalendarOccurrence): string {
   return o.color || CAT_COLOR[o.category ?? 'other'] || '#7c3aed';
 }
 
-const HOUR_PX = 56;
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
-function hourLabel(h: number): string {
-  return `${h < 10 ? '0' : ''}${h}:00`;
-}
-function minutesOf(localIso: string): number {
-  const t = localIso.split('T')[1] ?? '00:00';
-  const [h, m] = t.split(':');
-  return Number(h) * 60 + Number(m);
-}
-
-interface Block {
-  o: CalendarOccurrence;
-  startMin: number;
-  endMin: number;
-  col: number;
-  cols: number;
-}
+type Block = LaidOutBlock<CalendarOccurrence>;
 
 /** Lay timed events into side-by-side columns so overlaps don't cover each other. */
 function layoutDay(items: CalendarOccurrence[]): Block[] {
-  const blocks: Block[] = items
+  const entries = items
     .filter((o) => !o.allDay)
     .map((o) => {
       const s = minutesOf(o.startLocal);
@@ -70,40 +61,9 @@ function layoutDay(items: CalendarOccurrence[]): Block[] {
         e = o.endLocal ? minutesOf(o.endLocal) : s + 60;
         if (e <= s) e = s + 60;
       }
-      return { o, startMin: s, endMin: Math.min(e, 1440), col: 0, cols: 1 };
-    })
-    .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
-
-  let cluster: Block[] = [];
-  let cols: Block[][] = [];
-  let lastEnd = -1;
-  const flush = () => {
-    for (const b of cluster) b.cols = cols.length || 1;
-    cluster = [];
-    cols = [];
-    lastEnd = -1;
-  };
-  for (const b of blocks) {
-    if (cluster.length && b.startMin >= lastEnd) flush();
-    let placed = false;
-    for (let i = 0; i < cols.length; i++) {
-      const col = cols[i]!;
-      if (col[col.length - 1]!.endMin <= b.startMin) {
-        col.push(b);
-        b.col = i;
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      cols.push([b]);
-      b.col = cols.length - 1;
-    }
-    cluster.push(b);
-    lastEnd = Math.max(lastEnd, b.endMin);
-  }
-  flush();
-  return blocks;
+      return { o, startMin: s, endMin: Math.min(e, 1440) };
+    });
+  return layoutColumns(entries);
 }
 
 interface TimeGridProps {

@@ -50,6 +50,7 @@ model Group {
   members       Member[]
   events        Event[]
   conversations Conversation[]
+  vacations     Vacation[]
   /// Maintenance events that target this group.
   maintainedBy  Event[]        @relation("EventMaintains")
 
@@ -75,6 +76,8 @@ model Member {
 
   createdEvents  Event[] @relation("EventCreator")
   assignedEvents Event[] @relation("EventAssignee")
+  /// Trips this member is travelling on (implicit m2m -> _VacationTravelers).
+  vacations      Vacation[] @relation("VacationTravelers")
 
   @@index([groupId])
   @@index([waHash])
@@ -136,6 +139,70 @@ model Event {
   @@index([groupId, startsAt])
   @@index([source, sourceRef])
   @@index([assigneeId])
+}
+
+/// A planned trip. Times are stored UTC and displayed in `timezone` (defaults
+/// to the group's zone). Self-contained: does not create calendar Events.
+model Vacation {
+  id           String  @id @default(cuid())
+  groupId      String
+  group        Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  title        String
+  /// Comma-separated cities for the card subtitle, e.g. "Lisbon, Porto".
+  destinations String?
+  /// Trip span (all-day boundaries; stored UTC, rendered in `timezone`).
+  startDate    DateTime
+  endDate      DateTime
+  /// IANA zone the whole trip displays in. Null = use group.timezone.
+  timezone     String?
+  description  String?  @db.Text
+  /// Group members on this trip (implicit m2m -> _VacationTravelers).
+  travelers    Member[] @relation("VacationTravelers")
+  items        VacationItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([groupId, startDate])
+}
+
+/// One itinerary entry within a trip (activity, flight, hotel, …).
+model VacationItem {
+  id         String   @id @default(cuid())
+  vacationId String
+  vacation   Vacation @relation(fields: [vacationId], references: [id], onDelete: Cascade)
+  /// activity | flight | hotel | transport | meal | note
+  type       String   @default("activity")
+  title      String
+  /// flight=departure, hotel=check-in, activity/meal=start. UTC.
+  startsAt   DateTime
+  /// flight=arrival, hotel=check-out, activity end. UTC. Nullable.
+  endsAt     DateTime?
+  allDay     Boolean  @default(false)
+  location   String?
+  notes      String?  @db.Text
+  /// Booking / PNR / reservation code.
+  confirmation String?
+  /// Airline / hotel chain / rental company.
+  provider   String?
+  /// Flight number / booking number.
+  number     String?
+  /// Departure airport / pickup point.
+  fromLabel  String?
+  /// Arrival airport / dropoff point.
+  toLabel    String?
+  /// Seat / room number / cabin.
+  seat       String?
+  phone      String?
+  /// Free-text cost, e.g. "€420".
+  cost       String?
+  /// Optional hex color; falls back to a per-type default in the UI.
+  color      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vacationId, startsAt])
 }
 
 /// Per-group, per-channel conversation history used for agent context.

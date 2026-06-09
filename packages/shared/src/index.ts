@@ -22,6 +22,18 @@ export type Weekday = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU';
 
 export const WEEKDAYS: Weekday[] = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 
+/** Kind of an itinerary entry within a vacation. */
+export type VacationItemType = 'activity' | 'flight' | 'hotel' | 'transport' | 'meal' | 'note';
+
+export const VACATION_ITEM_TYPES: VacationItemType[] = [
+  'activity',
+  'flight',
+  'hotel',
+  'transport',
+  'meal',
+  'note',
+];
+
 /** A structured recurrence, converted to an RFC 5545 RRULE on save. */
 export interface Recurrence {
   freq: RecurrenceFreq;

@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { getMe, logout } from './lib/api';
 import type { Me } from './lib/types';
 import { Calendar } from './pages/Calendar';
+import { Vacations } from './pages/Vacations';
 import { Chat } from './pages/Chat';
 import { Admin } from './pages/Admin';
 import { Login } from './pages/Login';
 
-type View = 'calendar' | 'chat' | 'admin';
+type View = 'calendar' | 'vacations' | 'chat' | 'admin';
 
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
@@ -61,6 +62,7 @@ export function App() {
           <div className="brand">Jarvis</div>
           <nav className="side-nav">
             {item('calendar', 'Calendar')}
+            {item('vacations', 'Vacations')}
             {item('chat', 'Chat')}
             {me.role === 'admin' && item('admin', 'Admin')}
           </nav>
@@ -74,6 +76,7 @@ export function App() {
 
         <main className="content">
           {view === 'calendar' && <Calendar />}
+          {view === 'vacations' && <Vacations />}
           {view === 'chat' && <Chat />}
           {view === 'admin' && me.role === 'admin' && <Admin />}
         </main>

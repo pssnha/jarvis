@@ -9,6 +9,10 @@ import type {
   GroupSummary,
   Me,
   MemberLite,
+  VacationDetail,
+  VacationItemPayload,
+  VacationPayload,
+  VacationSummary,
   WhatsAppStatus,
 } from './types';
 
@@ -169,4 +173,81 @@ export async function deleteEvent(groupId: string, eventId: string): Promise<voi
   await fetch(`/api/groups/${groupId}/events/${eventId}`, { method: 'DELETE' }).then((r) =>
     json(r),
   );
+}
+
+// ---------- Vacations ----------
+export async function listVacations(
+  groupId: string,
+  includePast = false,
+): Promise<VacationSummary[]> {
+  const u = new URL(`/api/groups/${groupId}/vacations`, window.location.origin);
+  if (includePast) u.searchParams.set('includePast', '1');
+  return fetch(u).then((r) => json<VacationSummary[]>(r));
+}
+
+export async function getVacation(groupId: string, vacationId: string): Promise<VacationDetail> {
+  return fetch(`/api/groups/${groupId}/vacations/${vacationId}`).then((r) =>
+    json<VacationDetail>(r),
+  );
+}
+
+export async function createVacation(groupId: string, payload: VacationPayload): Promise<void> {
+  await fetch(`/api/groups/${groupId}/vacations`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(payload),
+  }).then((r) => json(r));
+}
+
+export async function updateVacation(
+  groupId: string,
+  vacationId: string,
+  payload: Partial<VacationPayload>,
+): Promise<void> {
+  await fetch(`/api/groups/${groupId}/vacations/${vacationId}`, {
+    method: 'PATCH',
+    headers: jsonHeaders,
+    body: JSON.stringify(payload),
+  }).then((r) => json(r));
+}
+
+export async function deleteVacation(groupId: string, vacationId: string): Promise<void> {
+  await fetch(`/api/groups/${groupId}/vacations/${vacationId}`, { method: 'DELETE' }).then((r) =>
+    json(r),
+  );
+}
+
+export async function addVacationItem(
+  groupId: string,
+  vacationId: string,
+  payload: VacationItemPayload,
+): Promise<void> {
+  await fetch(`/api/groups/${groupId}/vacations/${vacationId}/items`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(payload),
+  }).then((r) => json(r));
+}
+
+export async function updateVacationItem(
+  groupId: string,
+  vacationId: string,
+  itemId: string,
+  payload: Partial<VacationItemPayload>,
+): Promise<void> {
+  await fetch(`/api/groups/${groupId}/vacations/${vacationId}/items/${itemId}`, {
+    method: 'PATCH',
+    headers: jsonHeaders,
+    body: JSON.stringify(payload),
+  }).then((r) => json(r));
+}
+
+export async function deleteVacationItem(
+  groupId: string,
+  vacationId: string,
+  itemId: string,
+): Promise<void> {
+  await fetch(`/api/groups/${groupId}/vacations/${vacationId}/items/${itemId}`, {
+    method: 'DELETE',
+  }).then((r) => json(r));
 }

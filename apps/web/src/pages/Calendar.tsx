@@ -36,7 +36,7 @@ function dotColor(o: CalendarOccurrence): string {
   return o.color || CAT_COLOR[o.category ?? 'other'] || '#7c3aed';
 }
 
-const HOUR_PX = 48;
+const HOUR_PX = 56;
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 function hourLabel(h: number): string {
   return `${h < 10 ? '0' : ''}${h}:00`;
@@ -110,7 +110,7 @@ interface TimeGridProps {
 
 /** Google-Calendar-style time grid: hours down the side, day columns across. */
 function TimeGrid({ days, byDay, individual, todayKey, onPick, onAdd }: TimeGridProps) {
-  const bodyRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const single = days.length === 1;
   const [nowMin, setNowMin] = useState(() => {
     const n = new Date();
@@ -127,19 +127,21 @@ function TimeGrid({ days, byDay, individual, todayKey, onPick, onAdd }: TimeGrid
 
   const firstKey = days[0] ? ymd(days[0]) : '';
   useEffect(() => {
-    const el = bodyRef.current;
+    const el = scrollRef.current;
     if (!el) return;
     const todayInView = days.some((d) => ymd(d) === todayKey);
     const n = new Date();
     const target = todayInView ? n.getHours() * 60 + n.getMinutes() : 8 * 60;
-    el.scrollTop = Math.max(0, (target / 60) * HOUR_PX - 120);
+    el.scrollTop = Math.max(0, (target / 60) * HOUR_PX - 40);
   }, [firstKey, single, days, todayKey]);
 
   return (
     <div className={single ? 'tg tg-single' : 'tg'}>
-      {!single && (
-        <div className="tg-head">
-          <div className="tg-corner" />
+      <div className="tg-scroll" ref={scrollRef}>
+        <div className="tg-topstick">
+          {!single && (
+            <div className="tg-head">
+              <div className="tg-corner" />
           {days.map((d) => {
             const key = ymd(d);
             return (
@@ -179,9 +181,10 @@ function TimeGrid({ days, byDay, individual, todayKey, onPick, onAdd }: TimeGrid
             </div>
           );
         })}
-      </div>
+        </div>
+        </div>
 
-      <div className="tg-body" ref={bodyRef}>
+        <div className="tg-body">
         <div className="tg-gutter" style={{ height: 24 * HOUR_PX }}>
           {HOURS.map((h) => (
             <div key={h} className="tg-hour" style={{ height: HOUR_PX }}>
@@ -248,6 +251,7 @@ function TimeGrid({ days, byDay, individual, todayKey, onPick, onAdd }: TimeGrid
             </div>
           );
         })}
+        </div>
       </div>
     </div>
   );

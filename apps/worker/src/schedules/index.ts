@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { pollMailbox } from '../email/imap';
 import { pollGroupMailboxes } from '../email/groupPoll';
 import { sendDueReminders } from '../reminders';
+import { sendDailyBriefs } from '../dailyBrief';
 
 /** Register cron-scheduled jobs. */
 export function startSchedules(): void {
@@ -23,7 +24,12 @@ export function startSchedules(): void {
     void sendDueReminders();
   });
 
+  // Daily brief: hourly tick; posts each group's day at its local brief hour.
+  cron.schedule('0 * * * *', () => {
+    void sendDailyBriefs();
+  });
+
   console.log(
-    `[scheduler] email poll "${emailCron}", group email "${groupEmailCron}", reminders "${reminderCron}"`,
+    `[scheduler] email poll "${emailCron}", group email "${groupEmailCron}", reminders "${reminderCron}", daily brief hourly`,
   );
 }

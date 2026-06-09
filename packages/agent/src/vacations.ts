@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
 import { Prisma, prisma } from '@jarvis/db';
 import type { VacationItemType } from '@jarvis/shared';
-import { dateKeyInZone, localIsoToUtc, timeLabel, toLocalInput } from './datetime';
+import { dateKeyInZone, localIsoToUtc, timeLabel, toLocalInput, zonedTimeLabel } from './datetime';
 
 /**
  * Vacations — a self-contained trip planner. Times are stored UTC and rendered
@@ -27,6 +27,8 @@ export interface CreateVacationInput {
   timezone?: string | null;
   description?: string | null;
   travelerIds?: string[];
+  /** Cover photo URL (resolved via the LLM when omitted — see resolveVacationImage). */
+  coverImageUrl?: string | null;
 }
 
 /** `zone` is the resolved trip zone (input.timezone ?? group.timezone). */
@@ -40,6 +42,7 @@ export async function createVacation(input: CreateVacationInput, zone: string) {
       endDate: localIsoToUtc(input.endDate, zone),
       timezone: input.timezone ?? null,
       description: input.description ?? null,
+      coverImageUrl: input.coverImageUrl ?? null,
       travelers: input.travelerIds?.length
         ? { connect: input.travelerIds.map((id) => ({ id })) }
         : undefined,
@@ -78,6 +81,7 @@ export interface UpdateVacationInput {
   timezone?: string | null;
   description?: string | null;
   travelerIds?: string[];
+  coverImageUrl?: string | null;
 }
 
 export async function updateVacation(
@@ -94,6 +98,7 @@ export async function updateVacation(
   if (patch.destinations !== undefined) data.destinations = patch.destinations;
   if (patch.timezone !== undefined) data.timezone = patch.timezone;
   if (patch.description !== undefined) data.description = patch.description;
+  if (patch.coverImageUrl !== undefined) data.coverImageUrl = patch.coverImageUrl;
   if (patch.startDate !== undefined) data.startDate = localIsoToUtc(patch.startDate, zone);
   if (patch.endDate !== undefined) data.endDate = localIsoToUtc(patch.endDate, zone);
   if (patch.travelerIds !== undefined) {
@@ -126,6 +131,8 @@ export interface VacationItemInput {
   number?: string | null;
   fromLabel?: string | null;
   toLabel?: string | null;
+  fromTimezone?: string | null;
+  toTimezone?: string | null;
   seat?: string | null;
   phone?: string | null;
   cost?: string | null;
@@ -138,8 +145,8 @@ export async function addVacationItem(vacationId: string, input: VacationItemInp
       vacationId,
       type: input.type,
       title: input.title,
-      startsAt: localIsoToUtc(input.startsAt, zone),
-      endsAt: input.endsAt ? localIsoToUtc(input.endsAt, zone) : null,
+      startsAt: localIsoToUtc(input.startsAt, input.fromTimezone || zone),
+      endsAt: input.endsAt ? localIsoToUtc(input.endsAt, input.toTimezone || zone) : null,
       allDay: input.allDay ?? false,
       location: input.location ?? null,
       notes: input.notes ?? null,
@@ -148,6 +155,8 @@ export async function addVacationItem(vacationId: string, input: VacationItemInp
       number: input.number ?? null,
       fromLabel: input.fromLabel ?? null,
       toLabel: input.toLabel ?? null,
+      fromTimezone: input.fromTimezone ?? null,
+      toTimezone: input.toTimezone ?? null,
       seat: input.seat ?? null,
       phone: input.phone ?? null,
       cost: input.cost ?? null,
@@ -169,9 +178,13 @@ export async function updateVacationItem(
   if (patch.type !== undefined) data.type = patch.type;
   if (patch.title !== undefined) data.title = patch.title;
   if (patch.allDay !== undefined) data.allDay = patch.allDay;
-  if (patch.startsAt !== undefined) data.startsAt = localIsoToUtc(patch.startsAt, zone);
+  if (patch.startsAt !== undefined) {
+    data.startsAt = localIsoToUtc(patch.startsAt, patch.fromTimezone || item.fromTimezone || zone);
+  }
   if (patch.endsAt !== undefined) {
-    data.endsAt = patch.endsAt ? localIsoToUtc(patch.endsAt, zone) : null;
+    data.endsAt = patch.endsAt
+      ? localIsoToUtc(patch.endsAt, patch.toTimezone || item.toTimezone || zone)
+      : null;
   }
   for (const k of [
     'location',
@@ -181,6 +194,8 @@ export async function updateVacationItem(
     'number',
     'fromLabel',
     'toLabel',
+    'fromTimezone',
+    'toTimezone',
     'seat',
     'phone',
     'cost',
@@ -218,6 +233,12 @@ export interface ItineraryItemDTO {
   number: string | null;
   fromLabel: string | null;
   toLabel: string | null;
+  fromTimezone: string | null;
+  toTimezone: string | null;
+  /** Departure time in the origin zone (transit only), e.g. "1:30 PM PDT". */
+  departLabel: string | null;
+  /** Arrival time in the destination zone (transit only). */
+  arriveLabel: string | null;
   seat: string | null;
   phone: string | null;
   cost: string | null;
@@ -244,6 +265,8 @@ export function toItineraryItemDTO(
     number: string | null;
     fromLabel: string | null;
     toLabel: string | null;
+    fromTimezone: string | null;
+    toTimezone: string | null;
     seat: string | null;
     phone: string | null;
     cost: string | null;
@@ -251,11 +274,18 @@ export function toItineraryItemDTO(
   },
   zone: string,
 ): ItineraryItemDTO {
+  // For transit items in a different zone, label departure/arrival in their own zones.
+  const departLabel =
+    !item.allDay && item.fromTimezone ? zonedTimeLabel(item.startsAt, item.fromTimezone) : null;
+  const arriveLabel =
+    !item.allDay && item.toTimezone && item.endsAt
+      ? zonedTimeLabel(item.endsAt, item.toTimezone)
+      : null;
   return {
     id: item.id,
     type: item.type as VacationItemType,
     title: item.title,
-    dateKey: dateKeyInZone(item.startsAt, zone),
+    dateKey: dateKeyInZone(item.startsAt, item.fromTimezone || zone),
     startLocal: toLocalInput(item.startsAt, zone, item.allDay),
     endLocal: item.endsAt ? toLocalInput(item.endsAt, zone, item.allDay) : null,
     timeLabel: item.allDay ? 'all day' : timeLabel(item.startsAt, zone),
@@ -267,6 +297,10 @@ export function toItineraryItemDTO(
     number: item.number,
     fromLabel: item.fromLabel,
     toLabel: item.toLabel,
+    fromTimezone: item.fromTimezone,
+    toTimezone: item.toTimezone,
+    departLabel,
+    arriveLabel,
     seat: item.seat,
     phone: item.phone,
     cost: item.cost,

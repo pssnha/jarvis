@@ -8,6 +8,12 @@ import { SESSION_COOKIE } from './constants';
 
 const isProd = env.NODE_ENV === 'production';
 
+// Local-dev convenience: when not in production, auto-authenticate as the
+// seeded admin so you can click through the app without Google sign-in.
+// Can never trigger in production (containers set NODE_ENV=production); opt out
+// locally with DEV_AUTH_BYPASS=0.
+export const devBypass = !isProd && process.env.DEV_AUTH_BYPASS !== '0';
+
 /** Ensure the seeded admin account exists. */
 export async function ensureAdmin(): Promise<void> {
   const email = env.ADMIN_EMAIL.toLowerCase();
@@ -32,18 +38,32 @@ export async function currentUser(app: FastifyInstance, req: FastifyRequest) {
   return prisma.authUser.findUnique({ where: { id: unsigned.value } });
 }
 
+/** Cookie user, or (in dev only) the seeded admin as a fallback. */
+async function resolveUser(app: FastifyInstance, req: FastifyRequest) {
+  const user = await currentUser(app, req);
+  if (user) return user;
+  if (devBypass) {
+    return prisma.authUser.findUnique({ where: { email: env.ADMIN_EMAIL.toLowerCase() } });
+  }
+  return null;
+}
+
 /** Register the cookie plugin and the requireAuth / requireAdmin guards (root scope). */
 export async function registerCookieAndGuards(app: FastifyInstance): Promise<void> {
   await app.register(cookie, { secret: env.AUTH_SECRET });
 
+  if (devBypass) {
+    console.warn('[auth] DEV_AUTH_BYPASS active — requests authenticate as the seeded admin.');
+  }
+
   app.decorate('requireAuth', async (req: FastifyRequest, reply: FastifyReply) => {
-    const user = await currentUser(app, req);
+    const user = await resolveUser(app, req);
     if (!user) return reply.code(401).send({ error: 'unauthenticated' });
     req.authUser = user;
   });
 
   app.decorate('requireAdmin', async (req: FastifyRequest, reply: FastifyReply) => {
-    const user = await currentUser(app, req);
+    const user = await resolveUser(app, req);
     if (!user) return reply.code(401).send({ error: 'unauthenticated' });
     if (user.role !== 'admin') return reply.code(403).send({ error: 'forbidden' });
     req.authUser = user;
@@ -108,7 +128,7 @@ export async function registerAuthRoutes(api: FastifyInstance): Promise<void> {
   }
 
   api.get('/auth/me', async (req, reply) => {
-    const user = await currentUser(api, req);
+    const user = await resolveUser(api, req);
     if (!user) return reply.code(401).send({ error: 'unauthenticated' });
     return { id: user.id, email: user.email, name: user.name, role: user.role };
   });

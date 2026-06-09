@@ -7,12 +7,15 @@ import { Chat } from './pages/Chat';
 import { Admin } from './pages/Admin';
 import { Login } from './pages/Login';
 
-type View = 'calendar' | 'vacations' | 'chat' | 'admin';
+type View = 'calendar' | 'vacations' | 'admin';
 
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [view, setView] = useState<View>('calendar');
   const [navOpen, setNavOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  // The group the visible center pane is showing — the chat pane matches it.
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
 
   useEffect(() => {
     getMe()
@@ -46,14 +49,18 @@ export function App() {
   return (
     <div className="shell">
       <header className="topbar">
-        <button
-          className="hamburger"
-          onClick={() => setNavOpen((o) => !o)}
-          aria-label="Toggle menu"
-        >
+        <button className="hamburger" onClick={() => setNavOpen((o) => !o)} aria-label="Toggle menu">
           ☰
         </button>
         <span className="brand-sm">Jarvis</span>
+        <span style={{ flex: 1 }} />
+        <button
+          className="hamburger chat-toggle"
+          onClick={() => setChatOpen((o) => !o)}
+          aria-label="Toggle assistant"
+        >
+          💬
+        </button>
       </header>
 
       <div className="body">
@@ -63,7 +70,6 @@ export function App() {
           <nav className="side-nav">
             {item('calendar', 'Calendar')}
             {item('vacations', 'Vacations')}
-            {item('chat', 'Chat')}
             {me.role === 'admin' && item('admin', 'Admin')}
           </nav>
           <div className="side-foot">
@@ -75,11 +81,19 @@ export function App() {
         </aside>
 
         <main className="content">
-          {view === 'calendar' && <Calendar />}
-          {view === 'vacations' && <Vacations />}
-          {view === 'chat' && <Chat />}
+          {view === 'calendar' && <Calendar onActiveGroup={setActiveGroupId} />}
+          {view === 'vacations' && <Vacations onActiveGroup={setActiveGroupId} />}
           {view === 'admin' && me.role === 'admin' && <Admin />}
         </main>
+
+        {chatOpen && <div className="backdrop chat-backdrop" onClick={() => setChatOpen(false)} />}
+        <aside className={chatOpen ? 'chatpane open' : 'chatpane'}>
+          <Chat
+            groupId={activeGroupId}
+            surface={view === 'vacations' ? 'vacations' : view === 'calendar' ? 'calendar' : 'general'}
+            onClose={() => setChatOpen(false)}
+          />
+        </aside>
       </div>
     </div>
   );

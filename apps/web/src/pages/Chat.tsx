@@ -1,35 +1,37 @@
 import { useEffect, useRef, useState } from 'react';
 import { socket } from '../lib/socket';
-import { listGroups } from '../lib/api';
-import type { GroupSummary } from '../lib/types';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
 }
 
-export function Chat() {
-  const [groups, setGroups] = useState<GroupSummary[]>([]);
-  const [groupId, setGroupId] = useState<string>('');
+type ChatSurface = 'calendar' | 'vacations' | 'general';
+
+/** The assistant pane. It acts on whatever group the center pane is showing
+ *  (`groupId`) and is scoped to the active page (`surface`). */
+export function Chat({
+  groupId,
+  surface,
+  onClose,
+}: {
+  groupId?: string | null;
+  surface?: ChatSurface;
+  onClose?: () => void;
+}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(socket.connected);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    listGroups()
-      .then((gs) => {
-        setGroups(gs);
-        setGroupId((id) => id || gs[0]?.id || '');
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
     const onConnect = () => setConnected(true);
     const onDisconnect = () => setConnected(false);
-    const onReply = (data: { text: string }) =>
+    const onReply = (data: { text: string }) => {
       setMessages((m) => [...m, { role: 'assistant', text: data.text }]);
+      // The assistant may have changed events/trip items — nudge the open pane.
+      window.dispatchEvent(new Event('jarvis:refresh'));
+    };
     const onError = (data: { message: string }) =>
       setMessages((m) => [...m, { role: 'assistant', text: `⚠️ ${data.message}` }]);
 
@@ -51,39 +53,33 @@ export function Chat() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const where = surface === 'vacations' ? 'this trip' : surface === 'calendar' ? 'the calendar' : 'the schedule';
+
   function send() {
     const text = input.trim();
     if (!text || !groupId) return;
     setMessages((m) => [...m, { role: 'user', text }]);
-    socket.emit('chat:message', { text, groupId });
+    socket.emit('chat:message', { text, groupId, surface });
     setInput('');
-  }
-
-  if (groups.length === 0) {
-    return (
-      <div className="chatview">
-        <p className="empty">
-          No groups yet. Connect WhatsApp or add a group in the Admin tab, then chat here.
-        </p>
-      </div>
-    );
   }
 
   return (
     <div className="chatview">
-      <div className="chat-toolbar">
-        <label className="muted">Group&nbsp;</label>
-        <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-          {groups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.name}
-            </option>
-          ))}
-        </select>
+      <div className="chat-head">
+        <span className="chat-title">Ask Jarvis</span>
+        {onClose && (
+          <button className="chat-close" onClick={onClose} aria-label="Close assistant">
+            ✕
+          </button>
+        )}
       </div>
       <div className="chat">
         {messages.length === 0 && (
-          <p className="empty">Ask Jarvis anything, or e.g. “add a dentist appointment next Tuesday at 3pm”.</p>
+          <p className="empty">
+            {groupId
+              ? `Ask about ${where}, or make a change — e.g. “add a dentist appointment next Tuesday at 3pm”.`
+              : 'Open a group on the Calendar or Vacations page to start.'}
+          </p>
         )}
         {messages.map((m, i) => (
           <div key={i} className={`msg ${m.role}`}>
@@ -99,9 +95,12 @@ export function Chat() {
           onKeyDown={(e) => {
             if (e.key === 'Enter') send();
           }}
-          placeholder={connected ? 'Message Jarvis…' : 'connecting…'}
+          placeholder={!groupId ? 'No group selected' : connected ? 'Message Jarvis…' : 'connecting…'}
+          disabled={!groupId}
         />
-        <button onClick={send}>Send</button>
+        <button onClick={send} disabled={!groupId}>
+          Send
+        </button>
       </div>
     </div>
   );

@@ -170,6 +170,8 @@ model Vacation {
   /// IANA zone the whole trip displays in. Null = use group.timezone.
   timezone     String?
   description  String?  @db.Text
+  /// Cover photo of the destination (resolved via LLM on create in prod).
+  coverImageUrl String? @db.Text
   /// Group members on this trip (implicit m2m -> _VacationTravelers).
   travelers    Member[] @relation("VacationTravelers")
   items        VacationItem[]
@@ -205,6 +207,9 @@ model VacationItem {
   fromLabel  String?
   /// Arrival airport / dropoff point.
   toLabel    String?
+  /// IANA zones for transit items, so departure/arrival show in their own zones.
+  fromTimezone String?
+  toTimezone   String?
   /// Seat / room number / cabin.
   seat       String?
   phone      String?

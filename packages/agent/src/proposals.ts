@@ -2,6 +2,7 @@ import { prisma, type EmailProposal } from '@jarvis/db';
 import type { AnalyzedProposal } from './extract';
 import { createEvent, getGroup } from './schedule';
 import { addVacationItem, createVacation } from './vacations';
+import { resolveVacationImage } from './vacationImage';
 
 export interface ProposalMeta {
   fromEmail?: string;
@@ -88,6 +89,10 @@ export async function confirmProposal(groupId: string, code: string): Promise<st
   let confirmation: string;
   try {
     if (a.kind === 'vacation' && a.vacation) {
+      const coverImageUrl = await resolveVacationImage({
+        title: a.vacation.title,
+        destinations: a.vacation.destinations ?? null,
+      }).catch(() => null);
       const v = await createVacation(
         {
           groupId,
@@ -96,6 +101,7 @@ export async function confirmProposal(groupId: string, code: string): Promise<st
           startDate: a.vacation.startDate,
           endDate: a.vacation.endDate,
           description: p.subject ? `From email: ${p.subject}` : null,
+          coverImageUrl,
         },
         zone,
       );

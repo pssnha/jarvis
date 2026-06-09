@@ -1,10 +1,18 @@
 import type { FastifyInstance } from 'fastify';
 import { Server as IOServer } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
-import { appendMessages, getOrCreateConversation, loadHistory, runAgent } from '@jarvis/agent';
+import {
+  appendMessages,
+  getOrCreateConversation,
+  listVacations,
+  loadHistory,
+  runAgent,
+  toLocalInput,
+} from '@jarvis/agent';
 import { prisma } from '@jarvis/db';
 import { env } from '../config/env';
 import { createRedis } from '../plugins/redis';
+import { devBypass } from '../auth';
 import { SESSION_COOKIE } from '../auth/constants';
 
 /** Attach the Socket.IO realtime gateway (web chat) to the Fastify HTTP server. */
@@ -24,8 +32,13 @@ export function attachRealtime(app: FastifyInstance): IOServer {
       const raw = cookies[SESSION_COOKIE];
       const unsigned = raw ? app.unsignCookie(raw) : null;
       const userId = unsigned?.valid ? unsigned.value : null;
-      if (!userId) return next(new Error('unauthorized'));
-      const user = await prisma.authUser.findUnique({ where: { id: userId } });
+      let user = userId ? await prisma.authUser.findUnique({ where: { id: userId } }) : null;
+      // Local dev: no cookie → fall back to the seeded admin (never in production).
+      if (!user && devBypass) {
+        user = await prisma.authUser.findUnique({
+          where: { email: env.ADMIN_EMAIL.toLowerCase() },
+        });
+      }
       if (!user) return next(new Error('unauthorized'));
       (socket.data as { role?: string }).role = user.role;
       next();
@@ -37,7 +50,12 @@ export function attachRealtime(app: FastifyInstance): IOServer {
   io.on('connection', (socket) => {
     socket.on(
       'chat:message',
-      async (data: { text?: string; authorName?: string; groupId?: string }) => {
+      async (data: {
+        text?: string;
+        authorName?: string;
+        groupId?: string;
+        surface?: 'calendar' | 'vacations' | 'general';
+      }) => {
         try {
           const text = (data?.text ?? '').trim();
           if (!text) return;
@@ -55,6 +73,19 @@ export function attachRealtime(app: FastifyInstance): IOServer {
           const history = await loadHistory(convo.id);
           const authorName = data.authorName?.trim() || undefined;
 
+          const surface = data.surface ?? 'general';
+          // Trip context is only relevant off the Calendar page.
+          const tripList =
+            surface === 'calendar'
+              ? []
+              : (await listVacations(group.id, { includePast: false })).map((v) => ({
+                  id: v.id,
+                  title: v.title,
+                  destinations: v.destinations,
+                  start: toLocalInput(v.startDate, v.timezone ?? group.timezone, true),
+                  end: toLocalInput(v.endDate, v.timezone ?? group.timezone, true),
+                }));
+
           const isAdmin = (socket.data as { role?: string }).role === 'admin';
           const { reply } = await runAgent({
             ctx: {
@@ -67,6 +98,8 @@ export function attachRealtime(app: FastifyInstance): IOServer {
             history,
             userText: text,
             authorName,
+            trips: tripList,
+            surface,
           });
 
           await appendMessages(convo.id, text, reply, authorName);

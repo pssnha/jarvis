@@ -6,9 +6,11 @@ import {
   getOrCreateConversation,
   isAdminWhatsApp,
   listPendingProposals,
+  listVacations,
   loadHistory,
   resolveMember,
   runAgent,
+  toLocalInput,
 } from '@jarvis/agent';
 
 type Sender = (jid: string, text: string) => Promise<void>;
@@ -59,6 +61,14 @@ export async function handleInboundMessage(msg: WAMessage, send: Sender): Promis
     const convo = await getOrCreateConversation(group.id, 'whatsapp');
     const history = await loadHistory(convo.id);
     const pending = await listPendingProposals(group.id);
+    const vacs = await listVacations(group.id, { includePast: false });
+    const trips = vacs.map((v) => ({
+      id: v.id,
+      title: v.title,
+      destinations: v.destinations,
+      start: toLocalInput(v.startDate, v.timezone ?? group.timezone, true),
+      end: toLocalInput(v.endDate, v.timezone ?? group.timezone, true),
+    }));
 
     const { reply } = await runAgent({
       ctx: {
@@ -72,6 +82,7 @@ export async function handleInboundMessage(msg: WAMessage, send: Sender): Promis
       userText,
       authorName: member?.name ?? pushName,
       pendingProposals: pending.map((p) => ({ code: p.code, kind: p.kind, summary: p.summary })),
+      trips,
     });
     await appendMessages(convo.id, userText, reply, member?.name ?? pushName);
     await send(jid, reply);

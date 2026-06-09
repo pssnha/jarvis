@@ -25,6 +25,7 @@ export interface MemberLite {
 export interface GroupSummary {
   id: string;
   name: string;
+  kind: string; // 'group' | 'maintenance'
   timezone: string;
   icalToken: string;
   whatsappGroupId: string | null;
@@ -33,6 +34,8 @@ export interface GroupSummary {
 
 export interface CalendarOccurrence {
   eventId: string;
+  /** Owning group — stamped client-side (esp. for cross-group individual views). */
+  groupId?: string;
   title: string;
   dateKey: string; // yyyy-MM-dd in the group's zone
   startLocal: string;
@@ -143,6 +146,7 @@ export interface VacationSummary {
   id: string;
   title: string;
   destinations: string | null;
+  coverImageUrl: string | null;
   timezone: string;
   startDateLocal: string;
   endDateLocal: string;
@@ -167,6 +171,10 @@ export interface ItineraryItem {
   number: string | null;
   fromLabel: string | null;
   toLabel: string | null;
+  fromTimezone: string | null;
+  toTimezone: string | null;
+  departLabel: string | null;
+  arriveLabel: string | null;
   seat: string | null;
   phone: string | null;
   cost: string | null;
@@ -208,6 +216,8 @@ export interface VacationItemPayload {
   number?: string | null;
   fromLabel?: string | null;
   toLabel?: string | null;
+  fromTimezone?: string | null;
+  toTimezone?: string | null;
   seat?: string | null;
   phone?: string | null;
   cost?: string | null;

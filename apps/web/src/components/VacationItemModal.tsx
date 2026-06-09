@@ -74,6 +74,8 @@ export function VacationItemModal({
   const [number, setNumber] = useState(existing?.number ?? '');
   const [fromLabel, setFromLabel] = useState(existing?.fromLabel ?? '');
   const [toLabel, setToLabel] = useState(existing?.toLabel ?? '');
+  const [fromTimezone, setFromTimezone] = useState(existing?.fromTimezone ?? '');
+  const [toTimezone, setToTimezone] = useState(existing?.toTimezone ?? '');
   const [seat, setSeat] = useState(existing?.seat ?? '');
   const [phone, setPhone] = useState(existing?.phone ?? '');
   const [confirmation, setConfirmation] = useState(existing?.confirmation ?? '');
@@ -113,6 +115,8 @@ export function VacationItemModal({
       number: f.number ? number || null : null,
       fromLabel: f.fromTo ? fromLabel || null : null,
       toLabel: f.fromTo ? toLabel || null : null,
+      fromTimezone: f.fromTo ? fromTimezone || null : null,
+      toTimezone: f.fromTo ? toTimezone || null : null,
       seat: f.seat ? seat || null : null,
       phone: f.phone ? phone || null : null,
       confirmation: f.booking ? confirmation || null : null,
@@ -195,16 +199,36 @@ export function VacationItemModal({
         </div>
 
         {f.fromTo && (
-          <div className="grid2">
-            <label>
-              From
-              <input value={fromLabel} onChange={(e) => setFromLabel(e.target.value)} placeholder="SFO" />
-            </label>
-            <label>
-              To
-              <input value={toLabel} onChange={(e) => setToLabel(e.target.value)} placeholder="LIS" />
-            </label>
-          </div>
+          <>
+            <div className="grid2">
+              <label>
+                From
+                <input value={fromLabel} onChange={(e) => setFromLabel(e.target.value)} placeholder="SFO" />
+              </label>
+              <label>
+                To
+                <input value={toLabel} onChange={(e) => setToLabel(e.target.value)} placeholder="LIS" />
+              </label>
+            </div>
+            <div className="grid2">
+              <label>
+                From timezone <span className="muted">(optional)</span>
+                <input
+                  value={fromTimezone}
+                  onChange={(e) => setFromTimezone(e.target.value)}
+                  placeholder="America/Los_Angeles"
+                />
+              </label>
+              <label>
+                To timezone <span className="muted">(optional)</span>
+                <input
+                  value={toTimezone}
+                  onChange={(e) => setToTimezone(e.target.value)}
+                  placeholder="Europe/Lisbon"
+                />
+              </label>
+            </div>
+          </>
         )}
 
         <div className="grid2">

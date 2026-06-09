@@ -1,6 +1,14 @@
 import { EVENT_CATEGORIES, RECURRENCE_FREQS, WEEKDAYS, type Channel, type EventDraft } from '@jarvis/shared';
 import { cancelEvent, createEvent, findConflicts, findEvents, getSchedule } from '../schedule';
 import { confirmProposal, rejectProposal } from '../proposals';
+import {
+  addVacationItem,
+  deleteVacationItem,
+  getVacation,
+  listVacations,
+  type VacationItemInput,
+} from '../vacations';
+import { VACATION_ITEM_TYPES } from '@jarvis/shared';
 import { findMemberByName } from '../conversation';
 import { formatEventTime } from '../datetime';
 import { describeRecurrence } from '../recurrence';
@@ -256,7 +264,134 @@ export const tools: AgentTool[] = [
     },
     handler: async (input, ctx) => rejectProposal(ctx.groupId, String(input.code)),
   },
+  {
+    spec: {
+      name: 'list_trips',
+      description:
+        "List the group's trips/vacations with their ids, dates, and current itinerary items (flights, hotels, activities). Use this to find a trip id before adding or removing a trip item.",
+      parameters: { type: 'object', properties: {} },
+    },
+    handler: async (_input, ctx) => {
+      const trips = await listVacations(ctx.groupId, { includePast: true });
+      if (trips.length === 0) return 'No trips planned.';
+      const lines: string[] = [];
+      for (const t of trips) {
+        const zone = t.timezone ?? ctx.timezone;
+        const dates = formatEventTime(t.startDate, t.endDate, true, zone);
+        lines.push(
+          `• ${t.title}${t.destinations ? ` (${t.destinations})` : ''} — ${dates} [trip:${t.id}]`,
+        );
+        const full = await getVacation(ctx.groupId, t.id);
+        for (const it of full?.items ?? []) {
+          lines.push(
+            `    - ${it.type}: ${it.title} — ${formatEventTime(it.startsAt, it.endsAt, it.allDay, zone)} [item:${it.id}]`,
+          );
+        }
+      }
+      return lines.join('\n');
+    },
+  },
+  {
+    spec: {
+      name: 'add_trip_item',
+      description:
+        'Add an itinerary item (activity, flight, hotel, transport, meal, or note) to a trip. Call list_trips first to get the trip id. Use local wall-clock times in the trip time zone.',
+      parameters: {
+        type: 'object',
+        properties: {
+          trip_id: { type: 'string', description: 'The trip id from list_trips.' },
+          type: { type: 'string', enum: VACATION_ITEM_TYPES },
+          title: { type: 'string' },
+          starts_at: {
+            type: 'string',
+            description:
+              'Local ISO start without offset, e.g. "2026-06-26T14:00" (flight=departure, hotel=check-in). Date only for all-day.',
+          },
+          ends_at: { type: 'string', description: 'Local ISO end (flight=arrival, hotel=check-out).' },
+          location: { type: 'string' },
+          provider: { type: 'string', description: 'Airline / hotel / operator.' },
+          number: { type: 'string', description: 'Flight or booking number.' },
+          from_label: { type: 'string', description: 'Departure airport / pickup.' },
+          to_label: { type: 'string', description: 'Arrival airport / dropoff.' },
+          from_timezone: {
+            type: 'string',
+            description:
+              'For flights/transport crossing time zones: the IANA zone of the departure (e.g. infer "America/Los_Angeles" from SFO). starts_at is then that local time.',
+          },
+          to_timezone: {
+            type: 'string',
+            description: 'IANA zone of the arrival (e.g. "Europe/Lisbon" from LIS). ends_at is that local time.',
+          },
+          seat: { type: 'string', description: 'Seat / room.' },
+          confirmation: { type: 'string', description: 'PNR / confirmation code.' },
+          notes: { type: 'string' },
+        },
+        required: ['trip_id', 'type', 'title', 'starts_at'],
+      },
+    },
+    handler: async (input, ctx) => {
+      const tripId = String(input.trip_id);
+      const v = await getVacation(ctx.groupId, tripId);
+      if (!v) return 'No trip with that id — call list_trips for valid ids.';
+      const zone = v.timezone ?? ctx.timezone;
+      const str = (k: string) => (typeof input[k] === 'string' ? (input[k] as string) : undefined);
+      const draft: VacationItemInput = {
+        type: (VACATION_ITEM_TYPES as readonly string[]).includes(String(input.type))
+          ? (input.type as VacationItemInput['type'])
+          : 'activity',
+        title: String(input.title),
+        startsAt: String(input.starts_at),
+        endsAt: str('ends_at') ?? null,
+        location: str('location') ?? null,
+        provider: str('provider') ?? null,
+        number: str('number') ?? null,
+        fromLabel: str('from_label') ?? null,
+        toLabel: str('to_label') ?? null,
+        fromTimezone: str('from_timezone') ?? null,
+        toTimezone: str('to_timezone') ?? null,
+        seat: str('seat') ?? null,
+        confirmation: str('confirmation') ?? null,
+        notes: str('notes') ?? null,
+      };
+      const item = await addVacationItem(tripId, draft, zone);
+      return `Added ${item.type} "${item.title}" to "${v.title}".`;
+    },
+  },
+  {
+    spec: {
+      name: 'cancel_trip_item',
+      description: 'Remove an itinerary item from a trip by its item id (from list_trips).',
+      parameters: {
+        type: 'object',
+        properties: { trip_id: { type: 'string' }, item_id: { type: 'string' } },
+        required: ['trip_id', 'item_id'],
+      },
+    },
+    handler: async (input, ctx) => {
+      const v = await getVacation(ctx.groupId, String(input.trip_id));
+      if (!v) return 'No trip with that id.';
+      const removed = await deleteVacationItem(String(input.trip_id), String(input.item_id));
+      return removed ? `Removed "${removed.title}".` : 'No item with that id on this trip.';
+    },
+  },
 ];
 
 export const toolSpecs: ToolSpec[] = tools.map((t) => t.spec);
 export const toolHandlers = new Map(tools.map((t) => [t.spec.name, t.handler]));
+
+/** Which surface (page) the assistant is acting on, to avoid cross-editing. */
+export type ToolSurface = 'calendar' | 'vacations' | 'general';
+
+const SURFACE_TOOLS: Record<'calendar' | 'vacations', string[]> = {
+  // Calendar page: events only — never trips.
+  calendar: ['create_event', 'list_events', 'find_event', 'cancel_event', 'confirm_proposal', 'reject_proposal'],
+  // Vacations page: trip itineraries only — never calendar events.
+  vacations: ['list_trips', 'add_trip_item', 'cancel_trip_item', 'confirm_proposal', 'reject_proposal'],
+};
+
+/** The tools available on a given surface (all of them for "general"). */
+export function toolsForSurface(surface?: ToolSurface): AgentTool[] {
+  if (!surface || surface === 'general') return tools;
+  const allow = SURFACE_TOOLS[surface];
+  return tools.filter((t) => allow.includes(t.spec.name));
+}

@@ -9,6 +9,7 @@ import {
   formatEventTime,
   getVacation,
   listVacations,
+  resolveVacationImage,
   toItineraryItemDTO,
   toLocalInput,
   updateVacation,
@@ -26,6 +27,7 @@ interface VacationBody {
   timezone?: string | null;
   description?: string | null;
   travelerIds?: string[];
+  coverImageUrl?: string | null;
 }
 
 interface VacationItemBody extends Partial<VacationItemInput> {
@@ -43,6 +45,7 @@ function cardDTO(
     startDate: Date;
     endDate: Date;
     timezone: string | null;
+    coverImageUrl: string | null;
     travelers: { id: string; name: string | null }[];
     _count?: { items: number };
   },
@@ -52,6 +55,7 @@ function cardDTO(
     id: v.id,
     title: v.title,
     destinations: v.destinations,
+    coverImageUrl: v.coverImageUrl,
     timezone: zone,
     startDateLocal: toLocalInput(v.startDate, zone, true),
     endDateLocal: toLocalInput(v.endDate, zone, true),
@@ -84,6 +88,14 @@ export async function registerVacations(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'title, startDate and endDate are required' });
     }
     const zone = body.timezone || group.timezone;
+    // Best-effort: let the LLM pick a destination cover photo (never blocks creation).
+    let coverImageUrl = body.coverImageUrl ?? null;
+    if (!coverImageUrl) {
+      coverImageUrl = await resolveVacationImage({
+        title: body.title,
+        destinations: body.destinations ?? null,
+      }).catch(() => null);
+    }
     const v = await createVacation(
       {
         groupId: id,
@@ -94,6 +106,7 @@ export async function registerVacations(app: FastifyInstance): Promise<void> {
         timezone: body.timezone ?? null,
         description: body.description ?? null,
         travelerIds: body.travelerIds,
+        coverImageUrl,
       },
       zone,
     );
@@ -142,6 +155,7 @@ export async function registerVacations(app: FastifyInstance): Promise<void> {
         timezone: body.timezone === undefined ? undefined : body.timezone || null,
         description: body.description === undefined ? undefined : body.description || null,
         travelerIds: body.travelerIds,
+        coverImageUrl: body.coverImageUrl === undefined ? undefined : body.coverImageUrl || null,
       },
       zone,
     );

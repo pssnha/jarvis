@@ -34,6 +34,11 @@ export function timeLabel(date: Date, tz: string): string {
   return DateTime.fromJSDate(date).setZone(tz).toFormat('h:mm a');
 }
 
+/** Time with zone abbreviation, e.g. "8:00 PM PDT" — for cross-timezone transit. */
+export function zonedTimeLabel(date: Date, tz: string): string {
+  return DateTime.fromJSDate(date).setZone(tz).toFormat('h:mm a ZZZZ');
+}
+
 /** Human-readable event time range rendered in `tz`. */
 export function formatEventTime(
   start: Date,

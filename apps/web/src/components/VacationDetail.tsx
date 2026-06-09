@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getVacation } from '../lib/api';
 import type { ItineraryItem, VacationDetail as VacationDetailT, VacationItemType } from '../lib/types';
-import { HOURS, HOUR_PX, hourLabel, layoutColumns, minutesOf } from '../lib/timegrid';
+import { HOUR_PX, hourLabel, layoutColumns, minutesOf } from '../lib/timegrid';
 import { VacationItemModal } from './VacationItemModal';
 import { VacationModal } from './VacationModal';
+
+// Itinerary timeline window: 7:00 AM → 9:00 PM.
+const DAY_START = 7;
+const DAY_END = 21;
+const HOURS_WIN = Array.from({ length: DAY_END - DAY_START + 1 }, (_, i) => DAY_START + i);
+const GRID_PX = HOURS_WIN.length * HOUR_PX;
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -67,6 +73,13 @@ export function VacationDetail({ groupId, vacationId, onBack }: Props) {
 
   useEffect(() => load(), [load]);
 
+  // Refetch the itinerary when the chat assistant reports a change.
+  useEffect(() => {
+    const h = () => load();
+    window.addEventListener('jarvis:refresh', h);
+    return () => window.removeEventListener('jarvis:refresh', h);
+  }, [load]);
+
   if (error) return <p className="error">{error}</p>;
   if (!v) return <p className="empty">Loading…</p>;
 
@@ -102,6 +115,12 @@ export function VacationDetail({ groupId, vacationId, onBack }: Props) {
     }),
   );
 
+  const cities = (v.destinations ?? '')
+    .split(',')
+    .map((c) => c.trim())
+    .filter(Boolean);
+  const travelers = v.travelers.filter((t) => t.name);
+
   return (
     <div className="vac-detail">
       <div className="vac-detail-head">
@@ -110,30 +129,44 @@ export function VacationDetail({ groupId, vacationId, onBack }: Props) {
         </button>
         <div className="vac-detail-title">
           <h2>{v.title}</h2>
-          <div className="muted">{v.dateRangeLabel} · {v.timezone}</div>
-          <div className="vac-chips">
-            {(v.destinations ?? '')
-              .split(',')
-              .map((c) => c.trim())
-              .filter(Boolean)
-              .map((c) => (
-                <span key={c} className="chip cat-vacation">
-                  {c}
-                </span>
-              ))}
-            {v.travelers
-              .filter((t) => t.name)
-              .map((t) => (
-                <span key={t.id} className="chip cat-appointment">
-                  {t.name}
-                </span>
-              ))}
+          <div className="muted">
+            {v.dateRangeLabel} · {v.timezone}
           </div>
         </div>
         <button onClick={() => setEditTrip(true)}>Edit trip</button>
       </div>
 
-      {v.description && <p className="vac-desc">{v.description}</p>}
+      <div className="vac-summary">
+        <div className="vac-sum-section">
+          <h3>🧑‍🤝‍🧑 Travelers</h3>
+          {travelers.length > 0 ? (
+            <div className="vac-chips">
+              {travelers.map((t) => (
+                <span key={t.id} className="chip cat-appointment">
+                  {t.name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="vac-sum-meta">No travelers added.</p>
+          )}
+        </div>
+
+        <div className="vac-sum-section">
+          <h3>📍 Cities</h3>
+          {cities.length > 0 ? (
+            <div className="vac-chips">
+              {cities.map((c) => (
+                <span key={c} className="chip cat-vacation">
+                  {c}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="vac-sum-meta">No cities set.</p>
+          )}
+        </div>
+      </div>
 
       {(v.flights.length > 0 || v.hotels.length > 0) && (
         <div className="vac-summary">
@@ -152,7 +185,9 @@ export function VacationDetail({ groupId, vacationId, onBack }: Props) {
                     {it.fromLabel && it.toLabel ? ` · ${it.fromLabel} → ${it.toLabel}` : ''}
                   </span>
                   <span className="vac-sum-meta">
-                    {it.timeLabel}
+                    {it.departLabel && it.arriveLabel
+                      ? `${it.departLabel} → ${it.arriveLabel}`
+                      : it.timeLabel}
                     {it.seat ? ` · seat ${it.seat}` : ''}
                     {it.confirmation ? ` · ${it.confirmation}` : ''}
                   </span>
@@ -248,8 +283,8 @@ export function VacationDetail({ groupId, vacationId, onBack }: Props) {
           </div>
 
           <div className="tg-body">
-            <div className="tg-gutter" style={{ height: 24 * HOUR_PX }}>
-              {HOURS.map((h) => (
+            <div className="tg-gutter" style={{ height: GRID_PX }}>
+              {HOURS_WIN.map((h) => (
                 <div key={h} className="tg-hour" style={{ height: HOUR_PX }}>
                   <span>{hourLabel(h)}</span>
                 </div>
@@ -258,24 +293,25 @@ export function VacationDetail({ groupId, vacationId, onBack }: Props) {
             <div
               className="tg-col"
               style={{
-                height: 24 * HOUR_PX,
+                height: GRID_PX,
                 backgroundImage: `repeating-linear-gradient(to bottom, #eef0f2 0, #eef0f2 1px, transparent 1px, transparent ${HOUR_PX}px)`,
               }}
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const hh = Math.max(0, Math.min(23, Math.floor((e.clientY - rect.top) / HOUR_PX)));
-                setItemModal({ dateKey: `${dayKey}T${hh < 10 ? '0' : ''}${hh}:00`.slice(0, 10) });
-              }}
+              onClick={() => setItemModal({ dateKey: dayKey })}
             >
               {blocks.map((b, idx) => {
                 const c = color(b.o);
+                // Position relative to the 7:00 window start; clamp into view.
+                const rawTop = ((b.startMin - DAY_START * 60) / 60) * HOUR_PX;
+                const top = Math.max(0, Math.min(rawTop, GRID_PX - 18));
+                const rawH = Math.max(((b.endMin - b.startMin) / 60) * HOUR_PX - 2, 18);
+                const height = Math.max(14, Math.min(rawH, GRID_PX - top));
                 return (
                   <button
                     key={`${b.o.id}-${idx}`}
                     className="tg-event"
                     style={{
-                      top: (b.startMin / 60) * HOUR_PX,
-                      height: Math.max(((b.endMin - b.startMin) / 60) * HOUR_PX - 2, 18),
+                      top,
+                      height,
                       left: `calc(${(b.col / b.cols) * 100}% + 2px)`,
                       width: `calc(${100 / b.cols}% - 4px)`,
                       background: c,
@@ -290,8 +326,9 @@ export function VacationDetail({ groupId, vacationId, onBack }: Props) {
                       {TYPE_ICON[b.o.type]} {b.o.title}
                     </span>
                     <span className="tg-ev-time">
-                      {b.o.timeLabel}
-                      {b.o.location ? ` · ${b.o.location}` : ''}
+                      {b.o.departLabel && b.o.arriveLabel
+                        ? `${b.o.departLabel} → ${b.o.arriveLabel}`
+                        : `${b.o.timeLabel}${b.o.location ? ` · ${b.o.location}` : ''}`}
                     </span>
                   </button>
                 );

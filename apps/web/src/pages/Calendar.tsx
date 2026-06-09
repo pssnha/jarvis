@@ -61,8 +61,15 @@ function layoutDay(items: CalendarOccurrence[]): Block[] {
     .filter((o) => !o.allDay)
     .map((o) => {
       const s = minutesOf(o.startLocal);
-      let e = o.endLocal ? minutesOf(o.endLocal) : s + 60;
-      if (e <= s) e = Math.min(s + 60, 1440);
+      let e: number;
+      if (o.kind === 'reminder') {
+        // Reminders are simple nudges — always show as a fixed 30-min slot so
+        // the text is readable (and overlapping ones get split side by side).
+        e = s + 30;
+      } else {
+        e = o.endLocal ? minutesOf(o.endLocal) : s + 60;
+        if (e <= s) e = s + 60;
+      }
       return { o, startMin: s, endMin: Math.min(e, 1440), col: 0, cols: 1 };
     })
     .sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);

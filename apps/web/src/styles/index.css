@@ -985,7 +985,17 @@ button.danger {
   padding-left: 1.1rem;
 }
 
-/* Reminder time-grid blocks read as light "available" slots. */
+/* Reminder time-grid blocks read as light "available" slots, single-line so a
+   30-min block stays legible (title and time sit inline). */
 .tg-event.reminder {
   box-shadow: none;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 5px;
+}
+.tg-event.reminder .tg-ev-title {
+  flex: 1 1 auto;
+}
+.tg-event.reminder .tg-ev-time {
+  flex: 0 0 auto;
 }

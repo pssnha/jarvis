@@ -93,6 +93,13 @@ model Event {
   endsAt      DateTime?
   allDay      Boolean   @default(false)
   location    String?
+  /// "reminder" = simple, non-blocking notification (shows as a 30-min
+  /// "available" slot, never causes conflicts). "event" = a hard block on the
+  /// calendar (start+end, marked busy, warns on overlap with other events).
+  kind        String    @default("reminder")
+  /// For events: how many minutes before `startsAt` the reminder is sent.
+  /// Null = at start time. Ignored for reminders (they fire at start).
+  reminderLeadMinutes Int?
   /// appointment | vacation | reminder | other
   category    String?
   /// Optional hex color (e.g. "#2563eb"); falls back to the category color.

@@ -8,6 +8,8 @@ export interface ICalEvent {
   location?: string;
   /** RFC 5545 RRULE value (without the "RRULE:" prefix) for recurring events. */
   rrule?: string;
+  /** When true, marks the event as free/available (TRANSP:TRANSPARENT). */
+  transparent?: boolean;
 }
 
 function pad(n: number): string {
@@ -65,6 +67,7 @@ export function buildICalendar(calendarName: string, events: ICalEvent[]): strin
       if (e.end) lines.push(`DTEND:${formatUtc(e.end)}`);
     }
     if (e.rrule) lines.push(`RRULE:${e.rrule}`);
+    lines.push(`TRANSP:${e.transparent ? 'TRANSPARENT' : 'OPAQUE'}`);
     lines.push(`SUMMARY:${escapeText(e.title)}`);
     if (e.location) lines.push(`LOCATION:${escapeText(e.location)}`);
     if (e.description) lines.push(`DESCRIPTION:${escapeText(e.description)}`);

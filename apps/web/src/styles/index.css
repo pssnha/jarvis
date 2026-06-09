@@ -925,3 +925,47 @@ button.danger {
     justify-content: space-between;
   }
 }
+
+/* ---------- Event modal: type toggle, lead, conflicts ---------- */
+.kind-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0.1rem;
+}
+.kind-toggle .kt {
+  flex: 1;
+  border: 1px solid #d3d6da;
+  background: #fff;
+  border-radius: 8px;
+  padding: 0.5rem;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+.kind-toggle .kt.on {
+  background: #eef2ff;
+  border-color: #2563eb;
+  color: #1e40af;
+  font-weight: 600;
+}
+.kind-help {
+  margin: 0.1rem 0 0.4rem;
+  font-size: 0.78rem;
+}
+.conflict-warn {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.85rem;
+  margin: 0.2rem 0;
+}
+.conflict-warn ul {
+  margin: 0.3rem 0;
+  padding-left: 1.1rem;
+}
+
+/* Reminder time-grid blocks read as light "available" slots. */
+.tg-event.reminder {
+  box-shadow: none;
+}

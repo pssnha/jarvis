@@ -1,5 +1,5 @@
 import { EVENT_CATEGORIES, RECURRENCE_FREQS, WEEKDAYS, type Channel, type EventDraft } from '@jarvis/shared';
-import { cancelEvent, createEvent, findEvents, getSchedule } from '../schedule';
+import { cancelEvent, createEvent, findConflicts, findEvents, getSchedule } from '../schedule';
 import { findMemberByName } from '../conversation';
 import { formatEventTime } from '../datetime';
 import { describeRecurrence } from '../recurrence';
@@ -65,17 +65,31 @@ export const tools: AgentTool[] = [
     spec: {
       name: 'create_event',
       description:
-        'Add an event to the group schedule (appointment, vacation, reminder, …). Use local wall-clock times in the group time zone. Set `recurrence` to make it repeat.',
+        'Add something to the group schedule. There are two kinds. Use kind="reminder" (the default) for a simple, non-blocking nudge — daily briefs, birthdays, "feed Taco", take medication — these never need an end time. Use kind="event" for a real commitment that occupies time and should not double-book — meetings, appointments, trips; for these always provide an `end`, and set `remind_lead_minutes` to how early the heads-up should go out. Use local wall-clock times in the group time zone. Set `recurrence` to make it repeat.',
       parameters: {
         type: 'object',
         properties: {
           title: { type: 'string' },
+          kind: {
+            type: 'string',
+            enum: ['reminder', 'event'],
+            description:
+              'reminder = simple non-blocking notification (default). event = a hard, time-blocking commitment that warns on overlap.',
+          },
           start: {
             type: 'string',
             description:
               'Local ISO start without offset, e.g. "2026-06-10T15:00". Use a date only "2026-06-10" for all-day. For recurring events, this is the first occurrence.',
           },
-          end: { type: 'string', description: 'Optional local ISO end.' },
+          end: {
+            type: 'string',
+            description: 'Local ISO end. Required for kind="event"; omit for reminders.',
+          },
+          remind_lead_minutes: {
+            type: 'integer',
+            description:
+              'For kind="event": how many minutes before start to send the reminder (e.g. 15, 60). Omit/0 = at start time.',
+          },
           all_day: { type: 'boolean' },
           location: { type: 'string' },
           category: { type: 'string', enum: EVENT_CATEGORIES },
@@ -102,6 +116,9 @@ export const tools: AgentTool[] = [
             : undefined,
         recurrence: parseRecurrence(input.recurrence),
       };
+      const kind = input.kind === 'event' ? 'event' : 'reminder';
+      const reminderLeadMinutes =
+        typeof input.remind_lead_minutes === 'number' ? input.remind_lead_minutes : null;
       let assigneeId: string | null = null;
       let assigneeName: string | null = null;
       if (typeof input.assignee === 'string' && input.assignee.trim()) {
@@ -118,10 +135,28 @@ export const tools: AgentTool[] = [
         timezone: ctx.timezone,
         createdById: ctx.createdById,
         assigneeId,
+        kind,
+        reminderLeadMinutes,
       });
-      let base = `Created "${ev.title}"${assigneeName ? ` for ${assigneeName}` : ''} — ${formatEventTime(ev.startsAt, ev.endsAt, ev.allDay, ctx.timezone)}`;
+      let base = `Created ${kind} "${ev.title}"${assigneeName ? ` for ${assigneeName}` : ''} — ${formatEventTime(ev.startsAt, ev.endsAt, ev.allDay, ctx.timezone)}`;
       if (ev.rrule) base += `, repeating ${describeRecurrence(ev.rrule)}`;
-      return `${base}.`;
+      let warning = '';
+      if (kind === 'event' && ev.endsAt && !ev.rrule) {
+        const conflicts = await findConflicts(
+          ctx.groupId,
+          ctx.timezone,
+          ev.startsAt,
+          ev.endsAt,
+          ev.id,
+        );
+        if (conflicts.length > 0) {
+          const list = conflicts
+            .map((c) => `"${c.title}" (${formatEventTime(c.start, c.end, false, ctx.timezone)})`)
+            .join(', ');
+          warning = ` ⚠️ Heads up — this overlaps: ${list}.`;
+        }
+      }
+      return `${base}.${warning}`;
     },
   },
   {

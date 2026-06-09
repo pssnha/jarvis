@@ -2,6 +2,7 @@ import type {
   AdminGroup,
   AdminUser,
   CalendarOccurrence,
+  Conflict,
   EventDetail,
   EventPayload,
   GroupMember,
@@ -121,6 +122,19 @@ export async function getCalendar(
   u.searchParams.set('to', toISO);
   if (memberId) u.searchParams.set('memberId', memberId);
   return fetch(u).then((r) => json<CalendarOccurrence[]>(r));
+}
+
+export async function checkConflicts(
+  groupId: string,
+  start: string,
+  end: string | null,
+  excludeEventId?: string,
+): Promise<Conflict[]> {
+  const u = new URL(`/api/groups/${groupId}/conflicts`, window.location.origin);
+  u.searchParams.set('start', start);
+  if (end) u.searchParams.set('end', end);
+  if (excludeEventId) u.searchParams.set('exclude', excludeEventId);
+  return fetch(u).then((r) => json<Conflict[]>(r));
 }
 
 export async function listGroupMembers(groupId: string): Promise<MemberLite[]> {

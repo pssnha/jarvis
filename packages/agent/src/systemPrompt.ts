@@ -12,11 +12,16 @@ export function buildSystemPrompt(timezone: string, opts: PromptOptions = {}): s
 Resolve relative dates ("tomorrow", "next Friday", "this weekend") against that.`;
 
   const tools = `Scheduling — use the tools:
-- add events with create_event (appointments, vacations, recurring reminders; you can assign an
-  event to a specific person with the "assignee" argument when a name is mentioned)
+- add things with create_event. Decide the kind:
+  • "reminder" (default) — a simple non-blocking nudge with no end time (daily brief, a birthday,
+    "feed Taco", take medicine). Shows as a short "available" slot and never double-books.
+  • "event" — a real, time-blocking commitment (meeting, appointment, trip). Always give an "end"
+    time and a "remind_lead_minutes" (how early to nudge); these warn when they overlap another event.
+  You can assign either kind to a specific person with the "assignee" argument when a name is mentioned.
 - list upcoming events with list_events
 - look up and cancel events with find_event / cancel_event
-Confirm what you added or changed in one short line including the date and time. If a scheduling
+Confirm what you added or changed in one short line including the date and time. For an event, if
+the end time or how-early-to-remind is missing, ask one short clarifying question. If a scheduling
 date/time is ambiguous, ask one short clarifying question instead of guessing.`;
 
   const style = `Be concise and friendly — replies appear in a WhatsApp chat and a web app. In a group chat each

@@ -5,11 +5,14 @@ import {
   createEvent,
   dateKeyInZone,
   expandCalendar,
+  findConflicts,
   getEvent,
+  localIsoToUtc,
   parseRRule,
   timeLabel,
   toLocalInput,
   updateEvent,
+  type EventKind,
   type UpdateEventInput,
 } from '@jarvis/agent';
 import type { EventDraft, Recurrence } from '@jarvis/shared';
@@ -24,6 +27,8 @@ interface EventBody {
   recurrence?: Recurrence | null;
   assigneeId?: string | null;
   color?: string | null;
+  kind?: EventKind;
+  reminderLeadMinutes?: number | null;
 }
 
 /** Schedule data routes — available to any authenticated user. */
@@ -77,6 +82,7 @@ export async function registerGroups(app: FastifyInstance): Promise<void> {
       timeLabel: o.allDay ? 'all day' : timeLabel(o.start, group.timezone),
       allDay: o.allDay,
       recurring: o.recurring,
+      kind: o.kind,
       category: o.category,
       color: o.color,
       location: o.location,
@@ -110,7 +116,32 @@ export async function registerGroups(app: FastifyInstance): Promise<void> {
       draft,
       assigneeId: body.assigneeId ?? null,
       color: body.color ?? null,
+      kind: body.kind ?? 'reminder',
+      reminderLeadMinutes: body.reminderLeadMinutes ?? null,
     });
+  });
+
+  // Conflict check: hard-block events overlapping a proposed time range.
+  // Reminders never conflict. `start`/`end` are local ISO in the group zone.
+  app.get('/groups/:id/conflicts', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { start, end, exclude } = req.query as {
+      start?: string;
+      end?: string;
+      exclude?: string;
+    };
+    const group = await prisma.group.findUnique({ where: { id } });
+    if (!group) return reply.code(404).send({ error: 'group not found' });
+    if (!start) return reply.code(400).send({ error: 'start is required' });
+
+    const startUtc = localIsoToUtc(start, group.timezone);
+    const endUtc = end ? localIsoToUtc(end, group.timezone) : new Date(startUtc.getTime() + 3_600_000);
+    const conflicts = await findConflicts(id, group.timezone, startUtc, endUtc, exclude || undefined);
+    return conflicts.map((c) => ({
+      eventId: c.eventId,
+      title: c.title,
+      timeLabel: `${timeLabel(c.start, group.timezone)}–${timeLabel(c.end, group.timezone)}`,
+    }));
   });
 
   // Get one event (with form-friendly local times + structured recurrence).
@@ -145,6 +176,9 @@ export async function registerGroups(app: FastifyInstance): Promise<void> {
       recurrence: body.recurrence === undefined ? undefined : body.recurrence || null,
       assigneeId: body.assigneeId === undefined ? undefined : body.assigneeId || null,
       color: body.color === undefined ? undefined : body.color || null,
+      kind: body.kind,
+      reminderLeadMinutes:
+        body.reminderLeadMinutes === undefined ? undefined : body.reminderLeadMinutes,
     };
     const ev = await updateEvent(id, eventId, patch, group.timezone);
     if (!ev) return reply.code(404).send({ error: 'event not found' });

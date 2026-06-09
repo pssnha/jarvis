@@ -209,17 +209,19 @@ function TimeGrid({ days, byDay, individual, todayKey, onPick, onAdd }: TimeGrid
             >
               {blocks.map((b, i) => {
                 const c = dotColor(b.o);
+                const reminder = b.o.kind === 'reminder';
                 return (
                   <button
                     key={`${b.o.eventId}-${i}`}
-                    className="tg-event"
+                    className={reminder ? 'tg-event reminder' : 'tg-event'}
                     style={{
                       top: (b.startMin / 60) * HOUR_PX,
                       height: Math.max(((b.endMin - b.startMin) / 60) * HOUR_PX - 2, 16),
                       left: `calc(${(b.col / b.cols) * 100}% + 2px)`,
                       width: `calc(${100 / b.cols}% - 4px)`,
-                      background: c,
-                      color: textOn(c),
+                      background: reminder ? `${c}22` : c,
+                      color: reminder ? '#1f2937' : textOn(c),
+                      borderLeft: reminder ? `3px solid ${c}` : undefined,
                     }}
                     title={b.o.title}
                     onClick={(e) => {
@@ -227,7 +229,10 @@ function TimeGrid({ days, byDay, individual, todayKey, onPick, onAdd }: TimeGrid
                       onPick(b.o.eventId);
                     }}
                   >
-                    <span className="tg-ev-title">{b.o.title}</span>
+                    <span className="tg-ev-title">
+                      {reminder && '🔔 '}
+                      {b.o.title}
+                    </span>
                     <span className="tg-ev-time">
                       {b.o.timeLabel}
                       {!individual && b.o.assigneeName ? ` · ${b.o.assigneeName}` : ''}

@@ -1,5 +1,12 @@
 export type RecurrenceFreq = 'daily' | 'weekly' | 'monthly' | 'yearly';
 export type Weekday = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU';
+export type EventKind = 'reminder' | 'event';
+
+export interface Conflict {
+  eventId: string;
+  title: string;
+  timeLabel: string;
+}
 
 export interface Recurrence {
   freq: RecurrenceFreq;
@@ -32,6 +39,7 @@ export interface CalendarOccurrence {
   timeLabel: string;
   allDay: boolean;
   recurring: boolean;
+  kind: EventKind;
   category: string | null;
   color: string | null;
   location: string | null;
@@ -50,6 +58,8 @@ export interface EventDetail {
   recurrence: Recurrence | null;
   assigneeId: string | null;
   color: string | null;
+  kind: EventKind;
+  reminderLeadMinutes: number | null;
 }
 
 export interface Me {
@@ -107,4 +117,6 @@ export interface EventPayload {
   recurrence?: Recurrence | null;
   assigneeId?: string | null;
   color?: string | null;
+  kind?: EventKind;
+  reminderLeadMinutes?: number | null;
 }

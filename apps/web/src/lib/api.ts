@@ -78,6 +78,9 @@ export async function adminCircleWhatsAppStatus(cid: string): Promise<WhatsAppSt
 export async function adminStartCircleWhatsApp(cid: string): Promise<void> {
   await fetch(`/api/admin/circles/${cid}/whatsapp/start`, { method: 'POST' }).then((r) => json(r));
 }
+export async function adminLogoutCircleWhatsApp(cid: string): Promise<void> {
+  await fetch(`/api/admin/circles/${cid}/whatsapp/logout`, { method: 'POST' }).then((r) => json(r));
+}
 
 // ---------- Admin: circles ----------
 export async function adminListCircles(): Promise<AdminCircle[]> {

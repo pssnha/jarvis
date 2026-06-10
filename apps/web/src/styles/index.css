@@ -1067,6 +1067,218 @@ button.primary:active {
 .pane {
   animation: pane-in var(--dur) var(--ease);
 }
+
+/* Connections: horizontal pills (WhatsApp / Groups / Email) */
+.pills {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+.pill {
+  border: 1px solid var(--separator);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding: 0.34rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+.pill:hover:not(.on) {
+  background: var(--surface-2);
+}
+.pill.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.pill:active {
+  transform: scale(0.97);
+}
+
+/* Connection card (WhatsApp / Email shell) */
+.conn-card {
+  border: 1px solid var(--separator);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  padding: 0.5rem 0.5rem;
+}
+.conn-card.pad {
+  padding: 1rem;
+}
+.conn-card.qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1.2rem;
+}
+.conn-card.qr img {
+  border-radius: var(--r-sm);
+}
+.conn-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.6rem;
+}
+.conn-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.conn-dot.ok {
+  background: #34c759;
+  box-shadow: 0 0 0 4px rgba(52, 199, 89, 0.18);
+}
+.conn-main {
+  flex: 1;
+  min-width: 0;
+}
+.conn-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+.conn-sub {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+.conn-empty {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  padding: 0.5rem 0.2rem;
+}
+
+/* Quiet button (pill-shaped secondary action) */
+.btn-quiet {
+  border: 1px solid var(--separator);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.34rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+.btn-quiet:hover {
+  background: var(--surface-2-hover);
+}
+.btn-quiet:active {
+  transform: scale(0.97);
+}
+.btn-quiet:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.btn-quiet.danger {
+  color: var(--danger);
+}
+.btn-quiet.sm {
+  font-size: 0.78rem;
+  padding: 0.22rem 0.7rem;
+}
+
+/* Group cards */
+.group-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.group-card {
+  border: 1px solid var(--separator);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  padding: 0.8rem 0.9rem;
+}
+.group-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.55rem;
+}
+.group-name {
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+}
+.group-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.m-chip {
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.26rem 0.66rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid transparent;
+}
+.m-chip.toggle {
+  background: transparent;
+  border-color: var(--separator);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.m-chip.on {
+  background: var(--accent-fill);
+  color: var(--accent);
+  border-color: transparent;
+  cursor: pointer;
+}
+.group-card-foot {
+  display: flex;
+  gap: 1.1rem;
+  align-items: center;
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--separator);
+}
+.import-link {
+  position: relative;
+  font-size: 0.83rem;
+  color: var(--accent);
+  cursor: pointer;
+}
+.import-link input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  cursor: pointer;
+}
+
+/* Email add form */
+.email-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.email-add input {
+  flex: 1;
+  min-width: 160px;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--separator);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+/* Pane section headings — Vacation-page weight/tracking */
+.pane .subsec h4 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.6rem;
+}
 @keyframes pane-in {
   from {
     opacity: 0;

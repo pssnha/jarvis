@@ -18,6 +18,17 @@ const redis = createRedis();
 
 const MAINTENANCE_JOBS = ['email_poll', 'daily_brief', 'health_check'] as const;
 
+/** Best-effort IMAP host for an email address (so the user never types it). */
+function imapHostFor(address: string): string {
+  const domain = address.split('@')[1]?.toLowerCase().trim() ?? '';
+  if (/(^|\.)(gmail|googlemail)\.com$/.test(domain)) return 'imap.gmail.com';
+  if (/(^|\.)(outlook|hotmail|live|msn)\.[a-z.]+$/.test(domain)) return 'outlook.office365.com';
+  if (/(^|\.)yahoo\.[a-z.]+$/.test(domain)) return 'imap.mail.yahoo.com';
+  if (/(^|\.)(icloud|me|mac)\.com$/.test(domain)) return 'imap.mail.me.com';
+  if (/(^|\.)aol\.com$/.test(domain)) return 'imap.aol.com';
+  return domain ? `imap.${domain}` : 'imap.gmail.com';
+}
+
 /** Site admins manage everything; per-circle admins manage only their circle(s). */
 function isSiteAdmin(req: FastifyRequest): boolean {
   return req.authUser?.role === 'admin';
@@ -398,11 +409,12 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     const c = await prisma.circle.findUnique({ where: { id: cid } });
     if (!c) return reply.code(404).send({ error: 'circle not found' });
     if (!body.address) return reply.code(400).send({ error: 'address is required' });
+    const address = body.address.trim().toLowerCase();
     await prisma.circle.update({
       where: { id: cid },
       data: {
-        emailAddress: body.address.trim().toLowerCase(),
-        emailHost: body.host?.trim() || 'imap.gmail.com',
+        emailAddress: address,
+        emailHost: body.host?.trim() || imapHostFor(address),
         emailPort: body.port ?? 993,
         emailEnabled: body.enabled ?? true,
         ...(body.credential ? { emailEncCred: encryptValue(body.credential) } : {}),
@@ -479,6 +491,16 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     const c = await prisma.circle.findUnique({ where: { id: cid } });
     if (!c) return reply.code(404).send({ error: 'circle not found' });
     await redis.publish('wa:control', JSON.stringify({ action: 'start', circleId: cid }));
+    return { ok: true };
+  });
+
+  // Disconnect the circle's linked WhatsApp number (wipes auth → next start = fresh QR).
+  app.post('/admin/circles/:cid/whatsapp/logout', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
+    await redis.publish('wa:control', JSON.stringify({ action: 'logout', circleId: cid }));
     return { ok: true };
   });
 

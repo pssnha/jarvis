@@ -13,6 +13,7 @@ import {
   adminImportSchedule,
   adminListCircles,
   adminListUsers,
+  adminLogoutCircleWhatsApp,
   adminRemoveGroupMember,
   adminSetCircleCover,
   adminSetCircleEmail,
@@ -189,8 +190,15 @@ export function Circles({ siteAdmin }: { siteAdmin: boolean }) {
   );
 }
 
+function fmtNumber(n: string | null | undefined): string {
+  if (!n) return 'Linked device';
+  const d = n.replace(/\D/g, '');
+  return `+${d}`;
+}
+
 function CircleWhatsApp({ circle, onError }: { circle: AdminCircle; onError: (e: unknown) => void }) {
   const [wa, setWa] = useState<WhatsAppStatus | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(() => {
     adminCircleWhatsAppStatus(circle.id).then(setWa).catch(() => {});
@@ -202,45 +210,66 @@ function CircleWhatsApp({ circle, onError }: { circle: AdminCircle; onError: (e:
   }, [load]);
 
   const status = wa?.status ?? 'offline';
-  async function relink() {
+
+  async function connect() {
+    setBusy(true);
     try {
       await adminStartCircleWhatsApp(circle.id);
     } catch (e) {
       onError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function disconnect() {
+    if (!confirm('Remove this WhatsApp number? You can link a new one with a QR code.')) return;
+    setBusy(true);
+    try {
+      await adminLogoutCircleWhatsApp(circle.id);
+      setWa(null);
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy(false);
     }
   }
 
-  return (
-    <div className="subsec">
-      <h4>WhatsApp connection</h4>
-      <p className="muted">
-        This circle's own Jarvis number. Every WhatsApp group it is in becomes a group above
-        automatically.
-      </p>
-      {status === 'open' ? (
-        <p>
-          <span className="badge admin">Connected</span> linked as{' '}
-          <strong>{wa?.self ?? 'device'}</strong> · {wa?.groups.length ?? 0} group(s) visible
-        </p>
-      ) : status === 'qr' && wa?.qr ? (
-        <div className="wa-qr">
-          <p className="muted">
-            Open WhatsApp on the circle's phone →{' '}
-            <strong>Settings → Linked Devices → Link a Device</strong> → scan this code:
-          </p>
-          <img src={wa.qr} alt="WhatsApp QR code" width={220} height={220} />
-        </div>
-      ) : (
-        <p className="muted">
-          Status: <strong>{status}</strong>
-          {status === 'connecting' && ' — connecting…'}
-          {status === 'offline' && ' — no session yet.'}
-          {status === 'logged_out' && ' — device was unlinked.'}{' '}
-          <button className="link" onClick={relink}>
-            {status === 'offline' || status === 'logged_out' ? 'start / get QR' : 'restart'}
+  if (status === 'open') {
+    return (
+      <div className="conn-card">
+        <div className="conn-row">
+          <span className="conn-dot ok" />
+          <div className="conn-main">
+            <div className="conn-title">{fmtNumber(wa?.self)}</div>
+            <div className="conn-sub">Connected · {wa?.groups.length ?? 0} groups</div>
+          </div>
+          <button className="btn-quiet danger" onClick={disconnect} disabled={busy}>
+            Remove
           </button>
-        </p>
-      )}
+        </div>
+      </div>
+    );
+  }
+  if (status === 'qr' && wa?.qr) {
+    return (
+      <div className="conn-card qr">
+        <img src={wa.qr} alt="WhatsApp QR code" width={200} height={200} />
+        <div className="conn-sub">WhatsApp → Linked Devices → Link a Device</div>
+      </div>
+    );
+  }
+  return (
+    <div className="conn-card">
+      <div className="conn-row">
+        <span className="conn-dot" />
+        <div className="conn-main">
+          <div className="conn-title">No number linked</div>
+          <div className="conn-sub">{status === 'connecting' ? 'Connecting…' : 'Link a WhatsApp number'}</div>
+        </div>
+        <button className="btn-quiet" onClick={connect} disabled={busy}>
+          Connect
+        </button>
+      </div>
     </div>
   );
 }
@@ -425,25 +454,52 @@ function ConnectionsPane({
   onError: (e: unknown) => void;
   onChanged: () => void;
 }) {
+  const [sub, setSub] = useState<'whatsapp' | 'groups' | 'email'>('whatsapp');
+  const pills: { id: typeof sub; label: string }[] = [
+    { id: 'whatsapp', label: 'WhatsApp' },
+    { id: 'groups', label: 'Groups' },
+    { id: 'email', label: 'Email' },
+  ];
   return (
     <div className="pane">
-      <CircleWhatsApp circle={circle} onError={onError} />
-
-      <div className="subsec">
-        <h4>Groups</h4>
-        <p className="muted">
-          WhatsApp groups this number is in. Toggle which members belong to each group.
-        </p>
-        {circle.groups.length === 0 ? (
-          <p className="muted">No groups yet — add Jarvis to a WhatsApp group.</p>
-        ) : (
-          circle.groups.map((g) => (
-            <GroupBlock key={g.id} circle={circle} group={g} onError={onError} onChanged={onChanged} />
-          ))
-        )}
+      <div className="pills">
+        {pills.map((p) => (
+          <button
+            key={p.id}
+            className={sub === p.id ? 'pill on' : 'pill'}
+            onClick={() => setSub(p.id)}
+          >
+            {p.label}
+          </button>
+        ))}
       </div>
 
-      <EmailPollingSection circle={circle} onError={onError} onChanged={onChanged} />
+      {sub === 'whatsapp' && <CircleWhatsApp circle={circle} onError={onError} />}
+      {sub === 'groups' && <GroupsList circle={circle} onError={onError} onChanged={onChanged} />}
+      {sub === 'email' && (
+        <EmailPollingSection circle={circle} onError={onError} onChanged={onChanged} />
+      )}
+    </div>
+  );
+}
+
+function GroupsList({
+  circle,
+  onError,
+  onChanged,
+}: {
+  circle: AdminCircle;
+  onError: (e: unknown) => void;
+  onChanged: () => void;
+}) {
+  if (circle.groups.length === 0) {
+    return <p className="conn-empty">No groups yet — add Jarvis to a WhatsApp group.</p>;
+  }
+  return (
+    <div className="group-cards">
+      {circle.groups.map((g) => (
+        <GroupCard key={g.id} circle={circle} group={g} onError={onError} onChanged={onChanged} />
+      ))}
     </div>
   );
 }
@@ -504,11 +560,6 @@ function MembersPane({
   return (
     <div className="pane">
       <div className="subsec">
-        <h4>Members</h4>
-        <p className="muted">
-          People in this circle, matched by WhatsApp number and/or email. Circle admins can manage
-          this circle (but not site Permissions).
-        </p>
         <ul className="member-list">
           {circle.members.length === 0 && <li className="member-row muted">No members yet.</li>}
           {circle.members.map((m) => (
@@ -626,7 +677,6 @@ function CoverImageSection({
   return (
     <div className="subsec">
       <h4>Background image</h4>
-      <p className="muted">Shown on the circle’s card. JPG/PNG, up to 3 MB.</p>
       {circle.coverImageUrl && (
         <div
           className="cover-preview"
@@ -654,7 +704,7 @@ function CoverImageSection({
   );
 }
 
-function GroupBlock({
+function GroupCard({
   circle,
   group,
   onError,
@@ -665,10 +715,12 @@ function GroupBlock({
   onError: (e: unknown) => void;
   onChanged: () => void;
 }) {
-  const [importFile, setImportFile] = useState<File | null>(null);
+  const [editing, setEditing] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importMsg, setImportMsg] = useState<string | null>(null);
   const inGroup = new Set(group.memberIds);
+  const named = circle.members.filter((m) => m.name);
+  const memberNames = named.filter((m) => inGroup.has(m.id)).map((m) => m.name);
 
   async function toggle(memberId: string, on: boolean) {
     try {
@@ -679,17 +731,13 @@ function GroupBlock({
       onError(e);
     }
   }
-  async function doImport() {
-    if (!importFile) return;
+  async function doImport(file: File) {
     setImportBusy(true);
     setImportMsg(null);
     try {
-      const r = await adminImportSchedule(circle.id, group.id, importFile);
+      const r = await adminImportSchedule(circle.id, group.id, file);
       const errs = r.errors.length ? ` · ${r.errors.length} issue(s)` : '';
-      setImportMsg(
-        `Imported ${r.created} event(s)${r.skipped ? `, skipped ${r.skipped}` : ''}${errs}.`,
-      );
-      setImportFile(null);
+      setImportMsg(`Imported ${r.created}${r.skipped ? `, skipped ${r.skipped}` : ''}${errs}.`);
       onChanged();
     } catch (e) {
       setImportMsg(`Failed: ${(e as Error).message}`);
@@ -699,43 +747,61 @@ function GroupBlock({
   }
 
   return (
-    <div className="group-block">
-      <div className="group-block-head">
-        <strong>{group.name}</strong>{' '}
-        {group.whatsappGroupId ? (
-          <span className="badge admin">WhatsApp</span>
-        ) : (
-          <span className="badge member">manual</span>
-        )}{' '}
-        <a className="ical-link" href={`/api/calendar/${group.icalToken}.ics`} title="Subscribe">
-          iCal
-        </a>
-      </div>
-      <div className="traveler-list">
-        {circle.members
-          .filter((m) => m.name)
-          .map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              className={inGroup.has(m.id) ? 'traveler on' : 'traveler'}
-              onClick={() => toggle(m.id, !inGroup.has(m.id))}
-            >
-              {m.name}
-            </button>
-          ))}
-      </div>
-      <div className="admin-form">
-        <input
-          type="file"
-          accept=".ics,.json,text/calendar,application/json"
-          onChange={(e) => setImportFile(e.target.files?.[0] ?? null)}
-        />
-        <button className="primary" onClick={doImport} disabled={!importFile || importBusy}>
-          {importBusy ? 'Importing…' : 'Import'}
+    <div className="group-card">
+      <div className="group-card-head">
+        <span className="group-name">{group.name}</span>
+        <button className="btn-quiet sm" onClick={() => setEditing((v) => !v)}>
+          {editing ? 'Done' : 'Edit'}
         </button>
       </div>
-      {importMsg && <p className="muted">{importMsg}</p>}
+
+      {!editing ? (
+        <div className="group-members">
+          {memberNames.length > 0 ? (
+            memberNames.map((n) => (
+              <span key={n} className="m-chip">
+                {n}
+              </span>
+            ))
+          ) : (
+            <span className="conn-sub">No members yet</span>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="group-members">
+            {named.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className={inGroup.has(m.id) ? 'm-chip on' : 'm-chip toggle'}
+                onClick={() => toggle(m.id, !inGroup.has(m.id))}
+              >
+                {m.name}
+              </button>
+            ))}
+          </div>
+          <div className="group-card-foot">
+            <a className="ical-link" href={`/api/calendar/${group.icalToken}.ics`}>
+              iCal feed
+            </a>
+            <label className="import-link">
+              {importBusy ? 'Importing…' : 'Import schedule'}
+              <input
+                type="file"
+                accept=".ics,.json,text/calendar,application/json"
+                disabled={importBusy}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void doImport(f);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          </div>
+          {importMsg && <p className="conn-sub">{importMsg}</p>}
+        </>
+      )}
     </div>
   );
 }
@@ -750,28 +816,32 @@ function EmailPollingSection({
   onChanged: () => void;
 }) {
   const cfg = circle.email;
-  const [address, setAddress] = useState(cfg.address ?? '');
-  const [host, setHost] = useState(cfg.host ?? 'imap.gmail.com');
-  const [port, setPort] = useState(String(cfg.port ?? 993));
+  const [address, setAddress] = useState('');
   const [credential, setCredential] = useState('');
-  const [enabled, setEnabled] = useState(cfg.enabled);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
 
-  async function save() {
-    if (!address.trim()) return;
+  async function connect() {
+    if (!address.trim() || !credential.trim()) return;
     setBusy(true);
-    setMsg(null);
     try {
       await adminSetCircleEmail(circle.id, {
         address: address.trim(),
-        credential: credential || undefined,
-        host: host.trim(),
-        port: Number(port) || 993,
-        enabled,
+        credential: credential.trim(),
+        enabled: true,
       });
+      setAddress('');
       setCredential('');
-      setMsg('Saved.');
+      onChanged();
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function togglePolling() {
+    setBusy(true);
+    try {
+      await adminSetCircleEmail(circle.id, { address: cfg.address!, enabled: !cfg.enabled });
       onChanged();
     } catch (e) {
       onError(e);
@@ -780,14 +850,10 @@ function EmailPollingSection({
     }
   }
   async function remove() {
-    if (!confirm('Remove email polling for this circle?')) return;
+    if (!confirm('Disconnect this mailbox?')) return;
     setBusy(true);
     try {
       await adminDeleteCircleEmail(circle.id);
-      setAddress('');
-      setCredential('');
-      setEnabled(true);
-      setMsg(null);
       onChanged();
     } catch (e) {
       onError(e);
@@ -796,54 +862,50 @@ function EmailPollingSection({
     }
   }
 
+  if (cfg.address) {
+    const sub = !cfg.enabled
+      ? 'Paused'
+      : cfg.firstScanDone
+        ? `Active · last checked ${cfg.lastPolledAt ? new Date(cfg.lastPolledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'}`
+        : 'Active · first scan pending';
+    return (
+      <div className="conn-card">
+        <div className="conn-row">
+          <span className={cfg.enabled ? 'conn-dot ok' : 'conn-dot'} />
+          <div className="conn-main">
+            <div className="conn-title">{cfg.address}</div>
+            <div className="conn-sub">{sub}</div>
+          </div>
+          <button className="btn-quiet" onClick={togglePolling} disabled={busy}>
+            {cfg.enabled ? 'Pause' : 'Resume'}
+          </button>
+          <button className="btn-quiet danger" onClick={remove} disabled={busy}>
+            Remove
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="subsec">
-      <h4>Email polling</h4>
-      <p className="muted">
-        A dedicated mailbox Jarvis polls. New mail is classified and confirmed in the owner's DM before
-        anything is added. Use an IMAP <strong>app-password</strong>.
-      </p>
-      <div className="admin-form">
+    <div className="conn-card pad">
+      <div className="email-add">
         <input
-          placeholder="jarvis-family@gmail.com"
+          type="email"
+          placeholder="mailbox@gmail.com"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
         />
-        <input placeholder="IMAP host" value={host} onChange={(e) => setHost(e.target.value)} />
-        <input
-          placeholder="port"
-          value={port}
-          onChange={(e) => setPort(e.target.value)}
-          style={{ maxWidth: 80 }}
-        />
         <input
           type="password"
-          placeholder={cfg.hasCredential ? 'app-password (saved)' : 'app-password'}
+          placeholder="app password"
           value={credential}
           onChange={(e) => setCredential(e.target.value)}
         />
-        <label className="row" style={{ gap: '0.3rem' }}>
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-          Enabled
-        </label>
-        <button className="primary" onClick={save} disabled={busy}>
-          Save
+        <button className="btn-quiet" onClick={connect} disabled={busy || !address || !credential}>
+          Connect
         </button>
-        {cfg.address && (
-          <button className="link-danger" onClick={remove} disabled={busy}>
-            remove
-          </button>
-        )}
       </div>
-      {(msg || cfg.address) && (
-        <p className="muted">
-          {msg && `${msg} `}
-          {cfg.address &&
-            (cfg.firstScanDone
-              ? `Last polled: ${cfg.lastPolledAt ? new Date(cfg.lastPolledAt).toLocaleString() : '—'}`
-              : 'Not yet polled — a full scan runs on the first poll.')}
-        </p>
-      )}
     </div>
   );
 }
@@ -869,7 +931,6 @@ function JobsSection({
   return (
     <div className="subsec">
       <h4>Maintenance jobs</h4>
-      <p className="muted">Mute a cross-circle maintenance job for this circle.</p>
       <ul className="admin-list compact">
         {JOBS.map((j) => (
           <li key={j.id}>

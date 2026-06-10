@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { rm } from 'node:fs/promises';
 import type { WASocket, WAMessage } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import pino from 'pino';
@@ -80,10 +81,11 @@ async function subscribeControl(): Promise<void> {
   await sub.subscribe(CONTROL_CHANNEL);
   sub.on('message', (_chan, raw) => {
     try {
-      const msg = JSON.parse(raw) as { action: 'start' | 'stop'; circleId: string };
+      const msg = JSON.parse(raw) as { action: 'start' | 'stop' | 'logout'; circleId: string };
       if (!msg.circleId) return;
       if (msg.action === 'start') void startWhatsApp(msg.circleId).catch(() => {});
       else if (msg.action === 'stop') void stopSession(msg.circleId).catch(() => {});
+      else if (msg.action === 'logout') void logoutSession(msg.circleId).catch(() => {});
     } catch {
       /* ignore malformed control messages */
     }
@@ -99,6 +101,16 @@ async function stopSession(circleId: string): Promise<void> {
   }
   sessions.delete(circleId);
   await redis.del(key(circleId, 'status'), key(circleId, 'qr'), key(circleId, 'self'), key(circleId, 'groups'));
+}
+
+/** Unlink the device for a circle and wipe its auth so a fresh QR can be linked. */
+async function logoutSession(circleId: string): Promise<void> {
+  await stopSession(circleId);
+  try {
+    await rm(path.join(AUTH_BASE, circleId), { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Start (or restart) the Baileys session for one circle. */

@@ -1,9 +1,30 @@
 import { prisma, type EmailProposal } from '@jarvis/db';
-import type { AnalyzedProposal } from './extract';
+import type { AnalyzedProposal, VacationDraft, VacationItemDraft } from './extract';
 import { createEvent } from './schedule';
 import { getCircle } from './conversation';
-import { addVacationItem, createVacation } from './vacations';
+import {
+  addVacationItem,
+  createVacation,
+  getVacation,
+  listVacations,
+  updateVacation,
+} from './vacations';
+import { toLocalInput } from './datetime';
 import { resolveVacationImage } from './vacationImage';
+
+/** Days outside a trip's range still counted as "part of" the trip. */
+const VACATION_ADJACENCY_DAYS = 2;
+
+export interface ConfirmResult {
+  message: string;
+  /** Present when an email item could belong to more than one trip — the caller
+   *  must pick a target (a vacation id, or 'new') before it is filed. */
+  needsChoice?: {
+    proposalId: string;
+    summary: string;
+    options: { target: string; label: string }[];
+  };
+}
 
 export interface ProposalMeta {
   fromEmail?: string;
@@ -83,18 +104,24 @@ export async function markNotified(ids: string[]): Promise<void> {
 }
 
 /** Create the entity a confirmed proposal describes. Events land in the circle's
- *  primary group; trips on the circle's vacation calendar. */
+ *  primary group; trips on the circle's vacation calendar (merging email items
+ *  into an existing trip when their dates fall in/near it). */
 export async function confirmProposal(circleId: string, code: string): Promise<string> {
   const p = await prisma.emailProposal.findFirst({ where: { circleId, code, status: 'pending' } });
   if (!p) return `No pending proposal "${code}".`;
-  return applyConfirm(circleId, p);
+  return (await applyConfirm(circleId, p)).message;
 }
 
-/** Confirm a specific proposal by id (web Activity log — codes can repeat). */
-export async function confirmProposalById(circleId: string, id: string): Promise<string> {
+/** Confirm a specific proposal by id (web Activity log — codes can repeat). An
+ *  optional target ('new' or a vacation id) resolves a previous needsChoice. */
+export async function confirmProposalById(
+  circleId: string,
+  id: string,
+  target?: string,
+): Promise<ConfirmResult> {
   const p = await prisma.emailProposal.findFirst({ where: { id, circleId, status: 'pending' } });
-  if (!p) return 'No pending proposal.';
-  return applyConfirm(circleId, p);
+  if (!p) return { message: 'No pending proposal.' };
+  return applyConfirm(circleId, p, target);
 }
 
 /** Reject a specific proposal by id (web Activity log). */
@@ -108,54 +135,21 @@ export async function rejectProposalById(circleId: string, id: string): Promise<
   return `Skipped "${p.title}".`;
 }
 
-async function applyConfirm(circleId: string, p: EmailProposal): Promise<string> {
-  const code = p.code;
+async function applyConfirm(
+  circleId: string,
+  p: EmailProposal,
+  target?: string,
+): Promise<ConfirmResult> {
   const circle = await getCircle(circleId);
-  if (!circle) return 'Circle not found.';
+  if (!circle) return { message: 'Circle not found.' };
   const zone = circle.timezone;
   const a = JSON.parse(p.payload) as AnalyzedProposal;
 
-  let confirmation: string;
   try {
     if (a.kind === 'vacation' && a.vacation) {
-      const coverImageUrl = await resolveVacationImage({
-        title: a.vacation.title,
-        destinations: a.vacation.destinations ?? null,
-      }).catch(() => null);
-      const v = await createVacation(
-        {
-          circleId,
-          title: a.vacation.title,
-          destinations: a.vacation.destinations ?? null,
-          startDate: a.vacation.startDate,
-          endDate: a.vacation.endDate,
-          description: p.subject ? `From email: ${p.subject}` : null,
-          coverImageUrl,
-        },
-        zone,
-      );
-      if (a.vacation.item) {
-        const it = a.vacation.item;
-        await addVacationItem(
-          v.id,
-          {
-            type: it.type,
-            title: it.title,
-            startsAt: it.startsAt,
-            endsAt: it.endsAt ?? null,
-            location: it.location ?? null,
-            provider: it.provider ?? null,
-            number: it.number ?? null,
-            fromLabel: it.fromLabel ?? null,
-            toLabel: it.toLabel ?? null,
-            seat: it.seat ?? null,
-            confirmation: it.confirmation ?? null,
-          },
-          zone,
-        );
-      }
-      confirmation = `Created trip "${v.title}".`;
-    } else if (a.draft) {
+      return await confirmVacation(circleId, p, a.vacation, zone, target);
+    }
+    if (a.draft) {
       const ev = await createEvent({
         circleId,
         groupId: await primaryGroupId(circleId),
@@ -166,19 +160,147 @@ async function applyConfirm(circleId: string, p: EmailProposal): Promise<string>
         kind: a.kind === 'event' ? 'event' : 'reminder',
         reminderLeadMinutes: a.kind === 'event' ? (a.reminderLeadMinutes ?? null) : null,
       });
-      confirmation = `Added ${a.kind} "${ev.title}".`;
-    } else {
-      return `Proposal "${code}" is malformed.`;
+      await finalize(p.id);
+      return { message: `Added ${a.kind} "${ev.title}".` };
     }
+    return { message: `Proposal "${p.code}" is malformed.` };
   } catch (err) {
-    return `Couldn't create "${p.title}": ${(err as Error).message}`;
+    return { message: `Couldn't create "${p.title}": ${(err as Error).message}` };
   }
+}
 
+async function finalize(id: string): Promise<void> {
   await prisma.emailProposal.update({
-    where: { id: p.id },
+    where: { id },
     data: { status: 'confirmed', decidedAt: new Date() },
   });
-  return confirmation;
+}
+
+/** True if `dateStr` (yyyy-MM-dd) is inside [start,end] expanded by `adj` days. */
+function inRange(dateStr: string, start: string, end: string, adj: number): boolean {
+  const d = Date.parse(`${dateStr}T00:00:00Z`);
+  const s = Date.parse(`${start}T00:00:00Z`) - adj * 86_400_000;
+  const e = Date.parse(`${end}T00:00:00Z`) + adj * 86_400_000;
+  return !Number.isNaN(d) && d >= s && d <= e;
+}
+
+/** Add an email item to an existing trip, extending the trip's dates if needed. */
+async function attachItem(
+  circleId: string,
+  v: { id: string; title: string; startDate: Date; endDate: Date },
+  it: VacationItemDraft,
+  zone: string,
+): Promise<void> {
+  await addVacationItem(
+    v.id,
+    {
+      type: it.type,
+      title: it.title,
+      startsAt: it.startsAt,
+      endsAt: it.endsAt ?? null,
+      location: it.location ?? null,
+      provider: it.provider ?? null,
+      number: it.number ?? null,
+      fromLabel: it.fromLabel ?? null,
+      toLabel: it.toLabel ?? null,
+      seat: it.seat ?? null,
+      confirmation: it.confirmation ?? null,
+    },
+    zone,
+  );
+  const itemDate = it.startsAt.slice(0, 10);
+  const start = toLocalInput(v.startDate, zone, true);
+  const end = toLocalInput(v.endDate, zone, true);
+  const patch: { startDate?: string; endDate?: string } = {};
+  if (itemDate < start) patch.startDate = itemDate;
+  if (itemDate > end) patch.endDate = itemDate;
+  if (patch.startDate || patch.endDate) await updateVacation(circleId, v.id, patch, zone);
+}
+
+async function createTrip(circleId: string, p: EmailProposal, vac: VacationDraft, zone: string) {
+  const coverImageUrl = await resolveVacationImage({
+    title: vac.title,
+    destinations: vac.destinations ?? null,
+  }).catch(() => null);
+  const v = await createVacation(
+    {
+      circleId,
+      title: vac.title,
+      destinations: vac.destinations ?? null,
+      startDate: vac.startDate,
+      endDate: vac.endDate,
+      description: p.subject ? `From email: ${p.subject}` : null,
+      coverImageUrl,
+    },
+    zone,
+  );
+  if (vac.item) await attachItem(circleId, v, vac.item, zone);
+  return v;
+}
+
+/** Decide where an email's vacation item belongs: an existing trip (in-range or
+ *  adjacent), a new trip, or — when it could fit more than one — ask. */
+async function confirmVacation(
+  circleId: string,
+  p: EmailProposal,
+  vac: VacationDraft,
+  zone: string,
+  target?: string,
+): Promise<ConfirmResult> {
+  const item = vac.item;
+
+  // Explicit resolution of a prior needsChoice (or a no-item whole-trip).
+  if (target === 'new' || !item) {
+    const v = await createTrip(circleId, p, vac, zone);
+    await finalize(p.id);
+    return { message: `Created trip "${v.title}".` };
+  }
+  if (target) {
+    const v = await getVacation(circleId, target);
+    if (!v) return { message: 'That trip no longer exists.' };
+    await attachItem(circleId, v, item, zone);
+    await finalize(p.id);
+    return { message: `Added "${item.title}" to "${v.title}".` };
+  }
+
+  // Auto-match against existing trips by the item's date.
+  const itemDate = (item.startsAt || vac.startDate).slice(0, 10);
+  const vacs = await listVacations(circleId, { includePast: true });
+  const candidates = vacs.filter((v) =>
+    inRange(
+      itemDate,
+      toLocalInput(v.startDate, zone, true),
+      toLocalInput(v.endDate, zone, true),
+      VACATION_ADJACENCY_DAYS,
+    ),
+  );
+
+  if (candidates.length === 1) {
+    await attachItem(circleId, candidates[0]!, item, zone);
+    await finalize(p.id);
+    return { message: `Added "${item.title}" to "${candidates[0]!.title}".` };
+  }
+  if (candidates.length === 0) {
+    const v = await createTrip(circleId, p, vac, zone);
+    await finalize(p.id);
+    return { message: `Created trip "${v.title}".` };
+  }
+
+  // Ambiguous — ask which trip (leave the proposal pending).
+  return {
+    message: `"${item.title}" (${itemDate}) could belong to more than one trip.`,
+    needsChoice: {
+      proposalId: p.id,
+      summary: `${item.title} · ${itemDate}`,
+      options: [
+        ...candidates.map((v) => ({
+          target: v.id,
+          label: `${v.title} (${toLocalInput(v.startDate, zone, true)} → ${toLocalInput(v.endDate, zone, true)})`,
+        })),
+        { target: 'new', label: 'New trip' },
+      ],
+    },
+  };
 }
 
 export async function rejectProposal(circleId: string, code: string): Promise<string> {

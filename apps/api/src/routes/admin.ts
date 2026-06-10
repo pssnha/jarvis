@@ -526,8 +526,8 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
   app.post('/admin/circles/:cid/email/items/:id/confirm', async (req, reply) => {
     const { cid, id } = req.params as { cid: string; id: string };
     if (!(await requireCircle(req, reply, cid))) return;
-    const message = await confirmProposalById(cid, id);
-    return { message };
+    const body = (req.body ?? {}) as { target?: string };
+    return confirmProposalById(cid, id, body.target);
   });
   app.post('/admin/circles/:cid/email/items/:id/reject', async (req, reply) => {
     const { cid, id } = req.params as { cid: string; id: string };

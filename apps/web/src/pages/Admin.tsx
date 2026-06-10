@@ -32,6 +32,7 @@ import type {
   AdminUser,
   CircleMemberRole,
   EmailActivity,
+  EmailConfirmResult,
   MaintenanceJob,
   WhatsAppStatus,
 } from '../lib/types';
@@ -952,16 +953,25 @@ function EmailActivityLog({
   const [data, setData] = useState<EmailActivity | null>(null);
   const [polling, setPolling] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
+  const [choice, setChoice] = useState<EmailConfirmResult['needsChoice'] | null>(null);
 
   const load = useCallback(() => {
     adminCircleEmailActivity(circleId).then(setData).catch(() => {});
   }, [circleId]);
 
-  async function act(id: string, action: 'confirm' | 'reject') {
+  async function act(id: string, action: 'confirm' | 'reject', target?: string) {
     setActing(id);
     try {
-      if (action === 'confirm') await adminConfirmEmailItem(circleId, id);
-      else await adminRejectEmailItem(circleId, id);
+      if (action === 'reject') {
+        await adminRejectEmailItem(circleId, id);
+      } else {
+        const r = await adminConfirmEmailItem(circleId, id, target);
+        if (r.needsChoice) {
+          setChoice(r.needsChoice);
+          return; // ask which trip before refreshing
+        }
+        setChoice(null);
+      }
       load();
     } catch (e) {
       onError(e);
@@ -1016,7 +1026,20 @@ function EmailActivityLog({
                         {it.subject || it.fromEmail || 'email'} · {fmtWhen(it.createdAt)}
                       </div>
                     </div>
-                    {it.status === 'pending' ? (
+                    {it.status === 'pending' && choice?.proposalId === it.id ? (
+                      <div className="ai-actions choice">
+                        {choice.options.map((opt) => (
+                          <button
+                            key={opt.target}
+                            className="btn-quiet sm"
+                            disabled={acting === it.id}
+                            onClick={() => act(it.id, 'confirm', opt.target)}
+                          >
+                            {opt.target === 'new' ? 'New trip' : `→ ${opt.label}`}
+                          </button>
+                        ))}
+                      </div>
+                    ) : it.status === 'pending' ? (
                       <div className="ai-actions">
                         <button
                           className="btn-quiet sm"

@@ -130,6 +130,16 @@ export interface EmailActivity {
   items: EmailActivityItem[];
 }
 
+export interface EmailConfirmResult {
+  message: string;
+  /** When an item could belong to more than one trip, the user must choose. */
+  needsChoice?: {
+    proposalId: string;
+    summary: string;
+    options: { target: string; label: string }[];
+  };
+}
+
 export interface AdminCircleGroup {
   id: string;
   name: string;

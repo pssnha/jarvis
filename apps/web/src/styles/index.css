@@ -1471,6 +1471,11 @@ button.primary:active {
   gap: 0.35rem;
   flex-shrink: 0;
 }
+.ai-actions.choice {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 60%;
+}
 .ai-out {
   font-size: 0.72rem;
   font-weight: 600;

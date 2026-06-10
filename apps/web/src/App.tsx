@@ -10,9 +10,27 @@ import { Login } from './pages/Login';
 
 type View = 'calendar' | 'vacations' | 'circles' | 'permissions' | 'maintenance';
 
+const HASH: Record<View, string> = {
+  calendar: '#/calendar',
+  vacations: '#/vacations',
+  circles: '#/circles',
+  permissions: '#/permissions',
+  maintenance: '#/maintenance',
+};
+
+/** Current view from the URL hash (defaults to calendar). */
+function viewFromHash(): View {
+  const h = window.location.hash.replace(/^#\/?/, '').split('/')[0];
+  if (h === 'vacations' || h === 'circles' || h === 'permissions' || h === 'maintenance') return h;
+  return 'calendar';
+}
+
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
-  const [view, setView] = useState<View>('calendar');
+  const [view, setView] = useState<View>(viewFromHash);
+  // Bumped on a nav click to the page you're already on, to reset its sub-state
+  // (e.g. back to the trip/circle list from a detail view).
+  const [resetKey, setResetKey] = useState(0);
   const [navOpen, setNavOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   // What the visible center pane is showing — the chat pane acts on the same
@@ -23,6 +41,13 @@ export function App() {
     getMe()
       .then(setMe)
       .catch(() => setMe(null));
+  }, []);
+
+  // Keep the view in sync with browser navigation (back/forward, refresh).
+  useEffect(() => {
+    const onHash = () => setView(viewFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
   if (me === undefined) {
@@ -42,8 +67,12 @@ export function App() {
     setMe(null);
   }
   function go(v: View) {
-    setView(v);
     setNavOpen(false);
+    if (v === view) setResetKey((k) => k + 1); // re-click → reset to the page root
+    if (window.location.hash !== HASH[v]) {
+      window.location.hash = HASH[v]; // pushes history → back/forward + refresh work
+    }
+    setView(v);
   }
   const item = (v: View, label: string) => (
     <button className={view === v ? 'side-item active' : 'side-item'} onClick={() => go(v)}>
@@ -93,11 +122,25 @@ export function App() {
         </aside>
 
         <main className="content">
-          {view === 'calendar' && <Calendar onActive={setActive} />}
-          {view === 'vacations' && <Vacations onActive={setActive} />}
-          {view === 'circles' && (siteAdmin || circleAdmin) && <Circles siteAdmin={siteAdmin} />}
-          {view === 'permissions' && siteAdmin && <Permissions />}
-          {view === 'maintenance' && siteAdmin && <Maintenance />}
+          {(() => {
+            // Resolve the URL view to a page the user may see (else fall back).
+            const v: View =
+              view === 'circles' && (siteAdmin || circleAdmin)
+                ? 'circles'
+                : view === 'permissions' && siteAdmin
+                  ? 'permissions'
+                  : view === 'maintenance' && siteAdmin
+                    ? 'maintenance'
+                    : view === 'vacations'
+                      ? 'vacations'
+                      : 'calendar';
+            const key = `${v}:${resetKey}`;
+            if (v === 'vacations') return <Vacations key={key} onActive={setActive} />;
+            if (v === 'circles') return <Circles key={key} siteAdmin={siteAdmin} />;
+            if (v === 'permissions') return <Permissions key={key} />;
+            if (v === 'maintenance') return <Maintenance key={key} />;
+            return <Calendar key={key} onActive={setActive} />;
+          })()}
         </main>
 
         {chatOpen && <div className="backdrop chat-backdrop" onClick={() => setChatOpen(false)} />}

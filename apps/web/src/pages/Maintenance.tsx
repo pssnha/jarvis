@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { adminMaintenanceCalendar, adminMaintenanceRuns } from '../lib/api';
-import type { MaintenanceCell, MaintenanceRunRow } from '../lib/types';
+import type { MaintenanceCell, MaintenanceRunRow, MaintenanceSchedule } from '../lib/types';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -14,7 +14,6 @@ const JOB_META: Record<string, { emoji: string; label: string }> = {
   daily_brief: { emoji: '📰', label: 'Daily brief' },
   health_check: { emoji: '🩺', label: 'Health check' },
 };
-const JOB_ORDER = ['email_poll', 'daily_brief', 'health_check'];
 
 function pad(n: number): string {
   return n < 10 ? `0${n}` : String(n);
@@ -28,6 +27,7 @@ export function Maintenance() {
   const today = new Date();
   const [anchor, setAnchor] = useState({ y: today.getUTCFullYear(), m: today.getUTCMonth() });
   const [cells, setCells] = useState<MaintenanceCell[]>([]);
+  const [schedules, setSchedules] = useState<MaintenanceSchedule[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [sel, setSel] = useState<{ date: string; job: string } | null>(null);
   const [runs, setRuns] = useState<MaintenanceRunRow[] | null>(null);
@@ -42,7 +42,10 @@ export function Maintenance() {
     const from = grid[0]!;
     const to = new Date(grid[41]!.getTime() + DAY);
     adminMaintenanceCalendar(from.toISOString(), to.toISOString())
-      .then((r) => setCells(r.cells))
+      .then((r) => {
+        setCells(r.cells);
+        setSchedules(r.schedules);
+      })
       .catch((e) => setError(String(e.message ?? e)));
   }, [grid]);
   useEffect(load, [load]);
@@ -95,6 +98,14 @@ export function Maintenance() {
 
       {error && <p className="error">{error}</p>}
 
+      <div className="maint-sched">
+        {schedules.map((s) => (
+          <span key={s.job} className="sched-item">
+            {JOB_META[s.job]?.emoji ?? '•'} {s.label} · <span className="muted">{s.cadence}</span>
+          </span>
+        ))}
+      </div>
+
       <div className="cal-grid">
         {DOW.map((d) => (
           <div key={d} className="cal-dow">
@@ -104,6 +115,7 @@ export function Maintenance() {
         {grid.map((cd) => {
           const key = ymd(cd);
           const jobs = byDay.get(key);
+          const past = key < todayKey;
           return (
             <div
               key={key}
@@ -115,24 +127,36 @@ export function Maintenance() {
             >
               <div className="cal-daynum">{cd.getUTCDate()}</div>
               <div className="maint-chips">
-                {jobs &&
-                  JOB_ORDER.filter((j) => jobs.has(j)).map((j) => {
-                    const c = jobs.get(j)!;
-                    return (
-                      <button
-                        key={j}
-                        className={c.errors > 0 ? 'mrun-chip err' : 'mrun-chip'}
-                        title={`${JOB_META[j]!.label}: ${c.runs} run${c.runs === 1 ? '' : 's'}${
-                          c.job === 'email_poll' ? `, ${c.found} found` : ''
-                        }${c.errors ? `, ${c.errors} error${c.errors === 1 ? '' : 's'}` : ''}`}
-                        onClick={() => openDetail(key, j)}
-                      >
-                        <span className="mc-emoji">{JOB_META[j]!.emoji}</span>
-                        <span className="mc-count">{c.runs}</span>
-                        {c.errors > 0 && <span className="mc-err">!</span>}
-                      </button>
-                    );
-                  })}
+                {schedules.map((s) => {
+                  const c = jobs?.get(s.job);
+                  const status =
+                    c && c.errors > 0
+                      ? 'error'
+                      : c && c.runs > 0
+                        ? 'ok'
+                        : past
+                          ? 'missed'
+                          : 'scheduled';
+                  const title =
+                    status === 'ok'
+                      ? `${s.label}: ran ${c!.runs}×`
+                      : status === 'error'
+                        ? `${s.label}: ${c!.errors} error(s) of ${c!.runs} run(s)`
+                        : status === 'missed'
+                          ? `${s.label}: scheduled, no runs`
+                          : `${s.label}: scheduled (${s.cadence})`;
+                  return (
+                    <button
+                      key={s.job}
+                      className={`mrun-chip ${status}`}
+                      title={title}
+                      onClick={() => openDetail(key, s.job)}
+                    >
+                      <span className="mc-emoji">{JOB_META[s.job]?.emoji ?? '•'}</span>
+                      {c && c.runs > 0 && <span className="mc-count">{c.runs}</span>}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           );

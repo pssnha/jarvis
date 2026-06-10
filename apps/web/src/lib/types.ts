@@ -159,6 +159,12 @@ export interface MaintenanceCell {
   errors: number;
 }
 
+export interface MaintenanceSchedule {
+  job: string;
+  label: string;
+  cadence: string;
+}
+
 export interface MaintenanceRunRow {
   job: string;
   ranAt: string;

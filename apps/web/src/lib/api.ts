@@ -10,6 +10,7 @@ import type {
   EmailActivity,
   MaintenanceCell,
   MaintenanceRunRow,
+  MaintenanceSchedule,
   Conflict,
   EventDetail,
   EventPayload,
@@ -207,11 +208,11 @@ export async function adminRejectEmailItem(cid: string, id: string): Promise<{ m
 export async function adminMaintenanceCalendar(
   fromISO: string,
   toISO: string,
-): Promise<{ cells: MaintenanceCell[] }> {
+): Promise<{ cells: MaintenanceCell[]; schedules: MaintenanceSchedule[] }> {
   const u = new URL('/api/admin/maintenance/calendar', window.location.origin);
   u.searchParams.set('from', fromISO);
   u.searchParams.set('to', toISO);
-  return fetch(u).then((r) => json<{ cells: MaintenanceCell[] }>(r));
+  return fetch(u).then((r) => json<{ cells: MaintenanceCell[]; schedules: MaintenanceSchedule[] }>(r));
 }
 export async function adminMaintenanceRuns(
   fromISO: string,

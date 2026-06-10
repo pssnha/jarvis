@@ -1301,6 +1301,17 @@ button.primary:active {
   font-weight: 700;
   letter-spacing: -0.03em;
 }
+/* Scheduled-jobs legend */
+.maint-sched {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.1rem;
+  margin-bottom: 0.9rem;
+}
+.sched-item {
+  font-size: 0.83rem;
+  font-weight: 600;
+}
 .maint-chips {
   display: flex;
   flex-wrap: wrap;
@@ -1320,18 +1331,33 @@ button.primary:active {
   color: var(--text);
 }
 .mrun-chip:hover {
-  background: var(--surface-2-hover);
+  filter: brightness(0.97);
 }
-.mrun-chip.err {
+/* Status variants: ok = ran, error = failed, missed = past with no run,
+   scheduled = upcoming. */
+.mrun-chip.ok {
+  border-color: transparent;
+  background: rgba(52, 199, 89, 0.16);
+}
+.mrun-chip.error {
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.mrun-chip.missed {
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-tertiary);
+}
+.mrun-chip.scheduled {
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-secondary);
+}
+.mrun-chip.error .mc-emoji {
+  filter: grayscale(0.2);
 }
 .mc-count {
   font-weight: 600;
-}
-.mc-err {
-  color: var(--danger);
-  font-weight: 800;
 }
 .maint-detail {
   margin-top: 1rem;

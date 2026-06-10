@@ -21,6 +21,13 @@ const redis = createRedis();
 
 const MAINTENANCE_JOBS = ['email_poll', 'daily_brief', 'health_check'] as const;
 
+/** The recurring maintenance jobs and how often they run (for the calendar). */
+const MAINTENANCE_SCHEDULE = [
+  { job: 'daily_brief', label: 'Daily brief', cadence: 'Daily · 7:00' },
+  { job: 'email_poll', label: 'Email poll', cadence: 'Every 2 hours' },
+  { job: 'health_check', label: 'Health check', cadence: 'Every 30 min' },
+] as const;
+
 /** Best-effort IMAP host for an email address (so the user never types it). */
 function imapHostFor(address: string): string {
   const domain = address.split('@')[1]?.toLowerCase().trim() ?? '';
@@ -589,7 +596,7 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
         errors: Number(r.errors),
       })),
     ];
-    return { cells };
+    return { cells, schedules: MAINTENANCE_SCHEDULE };
   });
 
   // Drill-down: a single day's individual runs for one job (site admins).

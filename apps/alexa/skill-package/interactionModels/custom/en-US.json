@@ -1,0 +1,65 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "my circle",
+      "intents": [
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] },
+        {
+          "name": "CalendarTodayIntent",
+          "samples": [
+            "what is on our calendar today",
+            "what's on the calendar today",
+            "what do we have today",
+            "what is happening today",
+            "what's on today",
+            "today's calendar",
+            "what's on our schedule today"
+          ]
+        },
+        {
+          "name": "NextVacationIntent",
+          "samples": [
+            "when is our next vacation",
+            "when's our next trip",
+            "when is our next trip",
+            "what's our next vacation",
+            "when are we going on vacation",
+            "next vacation",
+            "next trip"
+          ]
+        },
+        {
+          "name": "TripDetailsIntent",
+          "slots": [{ "name": "trip", "type": "AMAZON.SearchQuery" }],
+          "samples": [
+            "tell me about the {trip} trip",
+            "tell me about our {trip} trip",
+            "give me details of the {trip} trip",
+            "give me details of our {trip} trip",
+            "what's the plan for {trip}",
+            "details of the {trip} trip"
+          ]
+        },
+        {
+          "name": "FlightTimeIntent",
+          "slots": [
+            { "name": "origin", "type": "AMAZON.City" },
+            { "name": "destination", "type": "AMAZON.City" }
+          ],
+          "samples": [
+            "what time is our flight from {origin} to {destination}",
+            "when is our flight from {origin} to {destination}",
+            "when does our flight from {origin} to {destination} leave",
+            "what time does our flight from {origin} to {destination} depart",
+            "flight time from {origin} to {destination}"
+          ]
+        }
+      ],
+      "types": []
+    }
+  }
+}

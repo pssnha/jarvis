@@ -1,0 +1,11 @@
+{
+  "name": "jarvis-alexa-lambda",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Alexa skill fulfillment for a Jarvis circle. Deployed to AWS Lambda (Alexa-hosted); not part of the pnpm workspace tooling.",
+  "main": "index.js",
+  "dependencies": {
+    "ask-sdk-core": "^2.14.0",
+    "ask-sdk-model": "^1.86.0"
+  }
+}

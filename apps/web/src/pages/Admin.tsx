@@ -822,11 +822,15 @@ function EmailPollingSection({
   const [address, setAddress] = useState('');
   const [credential, setCredential] = useState('');
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   async function connect() {
     if (!address.trim() || !credential.trim()) return;
     setBusy(true);
+    setErr(null);
     try {
+      // The API verifies the IMAP login before saving; a bad app-password is
+      // rejected here rather than silently stored.
       await adminSetCircleEmail(circle.id, {
         address: address.trim(),
         credential: credential.trim(),
@@ -836,7 +840,7 @@ function EmailPollingSection({
       setCredential('');
       onChanged();
     } catch (e) {
-      onError(e);
+      setErr(String((e as Error).message ?? e));
     } finally {
       setBusy(false);
     }
@@ -910,9 +914,15 @@ function EmailPollingSection({
           onChange={(e) => setCredential(e.target.value)}
         />
         <button className="btn-quiet" onClick={connect} disabled={busy || !address || !credential}>
-          Connect
+          {busy ? 'Verifying…' : 'Connect'}
         </button>
       </div>
+      {err && <p className="conn-error">{err}</p>}
+      {!err && (
+        <p className="conn-sub email-hint">
+          Gmail: turn on 2-Step Verification, then create an app password and paste it here.
+        </p>
+      )}
     </div>
   );
 }

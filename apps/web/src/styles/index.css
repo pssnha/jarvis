@@ -1271,6 +1271,14 @@ button.primary:active {
   color: var(--text);
   font-size: 0.9rem;
 }
+.conn-error {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: var(--danger);
+}
+.email-hint {
+  margin: 0.5rem 0 0;
+}
 
 /* Pane section headings — Vacation-page weight/tracking */
 .pane .subsec h4 {

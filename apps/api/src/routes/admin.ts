@@ -13,6 +13,7 @@ import {
   type ImportedEvent,
 } from '@jarvis/agent';
 import { createRedis } from '../plugins/redis';
+import { verifyImap } from '../email/verify';
 
 const redis = createRedis();
 
@@ -410,15 +411,25 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     if (!c) return reply.code(404).send({ error: 'circle not found' });
     if (!body.address) return reply.code(400).send({ error: 'address is required' });
     const address = body.address.trim().toLowerCase();
+    const host = body.host?.trim() || imapHostFor(address);
+    const port = body.port ?? 993;
     // App-passwords are often shown/pasted with spaces ("abcd efgh ijkl mnop");
     // IMAP needs them removed.
     const credential = body.credential?.replace(/\s+/g, '');
+
+    // When a credential is supplied, confirm the login actually works before
+    // saving — never blindly store an unusable mailbox.
+    if (credential) {
+      const check = await verifyImap({ user: address, password: credential, host, port });
+      if (!check.ok) return reply.code(400).send({ error: check.error });
+    }
+
     await prisma.circle.update({
       where: { id: cid },
       data: {
         emailAddress: address,
-        emailHost: body.host?.trim() || imapHostFor(address),
-        emailPort: body.port ?? 993,
+        emailHost: host,
+        emailPort: port,
         emailEnabled: body.enabled ?? true,
         ...(credential ? { emailEncCred: encryptValue(credential) } : {}),
       },

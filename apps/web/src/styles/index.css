@@ -470,6 +470,42 @@ button.primary:active {
   display: flex;
   flex-direction: column;
 }
+/* Page title with inline circle switcher */
+.page-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.page-title-sep {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+.title-circle-name {
+  color: var(--accent);
+}
+.title-circle {
+  font: inherit;
+  font-weight: 700;
+  color: var(--accent);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 0.1rem 0.3rem;
+  margin-left: -0.3rem;
+  cursor: pointer;
+  max-width: 60vw;
+}
+.title-circle:hover {
+  background: var(--surface-2);
+}
+.cal-titlebar {
+  margin-bottom: 0.6rem;
+}
+
 .cal-toolbar {
   display: flex;
   align-items: center;

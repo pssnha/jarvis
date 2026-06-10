@@ -3,6 +3,7 @@ import { listCircles, listVacations } from '../lib/api';
 import type { Circle, VacationSummary } from '../lib/types';
 import { VacationDetail } from '../components/VacationDetail';
 import { VacationModal } from '../components/VacationModal';
+import { CircleTitle } from '../components/CircleTitle';
 
 export function Vacations({
   onActive,
@@ -84,17 +85,13 @@ export function Vacations({
   return (
     <div className="vacations">
       <div className="vac-toolbar">
-        <h2>Vacations</h2>
+        <CircleTitle
+          label="Vacations"
+          circles={circles}
+          circleId={circleId}
+          onChange={setCircleId}
+        />
         <div className="vac-actions">
-          {circles.length > 1 && (
-            <select value={circleId ?? ''} onChange={(e) => setCircleId(e.target.value)}>
-              {circles.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          )}
           <label className="row vac-past">
             <input
               type="checkbox"

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCalendar, listCircles } from '../lib/api';
 import type { CalendarOccurrence, Circle } from '../lib/types';
 import { EventModal } from '../components/EventModal';
+import { CircleTitle } from '../components/CircleTitle';
 import {
   HOUR_PX,
   HOURS,
@@ -378,6 +379,9 @@ export function Calendar({
 
   const scopeValue = scope ? scopeParam(scope) : '';
   const namedMembers = circle?.members.filter((m) => m.name) ?? [];
+  // The circle-wide view is backed by the circle's group calendar (one group
+  // per circle), keeping it shared-only and iCal-subscribable.
+  const primaryGroup = circle?.groups[0] ?? null;
 
   const title = useMemo(() => {
     if (view === 'month') return `${MONTHS[anchor.m]} ${anchor.y}`;
@@ -403,6 +407,14 @@ export function Calendar({
 
   return (
     <div className="calendar">
+      <div className="cal-titlebar">
+        <CircleTitle
+          label="Calendar"
+          circles={circles}
+          circleId={circleId}
+          onChange={setCircleId}
+        />
+      </div>
       <div className="cal-toolbar">
         <div className="cal-nav">
           <button onClick={() => shift(-1)} aria-label="Previous">‹</button>
@@ -422,27 +434,14 @@ export function Calendar({
               </button>
             ))}
           </div>
-          {circles.length > 1 && (
-            <select value={circleId ?? ''} onChange={(e) => setCircleId(e.target.value)}>
-              {circles.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          )}
           <select value={scopeValue} onChange={(e) => onScopeChange(e.target.value)}>
-            {circle && circle.groups.length > 0 && (
-              <optgroup label="Group">
-                {circle.groups.map((g) => (
-                  <option key={g.id} value={`group:${g.id}`}>
-                    {g.name}
-                  </option>
-                ))}
+            {circle && primaryGroup && (
+              <optgroup label="Circles">
+                <option value={`group:${primaryGroup.id}`}>{circle.name}</option>
               </optgroup>
             )}
             {namedMembers.length > 0 && (
-              <optgroup label="Individual">
+              <optgroup label="Individuals">
                 {namedMembers.map((m) => (
                   <option key={m.id} value={`individual:${m.id}`}>
                     {m.name}

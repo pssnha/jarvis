@@ -6,6 +6,7 @@ import type {
   Circle,
   CircleAdminUser,
   CircleEmailConfig,
+  CircleMemberRole,
   Conflict,
   EventDetail,
   EventPayload,
@@ -132,6 +133,17 @@ export async function adminDeleteCircleMember(cid: string, memberId: string): Pr
   await fetch(`/api/admin/circles/${cid}/members/${memberId}`, { method: 'DELETE' }).then((r) =>
     json(r),
   );
+}
+export async function adminSetMemberRole(
+  cid: string,
+  memberId: string,
+  role: CircleMemberRole,
+): Promise<void> {
+  await fetch(`/api/admin/circles/${cid}/members/${memberId}/role`, {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ role }),
+  }).then((r) => json(r));
 }
 
 export async function adminAddGroupMember(

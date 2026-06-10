@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  adminAddCircleAdmin,
   adminAddCircleMember,
   adminAddGroupMember,
   adminAddUser,
@@ -12,14 +11,13 @@ import {
   adminDeleteCircleCover,
   adminDeleteUser,
   adminImportSchedule,
-  adminListCircleAdmins,
   adminListCircles,
   adminListUsers,
-  adminRemoveCircleAdmin,
   adminRemoveGroupMember,
   adminSetCircleCover,
   adminSetCircleEmail,
   adminSetCircleJob,
+  adminSetMemberRole,
   adminSetUserWhatsApp,
   adminStartCircleWhatsApp,
 } from '../lib/api';
@@ -27,7 +25,7 @@ import type {
   AdminCircle,
   AdminCircleGroup,
   AdminUser,
-  CircleAdminUser,
+  CircleMemberRole,
   MaintenanceJob,
   WhatsAppStatus,
 } from '../lib/types';
@@ -375,6 +373,93 @@ function CircleDetail({
   onChanged: () => void;
   onRemove: () => void;
 }) {
+  const [tab, setTab] = useState<'connections' | 'members' | 'settings'>('connections');
+  const tabs: { id: typeof tab; label: string }[] = [
+    { id: 'connections', label: 'Connections' },
+    { id: 'members', label: 'Members' },
+    { id: 'settings', label: 'Settings' },
+  ];
+
+  return (
+    <div className="circle-detail">
+      <div className="seg" role="tablist">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            className={tab === t.id ? 'on' : ''}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'connections' && (
+        <ConnectionsPane circle={circle} onError={onError} onChanged={onChanged} />
+      )}
+      {tab === 'members' && (
+        <MembersPane circle={circle} siteAdmin={siteAdmin} onError={onError} onChanged={onChanged} />
+      )}
+      {tab === 'settings' && (
+        <SettingsPane
+          circle={circle}
+          siteAdmin={siteAdmin}
+          onError={onError}
+          onChanged={onChanged}
+          onRemove={onRemove}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Pane 1 — how the circle reaches the outside: WhatsApp number, its groups, email. */
+function ConnectionsPane({
+  circle,
+  onError,
+  onChanged,
+}: {
+  circle: AdminCircle;
+  onError: (e: unknown) => void;
+  onChanged: () => void;
+}) {
+  return (
+    <div className="pane">
+      <CircleWhatsApp circle={circle} onError={onError} />
+
+      <div className="subsec">
+        <h4>Groups</h4>
+        <p className="muted">
+          WhatsApp groups this number is in. Toggle which members belong to each group.
+        </p>
+        {circle.groups.length === 0 ? (
+          <p className="muted">No groups yet — add Jarvis to a WhatsApp group.</p>
+        ) : (
+          circle.groups.map((g) => (
+            <GroupBlock key={g.id} circle={circle} group={g} onError={onError} onChanged={onChanged} />
+          ))
+        )}
+      </div>
+
+      <EmailPollingSection circle={circle} onError={onError} onChanged={onChanged} />
+    </div>
+  );
+}
+
+/** Pane 2 — the roster: each member with a Member / Circle-admin role. */
+function MembersPane({
+  circle,
+  siteAdmin,
+  onError,
+  onChanged,
+}: {
+  circle: AdminCircle;
+  siteAdmin: boolean;
+  onError: (e: unknown) => void;
+  onChanged: () => void;
+}) {
   const [mName, setMName] = useState('');
   const [mEmail, setMEmail] = useState('');
   const [mWa, setMWa] = useState('');
@@ -400,24 +485,63 @@ function CircleDetail({
       onError(e);
     }
   }
+  async function setRole(m: AdminCircle['members'][number], role: CircleMemberRole) {
+    if (
+      role === 'circle_admin' &&
+      !confirm(
+        `Make ${m.name ?? m.email} a circle admin? They'll be able to sign in and manage this circle.`,
+      )
+    )
+      return;
+    try {
+      await adminSetMemberRole(circle.id, m.id, role);
+      onChanged();
+    } catch (e) {
+      onError(e);
+    }
+  }
 
   return (
-    <div className="group-detail">
-      <CoverImageSection circle={circle} onError={onError} onChanged={onChanged} />
-
+    <div className="pane">
       <div className="subsec">
         <h4>Members</h4>
-        <p className="muted">People in this circle, matched by WhatsApp number and/or email.</p>
-        <ul className="admin-list compact">
+        <p className="muted">
+          People in this circle, matched by WhatsApp number and/or email. Circle admins can manage
+          this circle (but not site Permissions).
+        </p>
+        <ul className="member-list">
+          {circle.members.length === 0 && <li className="member-row muted">No members yet.</li>}
           {circle.members.map((m) => (
-            <li key={m.id}>
-              <span>
-                {m.name ?? '—'} {m.email && <span className="muted">· {m.email}</span>}{' '}
-                {m.waId && <span className="muted">· {m.waId}</span>}
-              </span>
-              <button className="link-danger" onClick={() => removeMember(m.id)}>
-                remove
-              </button>
+            <li key={m.id} className="member-row">
+              <div className="member-id">
+                <span className="member-name">{m.name ?? '—'}</span>
+                <span className="member-sub">
+                  {[m.email, m.waId].filter(Boolean).join('  ·  ') || 'no contact info'}
+                </span>
+              </div>
+              <div className="member-actions">
+                {siteAdmin ? (
+                  <select
+                    className="role-select"
+                    value={m.role}
+                    disabled={m.role === 'member' && !m.email}
+                    title={!m.email ? 'Add an email to allow circle-admin' : undefined}
+                    onChange={(e) => setRole(m, e.target.value as CircleMemberRole)}
+                  >
+                    <option value="member">Member</option>
+                    <option value="circle_admin" disabled={!m.email}>
+                      Circle admin
+                    </option>
+                  </select>
+                ) : (
+                  <span className={m.role === 'circle_admin' ? 'role-badge admin' : 'role-badge'}>
+                    {m.role === 'circle_admin' ? 'Circle admin' : 'Member'}
+                  </span>
+                )}
+                <button className="link-danger" onClick={() => removeMember(m.id)}>
+                  Remove
+                </button>
+              </div>
             </li>
           ))}
         </ul>
@@ -430,105 +554,37 @@ function CircleDetail({
           </button>
         </div>
       </div>
-
-      <div className="subsec">
-        <h4>Groups</h4>
-        <p className="muted">
-          WhatsApp groups appear here automatically. Toggle which members belong to each group.
-        </p>
-        {circle.groups.length === 0 ? (
-          <p className="muted">No groups yet — add Jarvis to a WhatsApp group.</p>
-        ) : (
-          circle.groups.map((g) => (
-            <GroupBlock key={g.id} circle={circle} group={g} onError={onError} onChanged={onChanged} />
-          ))
-        )}
-      </div>
-
-      <CircleWhatsApp circle={circle} onError={onError} />
-
-      <EmailPollingSection circle={circle} onError={onError} onChanged={onChanged} />
-
-      <JobsSection circle={circle} onError={onError} onChanged={onChanged} />
-
-      {siteAdmin && <CircleAdminsSection circle={circle} onError={onError} />}
-
-      {siteAdmin && (
-        <div className="subsec">
-          <h4>Danger zone</h4>
-          <button className="link-danger" onClick={onRemove}>
-            Delete circle
-          </button>
-        </div>
-      )}
     </div>
   );
 }
 
-function CircleAdminsSection({
+/** Pane 3 — circle settings: maintenance jobs, background image, delete. */
+function SettingsPane({
   circle,
+  siteAdmin,
   onError,
+  onChanged,
+  onRemove,
 }: {
   circle: AdminCircle;
+  siteAdmin: boolean;
   onError: (e: unknown) => void;
+  onChanged: () => void;
+  onRemove: () => void;
 }) {
-  const [admins, setAdmins] = useState<CircleAdminUser[]>([]);
-  const [email, setEmail] = useState('');
-
-  const load = useCallback(() => {
-    adminListCircleAdmins(circle.id).then(setAdmins).catch(onError);
-  }, [circle.id, onError]);
-  useEffect(load, [load]);
-
-  async function add() {
-    if (!email.trim()) return;
-    try {
-      await adminAddCircleAdmin(circle.id, email.trim());
-      setEmail('');
-      load();
-    } catch (e) {
-      onError(e);
-    }
-  }
-  async function remove(userId: string) {
-    try {
-      await adminRemoveCircleAdmin(circle.id, userId);
-      load();
-    } catch (e) {
-      onError(e);
-    }
-  }
-
   return (
-    <div className="subsec">
-      <h4>Circle admins</h4>
-      <p className="muted">
-        Site members who can manage this circle (but not site Permissions). Add them under
-        Permissions first, then grant access here by email.
-      </p>
-      <ul className="admin-list compact">
-        {admins.map((a) => (
-          <li key={a.id}>
-            <span>
-              {a.name ?? '—'} <span className="muted">· {a.email}</span>
-            </span>
-            <button className="link-danger" onClick={() => remove(a.id)}>
-              remove
-            </button>
-          </li>
-        ))}
-        {admins.length === 0 && <li className="muted">No circle admins yet.</li>}
-      </ul>
-      <div className="admin-form">
-        <input
-          placeholder="member@example.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <button className="primary" onClick={add}>
-          Add
-        </button>
-      </div>
+    <div className="pane">
+      <JobsSection circle={circle} onError={onError} onChanged={onChanged} />
+      <CoverImageSection circle={circle} onError={onError} onChanged={onChanged} />
+      {siteAdmin && (
+        <div className="subsec danger-zone">
+          <h4>Danger zone</h4>
+          <p className="muted">Permanently delete this circle and everything in it.</p>
+          <button className="btn-danger" onClick={onRemove}>
+            Delete circle
+          </button>
+        </div>
+      )}
     </div>
   );
 }

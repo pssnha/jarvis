@@ -114,11 +114,14 @@ export interface AdminCircleGroup {
   memberIds: string[];
 }
 
+export type CircleMemberRole = 'member' | 'circle_admin';
+
 export interface AdminCircleMember {
   id: string;
   name: string | null;
   email: string | null;
   waId: string | null;
+  role: CircleMemberRole;
 }
 
 /** A maintenance job that can be muted per circle. */

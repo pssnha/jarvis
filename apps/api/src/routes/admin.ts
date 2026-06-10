@@ -157,10 +157,16 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
         },
         members: { orderBy: { createdAt: 'asc' } },
         mutedJobs: { select: { job: true } },
+        admins: { include: { user: { select: { email: true } } } },
         _count: { select: { events: true, vacations: true } },
       },
     });
-    return circles.map((c) => ({
+    return circles.map((c) => {
+      // A member is a "circle admin" when their email matches a granted AuthUser.
+      const adminEmails = new Set(
+        c.admins.map((a) => a.user.email?.toLowerCase()).filter(Boolean) as string[],
+      );
+      return {
       id: c.id,
       name: c.name,
       timezone: c.timezone,
@@ -189,8 +195,13 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
         name: m.name,
         email: m.email,
         waId: m.waEnc ? maskPhone(decryptValue(m.waEnc)) : null,
+        role:
+          m.email && adminEmails.has(m.email.toLowerCase())
+            ? ('circle_admin' as const)
+            : ('member' as const),
       })),
-    }));
+      };
+    });
   });
 
   app.post('/admin/circles', async (req, reply) => {
@@ -310,6 +321,44 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     const m = await prisma.member.findFirst({ where: { id: memberId, circleId: cid } });
     if (!m) return reply.code(404).send({ error: 'member not found' });
     await prisma.member.delete({ where: { id: m.id } });
+    return { ok: true };
+  });
+
+  // Set a member's role within the circle (member ↔ circle admin) — site admins only.
+  // Promoting links/creates the member's site login and grants CircleAdmin.
+  app.put('/admin/circles/:cid/members/:memberId/role', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
+    const { cid, memberId } = req.params as { cid: string; memberId: string };
+    const body = (req.body ?? {}) as { role?: 'member' | 'circle_admin' };
+    const m = await prisma.member.findFirst({ where: { id: memberId, circleId: cid } });
+    if (!m) return reply.code(404).send({ error: 'member not found' });
+
+    if (body.role === 'circle_admin') {
+      const email = m.email?.toLowerCase();
+      if (!email) {
+        return reply
+          .code(400)
+          .send({ error: 'add an email to this member before making them a circle admin' });
+      }
+      const user = await prisma.authUser.upsert({
+        where: { email },
+        update: {},
+        create: { email, name: m.name, role: 'member' },
+      });
+      await prisma.circleAdmin.upsert({
+        where: { circleId_authUserId: { circleId: cid, authUserId: user.id } },
+        update: {},
+        create: { circleId: cid, authUserId: user.id },
+      });
+    } else {
+      // Demote: drop the per-circle grant if their login exists.
+      if (m.email) {
+        const user = await prisma.authUser.findUnique({ where: { email: m.email.toLowerCase() } });
+        if (user) {
+          await prisma.circleAdmin.deleteMany({ where: { circleId: cid, authUserId: user.id } });
+        }
+      }
+    }
     return { ok: true };
   });
 

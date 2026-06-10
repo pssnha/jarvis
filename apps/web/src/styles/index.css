@@ -1022,7 +1022,150 @@ button.primary:active {
   background-size: cover;
   background-position: center;
   margin: 0.4rem 0;
-  border: 1px solid var(--border, #e2e8f0);
+  border: 1px solid var(--separator);
+}
+
+/* ---------- Circle detail: Apple-style segmented panes ---------- */
+.circle-detail {
+  margin-top: 0.25rem;
+}
+/* iOS-style segmented control */
+.seg {
+  display: inline-flex;
+  width: 100%;
+  gap: 2px;
+  padding: 2px;
+  margin-bottom: 1.1rem;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+}
+.seg button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 0.42rem 0.8rem;
+  border-radius: calc(var(--r-sm) - 3px);
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.seg button:hover:not(.on) {
+  color: var(--text);
+}
+.seg button.on {
+  background: var(--surface);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+.seg button:active {
+  transform: scale(0.98);
+}
+.pane {
+  animation: pane-in var(--dur) var(--ease);
+}
+@keyframes pane-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Members roster — inset grouped list */
+.member-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  border: 1px solid var(--separator);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+.member-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-top: 1px solid var(--separator);
+}
+.member-row:first-child {
+  border-top: none;
+}
+.member-id {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.member-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.member-sub {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.member-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-shrink: 0;
+}
+.role-select {
+  padding: 0.34rem 0.5rem;
+  border: 1px solid var(--separator);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.role-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.role-badge {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.role-badge.admin {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Danger zone */
+.danger-zone {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--separator);
+}
+.btn-danger {
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+  border-radius: var(--r-sm);
+  padding: 0.5rem 0.9rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+.btn-danger:active {
+  transform: scale(0.98);
 }
 .admin-form {
   display: flex;

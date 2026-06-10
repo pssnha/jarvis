@@ -167,17 +167,25 @@ export async function addVacationItem(vacationId: string, input: VacationItemInp
     color: input.color ?? null,
   };
 
-  // De-dupe: the same booking shares a confirmation number, or the same type +
-  // flight number, or the same type + day + (near-)identical title. Prevents
-  // email re-scans / repeated confirmations from piling up duplicate hotels.
+  // De-dupe within the trip. Note a single booking confirmation can cover
+  // MANY flights (a multi-leg/round trip), so confirmation alone must NOT
+  // collapse flights — use the flight/transport number for those. For other
+  // types a shared confirmation does mean the same item.
   const existing = await prisma.vacationItem.findMany({ where: { vacationId, type: input.type } });
+  const NEAR_MS = 36 * 3_600_000; // within ~1.5 days
+  const isTravel = input.type === 'flight' || input.type === 'transport';
   const dup = existing.find((e) => {
-    if (data.confirmation && e.confirmation && e.confirmation === data.confirmation) return true;
-    if (data.number && e.number && e.number === data.number) return true;
-    const sameDay = Math.abs(e.startsAt.getTime() - startsAt.getTime()) < 86_400_000;
+    const near = Math.abs(e.startsAt.getTime() - startsAt.getTime()) < NEAR_MS;
+    if (isTravel) {
+      // Same vehicle/flight number close in time = the same leg.
+      if (data.number && e.number && data.number === e.number && near) return true;
+    } else if (data.confirmation && e.confirmation && data.confirmation === e.confirmation) {
+      return true;
+    }
+    // Fallback: same type + nearby + (near-)identical title.
     const nt = normTitle(data.title);
     const en = normTitle(e.title);
-    return sameDay && nt.length > 0 && (nt === en || nt.startsWith(en) || en.startsWith(nt));
+    return near && nt.length > 0 && (nt === en || nt.startsWith(en) || en.startsWith(nt));
   });
 
   if (dup) {

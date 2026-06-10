@@ -1440,6 +1440,11 @@ button.primary:active {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.ai-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
 .ai-out {
   font-size: 0.72rem;
   font-weight: 600;

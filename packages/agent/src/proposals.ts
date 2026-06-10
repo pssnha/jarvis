@@ -87,6 +87,29 @@ export async function markNotified(ids: string[]): Promise<void> {
 export async function confirmProposal(circleId: string, code: string): Promise<string> {
   const p = await prisma.emailProposal.findFirst({ where: { circleId, code, status: 'pending' } });
   if (!p) return `No pending proposal "${code}".`;
+  return applyConfirm(circleId, p);
+}
+
+/** Confirm a specific proposal by id (web Activity log — codes can repeat). */
+export async function confirmProposalById(circleId: string, id: string): Promise<string> {
+  const p = await prisma.emailProposal.findFirst({ where: { id, circleId, status: 'pending' } });
+  if (!p) return 'No pending proposal.';
+  return applyConfirm(circleId, p);
+}
+
+/** Reject a specific proposal by id (web Activity log). */
+export async function rejectProposalById(circleId: string, id: string): Promise<string> {
+  const p = await prisma.emailProposal.findFirst({ where: { id, circleId, status: 'pending' } });
+  if (!p) return 'No pending proposal.';
+  await prisma.emailProposal.update({
+    where: { id: p.id },
+    data: { status: 'rejected', decidedAt: new Date() },
+  });
+  return `Skipped "${p.title}".`;
+}
+
+async function applyConfirm(circleId: string, p: EmailProposal): Promise<string> {
+  const code = p.code;
   const circle = await getCircle(circleId);
   if (!circle) return 'Circle not found.';
   const zone = circle.timezone;

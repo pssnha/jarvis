@@ -5,7 +5,9 @@ import {
   adminAddUser,
   adminCircleEmailActivity,
   adminCircleWhatsAppStatus,
+  adminConfirmEmailItem,
   adminPollCircleEmail,
+  adminRejectEmailItem,
   adminCreateCircle,
   adminDeleteCircle,
   adminDeleteCircleEmail,
@@ -949,10 +951,24 @@ function EmailActivityLog({
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<EmailActivity | null>(null);
   const [polling, setPolling] = useState(false);
+  const [acting, setActing] = useState<string | null>(null);
 
   const load = useCallback(() => {
     adminCircleEmailActivity(circleId).then(setData).catch(() => {});
   }, [circleId]);
+
+  async function act(id: string, action: 'confirm' | 'reject') {
+    setActing(id);
+    try {
+      if (action === 'confirm') await adminConfirmEmailItem(circleId, id);
+      else await adminRejectEmailItem(circleId, id);
+      load();
+    } catch (e) {
+      onError(e);
+    } finally {
+      setActing(null);
+    }
+  }
   useEffect(() => {
     if (!open) return;
     load();
@@ -1000,7 +1016,26 @@ function EmailActivityLog({
                         {it.subject || it.fromEmail || 'email'} · {fmtWhen(it.createdAt)}
                       </div>
                     </div>
-                    <span className={o.cls}>{o.label}</span>
+                    {it.status === 'pending' ? (
+                      <div className="ai-actions">
+                        <button
+                          className="btn-quiet sm"
+                          disabled={acting === it.id}
+                          onClick={() => act(it.id, 'confirm')}
+                        >
+                          Add
+                        </button>
+                        <button
+                          className="btn-quiet sm"
+                          disabled={acting === it.id}
+                          onClick={() => act(it.id, 'reject')}
+                        >
+                          Ignore
+                        </button>
+                      </div>
+                    ) : (
+                      <span className={o.cls}>{o.label}</span>
+                    )}
                   </li>
                 );
               })}

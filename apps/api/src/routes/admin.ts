@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import ical from 'node-ical';
 import { prisma } from '@jarvis/db';
 import {
+  confirmProposalById,
   createRawEvent,
   decryptValue,
   encryptPhone,
@@ -9,6 +10,7 @@ import {
   ensureGroupMember,
   maskPhone,
   openclawJobsToEvents,
+  rejectProposalById,
   setUserWhatsApp,
   type ImportedEvent,
 } from '@jarvis/agent';
@@ -510,6 +512,21 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
       })),
       items,
     };
+  });
+
+  // Add or ignore a detected email item from the Activity log (an alternative to
+  // replying on WhatsApp).
+  app.post('/admin/circles/:cid/email/items/:id/confirm', async (req, reply) => {
+    const { cid, id } = req.params as { cid: string; id: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const message = await confirmProposalById(cid, id);
+    return { message };
+  });
+  app.post('/admin/circles/:cid/email/items/:id/reject', async (req, reply) => {
+    const { cid, id } = req.params as { cid: string; id: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const message = await rejectProposalById(cid, id);
+    return { message };
   });
 
   // ----- Per-job, per-circle maintenance mute -----

@@ -192,6 +192,16 @@ export async function adminCircleEmailActivity(cid: string): Promise<EmailActivi
 export async function adminPollCircleEmail(cid: string): Promise<void> {
   await fetch(`/api/admin/circles/${cid}/email/poll`, { method: 'POST' }).then((r) => json(r));
 }
+export async function adminConfirmEmailItem(cid: string, id: string): Promise<{ message: string }> {
+  return fetch(`/api/admin/circles/${cid}/email/items/${id}/confirm`, { method: 'POST' }).then((r) =>
+    json<{ message: string }>(r),
+  );
+}
+export async function adminRejectEmailItem(cid: string, id: string): Promise<{ message: string }> {
+  return fetch(`/api/admin/circles/${cid}/email/items/${id}/reject`, { method: 'POST' }).then((r) =>
+    json<{ message: string }>(r),
+  );
+}
 
 // ---------- Admin: maintenance ----------
 export async function adminMaintenanceCalendar(

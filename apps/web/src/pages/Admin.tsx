@@ -866,16 +866,17 @@ function EmailPollingSection({
   }
 
   if (cfg.address) {
+    const connected = cfg.firstScanDone || Boolean(cfg.lastPolledAt);
     const sub = !cfg.enabled
       ? 'Paused'
-      : cfg.firstScanDone
+      : connected
         ? `Active · last checked ${cfg.lastPolledAt ? new Date(cfg.lastPolledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'}`
-        : 'Active · first scan pending';
+        : 'Couldn’t connect — check the app-password';
     return (
       <>
         <div className="conn-card">
           <div className="conn-row">
-            <span className={cfg.enabled ? 'conn-dot ok' : 'conn-dot'} />
+            <span className={cfg.enabled && connected ? 'conn-dot ok' : 'conn-dot'} />
             <div className="conn-main">
               <div className="conn-title">{cfg.address}</div>
               <div className="conn-sub">{sub}</div>

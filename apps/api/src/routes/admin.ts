@@ -410,6 +410,9 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     if (!c) return reply.code(404).send({ error: 'circle not found' });
     if (!body.address) return reply.code(400).send({ error: 'address is required' });
     const address = body.address.trim().toLowerCase();
+    // App-passwords are often shown/pasted with spaces ("abcd efgh ijkl mnop");
+    // IMAP needs them removed.
+    const credential = body.credential?.replace(/\s+/g, '');
     await prisma.circle.update({
       where: { id: cid },
       data: {
@@ -417,7 +420,7 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
         emailHost: body.host?.trim() || imapHostFor(address),
         emailPort: body.port ?? 993,
         emailEnabled: body.enabled ?? true,
-        ...(body.credential ? { emailEncCred: encryptValue(body.credential) } : {}),
+        ...(credential ? { emailEncCred: encryptValue(credential) } : {}),
       },
     });
     return { ok: true };

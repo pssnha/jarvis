@@ -6,8 +6,8 @@ import { runHealthCheck } from '../maintenance';
 
 /** Register cron-scheduled jobs (all maintenance jobs are mutable per circle). */
 export function startSchedules(): void {
-  // Poll each circle's dedicated mailbox and propose detected items.
-  const emailCron = process.env.EMAIL_POLL_CRON ?? '*/2 * * * *';
+  // Poll each circle's dedicated mailbox and propose detected items (every 2h).
+  const emailCron = process.env.EMAIL_POLL_CRON ?? '0 */2 * * *';
   cron.schedule(emailCron, () => {
     void pollCircleMailboxes();
   });

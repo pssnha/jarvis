@@ -116,43 +116,45 @@ async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; fou
     socketTimeout: 30_000,
   });
 
-  let maxUid = circle.emailLastUid ?? 0;
   try {
     await client.connect();
+    // The INBOX is the work queue: every message in it is unprocessed. Once we
+    // analyze a message we move it to the "Processed" label to keep the inbox clean.
+    const processed = await resolveProcessedMailbox(client);
     const lock = await client.getMailboxLock('INBOX');
     try {
-      // First scan: everything. Later: only UIDs above the last processed one.
-      const lastUid = circle.emailLastUid ?? 0;
-      const range = circle.emailFirstScanDone ? `${lastUid + 1}:*` : '1:*';
-      const searchRes = await client.search({ uid: range }, { uid: true });
-      const fresh = (Array.isArray(searchRes) ? searchRes : []).filter((u: number) => u > lastUid);
-      scanned = fresh.length;
-
-      for (const uid of fresh) {
-        if (uid > maxUid) maxUid = uid;
+      const all = await client.search({ all: true }, { uid: true });
+      const uids = Array.isArray(all) ? all : [];
+      for (const uid of uids) {
         const msg = await client.fetchOne(String(uid), { source: true }, { uid: true });
         if (!msg || !msg.source) continue;
-        const parsed = await simpleParser(msg.source);
-        // Many real emails (airline/hotel/school) are HTML-only — fall back to a
-        // stripped version of the HTML body so they aren't silently skipped.
-        const text = bodyText(parsed.text, typeof parsed.html === 'string' ? parsed.html : null);
-        if (!text.trim()) continue;
+        scanned++;
         try {
-          const proposals = await analyzeEmail({
-            text,
-            subject: parsed.subject ?? undefined,
-            timezone: circle.timezone,
-          });
-          if (proposals.length > 0) {
-            await createProposals(circle.id, proposals, {
-              fromEmail: parsed.from?.value?.[0]?.address?.toLowerCase(),
+          const parsed = await simpleParser(msg.source);
+          // HTML-only emails (airline/hotel/school) have no plain-text part — fall
+          // back to a stripped HTML body so they aren't skipped.
+          const text = bodyText(parsed.text, typeof parsed.html === 'string' ? parsed.html : null);
+          if (text.trim()) {
+            const proposals = await analyzeEmail({
+              text,
               subject: parsed.subject ?? undefined,
-              messageId: parsed.messageId ?? undefined,
+              timezone: circle.timezone,
             });
-            foundCount += proposals.length;
+            if (proposals.length > 0) {
+              await createProposals(circle.id, proposals, {
+                fromEmail: parsed.from?.value?.[0]?.address?.toLowerCase(),
+                subject: parsed.subject ?? undefined,
+                messageId: parsed.messageId ?? undefined,
+              });
+              foundCount += proposals.length;
+            }
           }
+          // Processed — move it out of the inbox. If there's no Processed label we
+          // leave it (messageId de-dup still prevents duplicate proposals).
+          if (processed) await client.messageMove(String(uid), processed, { uid: true });
         } catch (err) {
-          console.error(`[email] analyze failed (uid ${uid}):`, err);
+          // Leave the message in the inbox for the next poll to retry.
+          console.error(`[email] processing uid ${uid} failed:`, err);
         }
       }
     } finally {
@@ -168,7 +170,7 @@ async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; fou
 
   await prisma.circle.update({
     where: { id: circle.id },
-    data: { emailLastUid: maxUid, emailFirstScanDone: true, emailLastPolledAt: new Date() },
+    data: { emailFirstScanDone: true, emailLastPolledAt: new Date() },
   });
 
   await notifyPending(circle);
@@ -201,6 +203,28 @@ async function notifyPending(circle: Circle): Promise<void> {
   }
 
   await markNotified(pending.map((p) => p.id));
+}
+
+/** The Gmail label/folder processed mail is moved to (keeps the inbox clean). */
+const PROCESSED_MAILBOX = process.env.EMAIL_PROCESSED_MAILBOX ?? 'Processed';
+
+/** Find the "Processed" mailbox path (creating the label if it doesn't exist). */
+async function resolveProcessedMailbox(client: ImapFlow): Promise<string | null> {
+  try {
+    const boxes = await client.list();
+    const match = boxes.find(
+      (b) =>
+        b.path === PROCESSED_MAILBOX ||
+        b.name === PROCESSED_MAILBOX ||
+        b.path.toLowerCase() === PROCESSED_MAILBOX.toLowerCase(),
+    );
+    if (match) return match.path;
+    await client.mailboxCreate(PROCESSED_MAILBOX);
+    return PROCESSED_MAILBOX;
+  } catch (err) {
+    console.error('[email] could not resolve/create the Processed mailbox:', err);
+    return null;
+  }
 }
 
 /** Plain text for analysis: the text part, or HTML stripped to readable text. */

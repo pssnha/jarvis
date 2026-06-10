@@ -23,8 +23,8 @@ import {
   adminSetCircleEmail,
   adminSetCircleJob,
   adminSetMemberRole,
-  adminSetUserWhatsApp,
   adminStartCircleWhatsApp,
+  adminUpdateUser,
 } from '../lib/api';
 import type {
   AdminCircle,
@@ -43,22 +43,194 @@ const JOBS: { id: MaintenanceJob; label: string }[] = [
   { id: 'health_check', label: 'Health check' },
 ];
 
-/** Permissions page — manage who can sign in to the site. Site admins only. */
+/** Permissions page — who can sign in to the site, with inline editing. */
 export function Permissions() {
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const fail = (e: unknown) => setError(String((e as Error).message ?? e));
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
+  const [role, setRole] = useState('member');
+  const onError = (e: unknown) => setError(String((e as Error).message ?? e));
+
+  const load = useCallback(() => {
+    adminListUsers().then(setUsers).catch(onError);
+  }, []);
+  useEffect(load, [load]);
+
+  async function add() {
+    if (!email.trim()) return;
+    try {
+      await adminAddUser({ name: name || undefined, email: email.trim(), role, whatsapp: whatsapp || undefined });
+      setName('');
+      setEmail('');
+      setWhatsapp('');
+      setRole('member');
+      load();
+    } catch (e) {
+      onError(e);
+    }
+  }
+  async function remove(id: string) {
+    if (!confirm('Remove this member?')) return;
+    try {
+      await adminDeleteUser(id);
+      load();
+    } catch (e) {
+      onError(e);
+    }
+  }
+
   return (
-    <div className="admin">
+    <div className="permissions">
+      <div className="vac-toolbar">
+        <h2>Permissions</h2>
+      </div>
       {error && <p className="error">{error}</p>}
-      <UsersSection onError={fail} />
+
+      <div className="perm-table">
+        <div className="perm-head">
+          <span>Name</span>
+          <span>Email</span>
+          <span>WhatsApp</span>
+          <span>Type</span>
+          <span />
+        </div>
+        {users.map((u) => (
+          <PermRow key={u.id} user={u} onError={onError} onChanged={load} onRemove={() => remove(u.id)} />
+        ))}
+        <div className="perm-row add">
+          <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            placeholder="email@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <input
+            placeholder="WhatsApp number"
+            value={whatsapp}
+            onChange={(e) => setWhatsapp(e.target.value)}
+          />
+          <select value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="member">Member</option>
+            <option value="admin">Admin</option>
+          </select>
+          <span className="perm-actions">
+            <button className="btn-quiet" onClick={add}>
+              Add
+            </button>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PermRow({
+  user,
+  onError,
+  onChanged,
+  onRemove,
+}: {
+  user: AdminUser;
+  onError: (e: unknown) => void;
+  onChanged: () => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState(user.name ?? '');
+  const [email, setEmail] = useState(user.email);
+  const [whatsapp, setWhatsapp] = useState('');
+  const [role, setRole] = useState(user.role);
+
+  function cancel() {
+    setEditing(false);
+    setName(user.name ?? '');
+    setEmail(user.email);
+    setWhatsapp('');
+    setRole(user.role);
+  }
+  async function save() {
+    setBusy(true);
+    try {
+      await adminUpdateUser(user.id, {
+        name: name || null,
+        email,
+        role,
+        ...(whatsapp.trim() ? { whatsapp: whatsapp.trim() } : {}),
+      });
+      setEditing(false);
+      setWhatsapp('');
+      onChanged();
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="perm-row">
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
+        <input
+          value={whatsapp}
+          onChange={(e) => setWhatsapp(e.target.value)}
+          placeholder={user.waId ? `${user.waId} (unchanged)` : 'WhatsApp number'}
+        />
+        <select value={role} onChange={(e) => setRole(e.target.value)}>
+          <option value="member">Member</option>
+          <option value="admin">Admin</option>
+        </select>
+        <span className="perm-actions">
+          <button className="btn-quiet sm" onClick={save} disabled={busy}>
+            Save
+          </button>
+          <button className="btn-quiet sm" onClick={cancel} disabled={busy}>
+            Cancel
+          </button>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="perm-row">
+      <span className="perm-name">{user.name || '—'}</span>
+      <span className="perm-cell">{user.email}</span>
+      <span className="perm-cell">{user.waId ?? '—'}</span>
+      <span>
+        <span className={user.role === 'admin' ? 'badge admin' : 'badge member'}>
+          {user.role === 'admin' ? 'Admin' : 'Member'}
+        </span>
+      </span>
+      <span className="perm-actions">
+        <button className="btn-quiet sm" onClick={() => setEditing(true)}>
+          Edit
+        </button>
+        <button className="link-danger" onClick={onRemove}>
+          Remove
+        </button>
+      </span>
     </div>
   );
 }
 
 /** Circles page — a card grid (like Vacations); click a card to manage a circle. */
-export function Circles({ siteAdmin }: { siteAdmin: boolean }) {
+export function Circles({
+  siteAdmin,
+  itemId,
+  onOpen,
+  onBack,
+}: {
+  siteAdmin: boolean;
+  itemId: string | null;
+  onOpen: (id: string) => void;
+  onBack: () => void;
+}) {
   const [circles, setCircles] = useState<AdminCircle[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [tz, setTz] = useState('America/Los_Angeles');
@@ -82,13 +254,13 @@ export function Circles({ siteAdmin }: { siteAdmin: boolean }) {
     }
   }
 
-  const current = circles.find((c) => c.id === selected) ?? null;
+  const current = itemId ? (circles.find((c) => c.id === itemId) ?? null) : null;
 
   if (current) {
     return (
       <div className="admin">
         {error && <p className="error">{error}</p>}
-        <button className="link" onClick={() => setSelected(null)}>
+        <button className="link" onClick={onBack}>
           ← All circles
         </button>
         <section className="admin-card">
@@ -108,7 +280,7 @@ export function Circles({ siteAdmin }: { siteAdmin: boolean }) {
                 return;
               try {
                 await adminDeleteCircle(current.id);
-                setSelected(null);
+                onBack();
                 load();
               } catch (e) {
                 onError(e);
@@ -147,7 +319,7 @@ export function Circles({ siteAdmin }: { siteAdmin: boolean }) {
             <button
               key={c.id}
               className={c.coverImageUrl ? 'vac-card has-image' : 'vac-card'}
-              onClick={() => setSelected(c.id)}
+              onClick={() => onOpen(c.id)}
               style={
                 c.coverImageUrl
                   ? {
@@ -277,121 +449,6 @@ function CircleWhatsApp({ circle, onError }: { circle: AdminCircle; onError: (e:
         </button>
       </div>
     </div>
-  );
-}
-
-function UsersSection({ onError }: { onError: (e: unknown) => void }) {
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [email, setEmail] = useState('');
-  const [role, setRole] = useState('member');
-
-  const load = useCallback(() => {
-    adminListUsers().then(setUsers).catch(onError);
-  }, [onError]);
-  useEffect(load, [load]);
-
-  async function add() {
-    if (!email.trim()) return;
-    try {
-      await adminAddUser(email.trim(), role);
-      setEmail('');
-      load();
-    } catch (e) {
-      onError(e);
-    }
-  }
-  async function remove(id: string) {
-    if (!confirm('Remove this user?')) return;
-    try {
-      await adminDeleteUser(id);
-      load();
-    } catch (e) {
-      onError(e);
-    }
-  }
-
-  return (
-    <section className="admin-card">
-      <h2>Site members</h2>
-      <p className="muted">People allowed to sign in (via Google).</p>
-      <ul className="admin-list">
-        {users.map((u) => (
-          <UserRow key={u.id} user={u} onError={onError} onChanged={load} onRemove={remove} />
-        ))}
-      </ul>
-      <div className="admin-form">
-        <input
-          placeholder="email@example.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <select value={role} onChange={(e) => setRole(e.target.value)}>
-          <option value="member">member</option>
-          <option value="admin">admin</option>
-        </select>
-        <button className="primary" onClick={add}>
-          Add
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function UserRow({
-  user,
-  onError,
-  onChanged,
-  onRemove,
-}: {
-  user: AdminUser;
-  onError: (e: unknown) => void;
-  onChanged: () => void;
-  onRemove: (id: string) => void;
-}) {
-  const [num, setNum] = useState('');
-  const [editing, setEditing] = useState(false);
-
-  async function save() {
-    try {
-      await adminSetUserWhatsApp(user.id, num.trim());
-      setEditing(false);
-      setNum('');
-      onChanged();
-    } catch (e) {
-      onError(e);
-    }
-  }
-
-  return (
-    <li>
-      <span>
-        {user.email} <span className={`badge ${user.role}`}>{user.role}</span>
-        {user.waId && <span className="muted"> · 📱 {user.waId}</span>}
-        {user.role === 'admin' &&
-          (editing ? (
-            <span className="wa-set">
-              <input
-                placeholder="WhatsApp number"
-                value={num}
-                onChange={(e) => setNum(e.target.value)}
-              />
-              <button className="link" onClick={save}>
-                save
-              </button>
-              <button className="link" onClick={() => setEditing(false)}>
-                cancel
-              </button>
-            </span>
-          ) : (
-            <button className="link" onClick={() => setEditing(true)}>
-              {user.waId ? 'change #' : 'set WhatsApp #'}
-            </button>
-          ))}
-      </span>
-      <button className="link-danger" onClick={() => onRemove(user.id)}>
-        remove
-      </button>
-    </li>
   );
 }
 
@@ -1120,7 +1177,7 @@ function JobsSection({
                 checked={!muted.has(j.id)}
                 onChange={(e) => toggle(j.id, !e.target.checked)}
               />
-              {muted.has(j.id) ? 'muted' : 'active'}
+              {muted.has(j.id) ? 'Muted' : 'Active'}
             </label>
           </li>
         ))}

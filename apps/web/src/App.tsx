@@ -10,26 +10,32 @@ import { Login } from './pages/Login';
 
 type View = 'calendar' | 'vacations' | 'circles' | 'permissions' | 'maintenance';
 
-const HASH: Record<View, string> = {
-  calendar: '#/calendar',
-  vacations: '#/vacations',
-  circles: '#/circles',
-  permissions: '#/permissions',
-  maintenance: '#/maintenance',
-};
+interface Route {
+  view: View;
+  /** Optional detail id (e.g. a circle or trip): #/circles/<id>. */
+  id: string | null;
+}
 
-/** Current view from the URL hash (defaults to calendar). */
-function viewFromHash(): View {
-  const h = window.location.hash.replace(/^#\/?/, '').split('/')[0];
-  if (h === 'vacations' || h === 'circles' || h === 'permissions' || h === 'maintenance') return h;
-  return 'calendar';
+/** Parse the URL hash into a view + optional detail id. */
+function parseRoute(): Route {
+  const parts = window.location.hash.replace(/^#\/?/, '').split('/');
+  const v = parts[0];
+  const view: View =
+    v === 'vacations' || v === 'circles' || v === 'permissions' || v === 'maintenance'
+      ? v
+      : 'calendar';
+  return { view, id: parts[1] ? decodeURIComponent(parts[1]) : null };
+}
+
+function hashFor(view: View, id?: string | null): string {
+  return id ? `#/${view}/${encodeURIComponent(id)}` : `#/${view}`;
 }
 
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
-  const [view, setView] = useState<View>(viewFromHash);
-  // Bumped on a nav click to the page you're already on, to reset its sub-state
-  // (e.g. back to the trip/circle list from a detail view).
+  const [route, setRoute] = useState<Route>(parseRoute);
+  // Bumped when you click the nav item for the page you're already on, to reset
+  // its sub-state (e.g. back to the list root).
   const [resetKey, setResetKey] = useState(0);
   const [navOpen, setNavOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -43,9 +49,9 @@ export function App() {
       .catch(() => setMe(null));
   }, []);
 
-  // Keep the view in sync with browser navigation (back/forward, refresh).
+  // Keep the route in sync with browser navigation (back/forward, refresh).
   useEffect(() => {
-    const onHash = () => setView(viewFromHash());
+    const onHash = () => setRoute(parseRoute());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -59,6 +65,7 @@ export function App() {
   }
   if (me === null) return <Login />;
 
+  const view = route.view;
   const siteAdmin = me.role === 'admin';
   const circleAdmin = (me.adminCircleIds?.length ?? 0) > 0;
 
@@ -66,16 +73,18 @@ export function App() {
     await logout();
     setMe(null);
   }
-  function go(v: View) {
+  // Navigate by changing the URL hash (pushes history → back/forward + refresh).
+  function navigate(v: View, id?: string | null) {
     setNavOpen(false);
-    if (v === view) setResetKey((k) => k + 1); // re-click → reset to the page root
-    if (window.location.hash !== HASH[v]) {
-      window.location.hash = HASH[v]; // pushes history → back/forward + refresh work
+    const target = hashFor(v, id);
+    if (window.location.hash === target) {
+      if (!id) setResetKey((k) => k + 1); // already at this root → reset its sub-state
+    } else {
+      window.location.hash = target;
     }
-    setView(v);
   }
   const item = (v: View, label: string) => (
-    <button className={view === v ? 'side-item active' : 'side-item'} onClick={() => go(v)}>
+    <button className={view === v ? 'side-item active' : 'side-item'} onClick={() => navigate(v)}>
       {label}
     </button>
   );
@@ -135,8 +144,26 @@ export function App() {
                       ? 'vacations'
                       : 'calendar';
             const key = `${v}:${resetKey}`;
-            if (v === 'vacations') return <Vacations key={key} onActive={setActive} />;
-            if (v === 'circles') return <Circles key={key} siteAdmin={siteAdmin} />;
+            if (v === 'vacations')
+              return (
+                <Vacations
+                  key={key}
+                  onActive={setActive}
+                  itemId={route.id}
+                  onOpen={(id) => navigate('vacations', id)}
+                  onBack={() => navigate('vacations')}
+                />
+              );
+            if (v === 'circles')
+              return (
+                <Circles
+                  key={key}
+                  siteAdmin={siteAdmin}
+                  itemId={route.id}
+                  onOpen={(id) => navigate('circles', id)}
+                  onBack={() => navigate('circles')}
+                />
+              );
             if (v === 'permissions') return <Permissions key={key} />;
             if (v === 'maintenance') return <Maintenance key={key} />;
             return <Calendar key={key} onActive={setActive} />;

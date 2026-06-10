@@ -6,13 +6,18 @@ import { VacationModal } from '../components/VacationModal';
 
 export function Vacations({
   onActive,
+  itemId,
+  onOpen,
+  onBack,
 }: {
   onActive?: (a: { circleId: string; scope?: string }) => void;
+  itemId: string | null;
+  onOpen: (id: string) => void;
+  onBack: () => void;
 }) {
   const [circles, setCircles] = useState<Circle[]>([]);
   const [circleId, setCircleId] = useState<string | null>(null);
   const [vacations, setVacations] = useState<VacationSummary[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [includePast, setIncludePast] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,15 +66,15 @@ export function Vacations({
     );
   }
 
-  if (selected && circleId) {
+  if (itemId && circleId) {
     return (
       <div className="vacations">
         <VacationDetail
           circleId={circleId}
-          vacationId={selected}
+          vacationId={itemId}
           onBack={() => {
-            setSelected(null);
-            if (circleId) load(circleId, includePast);
+            onBack();
+            load(circleId, includePast);
           }}
         />
       </div>
@@ -114,7 +119,7 @@ export function Vacations({
             <button
               key={v.id}
               className={v.coverImageUrl ? 'vac-card has-image' : 'vac-card'}
-              onClick={() => setSelected(v.id)}
+              onClick={() => onOpen(v.id)}
               style={
                 v.coverImageUrl
                   ? {

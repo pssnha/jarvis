@@ -59,22 +59,28 @@ export async function logout(): Promise<void> {
 export async function adminListUsers(): Promise<AdminUser[]> {
   return fetch('/api/admin/users').then((r) => json<AdminUser[]>(r));
 }
-export async function adminAddUser(email: string, role: string): Promise<void> {
+export interface UserInput {
+  name?: string | null;
+  email?: string;
+  role?: string;
+  whatsapp?: string | null;
+}
+export async function adminAddUser(input: UserInput): Promise<void> {
   await fetch('/api/admin/users', {
     method: 'POST',
     headers: jsonHeaders,
-    body: JSON.stringify({ email, role }),
+    body: JSON.stringify(input),
+  }).then((r) => json(r));
+}
+export async function adminUpdateUser(id: string, input: UserInput): Promise<void> {
+  await fetch(`/api/admin/users/${id}`, {
+    method: 'PATCH',
+    headers: jsonHeaders,
+    body: JSON.stringify(input),
   }).then((r) => json(r));
 }
 export async function adminDeleteUser(id: string): Promise<void> {
   await fetch(`/api/admin/users/${id}`, { method: 'DELETE' }).then((r) => json(r));
-}
-export async function adminSetUserWhatsApp(id: string, number: string): Promise<void> {
-  await fetch(`/api/admin/users/${id}/whatsapp`, {
-    method: 'POST',
-    headers: jsonHeaders,
-    body: JSON.stringify({ number }),
-  }).then((r) => json(r));
 }
 
 export async function adminCircleWhatsAppStatus(cid: string): Promise<WhatsAppStatus> {

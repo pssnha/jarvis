@@ -140,16 +140,56 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
 
   app.post('/admin/users', async (req, reply) => {
     if (!requireSite(req, reply)) return;
-    const body = (req.body ?? {}) as { email?: string; name?: string; role?: string };
+    const body = (req.body ?? {}) as {
+      email?: string;
+      name?: string;
+      role?: string;
+      whatsapp?: string;
+    };
     if (!body.email) return reply.code(400).send({ error: 'email is required' });
     const role = body.role === 'admin' ? 'admin' : 'member';
     try {
-      return await prisma.authUser.create({
-        data: { email: body.email.toLowerCase(), name: body.name, role },
+      const created = await prisma.authUser.create({
+        data: { email: body.email.trim().toLowerCase(), name: body.name?.trim() || null, role },
       });
+      if (body.whatsapp?.trim()) await setUserWhatsApp(created.id, body.whatsapp.trim());
+      return created;
     } catch {
       return reply.code(409).send({ error: 'a user with that email already exists' });
     }
+  });
+
+  // Inline edit: update any of name / email / role / WhatsApp on a user.
+  app.patch('/admin/users/:id', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as {
+      name?: string | null;
+      email?: string;
+      role?: string;
+      whatsapp?: string | null;
+    };
+    const user = await prisma.authUser.findUnique({ where: { id } });
+    if (!user) return reply.code(404).send({ error: 'user not found' });
+
+    // Guard against demoting the last admin.
+    if (body.role && body.role !== 'admin' && user.role === 'admin') {
+      const admins = await prisma.authUser.count({ where: { role: 'admin' } });
+      if (admins <= 1) return reply.code(400).send({ error: 'cannot demote the last admin' });
+    }
+
+    const data: { name?: string | null; email?: string; role?: string } = {};
+    if (body.name !== undefined) data.name = body.name?.trim() || null;
+    if (body.email !== undefined && body.email.trim()) data.email = body.email.trim().toLowerCase();
+    if (body.role === 'admin' || body.role === 'member') data.role = body.role;
+    try {
+      if (Object.keys(data).length > 0) await prisma.authUser.update({ where: { id }, data });
+    } catch {
+      return reply.code(409).send({ error: 'a user with that email already exists' });
+    }
+    // whatsapp: a string sets it, empty string clears it, undefined leaves it.
+    if (body.whatsapp !== undefined) await setUserWhatsApp(id, body.whatsapp?.trim() || null);
+    return { ok: true };
   });
 
   app.delete('/admin/users/:id', async (req, reply) => {

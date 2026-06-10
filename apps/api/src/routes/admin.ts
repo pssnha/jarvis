@@ -434,6 +434,11 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
         ...(credential ? { emailEncCred: encryptValue(credential) } : {}),
       },
     });
+    // A new/changed credential just verified — scan the mailbox now rather than
+    // waiting for the next scheduled poll.
+    if (credential) {
+      await redis.publish('email:control', JSON.stringify({ action: 'poll', circleId: cid }));
+    }
     return { ok: true };
   });
 

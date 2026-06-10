@@ -839,6 +839,9 @@ function EmailPollingSection({
       setAddress('');
       setCredential('');
       onChanged();
+      // The save triggers an immediate poll; refresh once it has run so the
+      // status flips from "checking…" to "last checked".
+      setTimeout(onChanged, 5000);
     } catch (e) {
       setErr(String((e as Error).message ?? e));
     } finally {
@@ -870,17 +873,16 @@ function EmailPollingSection({
   }
 
   if (cfg.address) {
-    const connected = cfg.firstScanDone || Boolean(cfg.lastPolledAt);
     const sub = !cfg.enabled
       ? 'Paused'
-      : connected
-        ? `Active · last checked ${cfg.lastPolledAt ? new Date(cfg.lastPolledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'}`
-        : 'Couldn’t connect — check the app-password';
+      : cfg.lastPolledAt
+        ? `Active · last checked ${new Date(cfg.lastPolledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+        : 'Active · checking…';
     return (
       <>
         <div className="conn-card">
           <div className="conn-row">
-            <span className={cfg.enabled && connected ? 'conn-dot ok' : 'conn-dot'} />
+            <span className={cfg.enabled ? 'conn-dot ok' : 'conn-dot'} />
             <div className="conn-main">
               <div className="conn-title">{cfg.address}</div>
               <div className="conn-sub">{sub}</div>

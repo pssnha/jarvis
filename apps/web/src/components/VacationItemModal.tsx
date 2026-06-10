@@ -13,7 +13,7 @@ const TYPES: { value: VacationItemType; label: string }[] = [
 const COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0d9488', '#db2777', '#64748b'];
 
 interface Props {
-  groupId: string;
+  circleId: string;
   vacationId: string;
   initialDateKey: string;
   /** Present when editing. */
@@ -53,7 +53,7 @@ function providerLabel(type: VacationItemType): string {
 }
 
 export function VacationItemModal({
-  groupId,
+  circleId,
   vacationId,
   initialDateKey,
   existing,
@@ -125,8 +125,8 @@ export function VacationItemModal({
       color: color || null,
     };
     try {
-      if (editing && existing) await updateVacationItem(groupId, vacationId, existing.id, payload);
-      else await addVacationItem(groupId, vacationId, payload);
+      if (editing && existing) await updateVacationItem(circleId, vacationId, existing.id, payload);
+      else await addVacationItem(circleId, vacationId, payload);
       onSaved();
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -139,7 +139,7 @@ export function VacationItemModal({
     if (!confirm('Delete this item?')) return;
     setBusy(true);
     try {
-      await deleteVacationItem(groupId, vacationId, existing.id);
+      await deleteVacationItem(circleId, vacationId, existing.id);
       onSaved();
     } catch (e) {
       setError(String((e as Error).message ?? e));

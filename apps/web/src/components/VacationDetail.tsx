@@ -48,12 +48,12 @@ function tabLabel(dateKey: string): { dow: string; d: number; mon: string } {
 }
 
 interface Props {
-  groupId: string;
+  circleId: string;
   vacationId: string;
   onBack: () => void;
 }
 
-export function VacationDetail({ groupId, vacationId, onBack }: Props) {
+export function VacationDetail({ circleId, vacationId, onBack }: Props) {
   const [v, setV] = useState<VacationDetailT | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState(0);
@@ -63,13 +63,13 @@ export function VacationDetail({ groupId, vacationId, onBack }: Props) {
   );
 
   const load = useCallback(() => {
-    getVacation(groupId, vacationId)
+    getVacation(circleId, vacationId)
       .then((d) => {
         setV(d);
         setActiveDay((cur) => Math.min(cur, Math.max(0, d.itinerary.length - 1)));
       })
       .catch((e) => setError(String(e.message ?? e)));
-  }, [groupId, vacationId]);
+  }, [circleId, vacationId]);
 
   useEffect(() => load(), [load]);
 
@@ -340,7 +340,7 @@ export function VacationDetail({ groupId, vacationId, onBack }: Props) {
 
       {itemModal && (
         <VacationItemModal
-          groupId={groupId}
+          circleId={circleId}
           vacationId={vacationId}
           initialDateKey={itemModal.dateKey}
           existing={itemModal.existing}
@@ -353,8 +353,8 @@ export function VacationDetail({ groupId, vacationId, onBack }: Props) {
       )}
       {editTrip && (
         <VacationModal
-          groupId={groupId}
-          groupTimezone={v.timezone}
+          circleId={circleId}
+          circleTimezone={v.timezone}
           existing={v}
           onClose={() => setEditTrip(false)}
           onSaved={() => {

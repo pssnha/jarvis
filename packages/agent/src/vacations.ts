@@ -17,13 +17,13 @@ const include = {
 // ---------------------------------------------------------------- Vacation CRUD
 
 export interface CreateVacationInput {
-  groupId: string;
+  circleId: string;
   title: string;
   destinations?: string | null;
   /** Local date "yyyy-MM-dd" in the trip zone. */
   startDate: string;
   endDate: string;
-  /** IANA zone; null = use the group zone. */
+  /** IANA zone; null = use the circle zone. */
   timezone?: string | null;
   description?: string | null;
   travelerIds?: string[];
@@ -31,11 +31,11 @@ export interface CreateVacationInput {
   coverImageUrl?: string | null;
 }
 
-/** `zone` is the resolved trip zone (input.timezone ?? group.timezone). */
+/** `zone` is the resolved trip zone (input.timezone ?? circle.timezone). */
 export async function createVacation(input: CreateVacationInput, zone: string) {
   return prisma.vacation.create({
     data: {
-      groupId: input.groupId,
+      circleId: input.circleId,
       title: input.title,
       destinations: input.destinations ?? null,
       startDate: localIsoToUtc(input.startDate, zone),
@@ -51,10 +51,10 @@ export async function createVacation(input: CreateVacationInput, zone: string) {
   });
 }
 
-export async function listVacations(groupId: string, opts?: { includePast?: boolean }) {
+export async function listVacations(circleId: string, opts?: { includePast?: boolean }) {
   return prisma.vacation.findMany({
     where: {
-      groupId,
+      circleId,
       ...(opts?.includePast ? {} : { endDate: { gte: startOfToday() } }),
     },
     orderBy: { startDate: 'asc' },
@@ -62,9 +62,9 @@ export async function listVacations(groupId: string, opts?: { includePast?: bool
   });
 }
 
-export async function getVacation(groupId: string, vacationId: string) {
+export async function getVacation(circleId: string, vacationId: string) {
   return prisma.vacation.findFirst({
-    where: { id: vacationId, groupId },
+    where: { id: vacationId, circleId },
     include: {
       travelers: { select: { id: true, name: true }, orderBy: { createdAt: 'asc' } },
       items: { orderBy: { startsAt: 'asc' } },
@@ -85,12 +85,12 @@ export interface UpdateVacationInput {
 }
 
 export async function updateVacation(
-  groupId: string,
+  circleId: string,
   vacationId: string,
   patch: UpdateVacationInput,
   zone: string,
 ) {
-  const v = await prisma.vacation.findFirst({ where: { id: vacationId, groupId } });
+  const v = await prisma.vacation.findFirst({ where: { id: vacationId, circleId } });
   if (!v) return null;
 
   const data: Prisma.VacationUpdateInput = {};
@@ -108,8 +108,8 @@ export async function updateVacation(
   return prisma.vacation.update({ where: { id: v.id }, data, include });
 }
 
-export async function deleteVacation(groupId: string, vacationId: string) {
-  const v = await prisma.vacation.findFirst({ where: { id: vacationId, groupId } });
+export async function deleteVacation(circleId: string, vacationId: string) {
+  const v = await prisma.vacation.findFirst({ where: { id: vacationId, circleId } });
   if (!v) return null;
   await prisma.vacation.delete({ where: { id: v.id } });
   return v;

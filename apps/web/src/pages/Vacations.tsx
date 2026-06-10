@@ -1,74 +1,75 @@
 import { useCallback, useEffect, useState } from 'react';
-import { listGroups, listVacations } from '../lib/api';
-import type { GroupSummary, VacationSummary } from '../lib/types';
+import { listCircles, listVacations } from '../lib/api';
+import type { Circle, VacationSummary } from '../lib/types';
 import { VacationDetail } from '../components/VacationDetail';
 import { VacationModal } from '../components/VacationModal';
 
-export function Vacations({ onActiveGroup }: { onActiveGroup?: (groupId: string) => void }) {
-  const [groups, setGroups] = useState<GroupSummary[]>([]);
-  const [groupId, setGroupId] = useState<string | null>(null);
+export function Vacations({
+  onActive,
+}: {
+  onActive?: (a: { circleId: string; scope?: string }) => void;
+}) {
+  const [circles, setCircles] = useState<Circle[]>([]);
+  const [circleId, setCircleId] = useState<string | null>(null);
   const [vacations, setVacations] = useState<VacationSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [includePast, setIncludePast] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(
-    (gid: string, past: boolean) => {
-      listVacations(gid, past)
-        .then(setVacations)
-        .catch((e) => setError(String(e.message ?? e)));
-    },
-    [],
-  );
+  const load = useCallback((cid: string, past: boolean) => {
+    listVacations(cid, past)
+      .then(setVacations)
+      .catch((e) => setError(String(e.message ?? e)));
+  }, []);
 
   useEffect(() => {
-    listGroups()
-      .then((gs) => {
-        setGroups(gs);
-        setGroupId((g) => g ?? (gs[0]?.id ?? null));
+    listCircles()
+      .then((cs) => {
+        setCircles(cs);
+        setCircleId((c) => c ?? cs[0]?.id ?? null);
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, []);
 
   useEffect(() => {
-    if (groupId) load(groupId, includePast);
-  }, [groupId, includePast, load]);
+    if (circleId) load(circleId, includePast);
+  }, [circleId, includePast, load]);
 
-  // Keep the chat pane pointed at the trip's group.
+  // Keep the chat pane pointed at this circle (vacation/circle scope).
   useEffect(() => {
-    if (groupId) onActiveGroup?.(groupId);
-  }, [groupId, onActiveGroup]);
+    if (circleId) onActive?.({ circleId });
+  }, [circleId, onActive]);
 
   // Refetch the trip list when the chat assistant reports a change.
   useEffect(() => {
     const h = () => {
-      if (groupId) load(groupId, includePast);
+      if (circleId) load(circleId, includePast);
     };
     window.addEventListener('jarvis:refresh', h);
     return () => window.removeEventListener('jarvis:refresh', h);
-  }, [groupId, includePast, load]);
+  }, [circleId, includePast, load]);
 
-  const group = groups.find((g) => g.id === groupId) ?? null;
+  const circle = circles.find((c) => c.id === circleId) ?? null;
 
-  if (groups.length === 0) {
+  if (circles.length === 0) {
     return (
       <div className="vacations">
         {error && <p className="error">{error}</p>}
-        <p className="empty">No groups yet. Add a group in the Admin tab first.</p>
+        <p className="empty">No circles yet. Create a circle in the Admin tab first.</p>
       </div>
     );
   }
 
-  if (selected && groupId) {
+  if (selected && circleId) {
     return (
       <div className="vacations">
         <VacationDetail
-          groupId={groupId}
+          circleId={circleId}
           vacationId={selected}
           onBack={() => {
             setSelected(null);
-            if (groupId) load(groupId, includePast);
+            if (circleId) load(circleId, includePast);
           }}
         />
       </div>
@@ -80,13 +81,15 @@ export function Vacations({ onActiveGroup }: { onActiveGroup?: (groupId: string)
       <div className="vac-toolbar">
         <h2>Vacations</h2>
         <div className="vac-actions">
-          <select value={groupId ?? ''} onChange={(e) => setGroupId(e.target.value)}>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
-          </select>
+          {circles.length > 1 && (
+            <select value={circleId ?? ''} onChange={(e) => setCircleId(e.target.value)}>
+              {circles.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
           <label className="row vac-past">
             <input
               type="checkbox"
@@ -150,14 +153,14 @@ export function Vacations({ onActiveGroup }: { onActiveGroup?: (groupId: string)
         </div>
       )}
 
-      {creating && group && groupId && (
+      {creating && circle && circleId && (
         <VacationModal
-          groupId={groupId}
-          groupTimezone={group.timezone}
+          circleId={circleId}
+          circleTimezone={circle.timezone}
           onClose={() => setCreating(false)}
           onSaved={() => {
             setCreating(false);
-            load(groupId, includePast);
+            load(circleId, includePast);
           }}
         />
       )}

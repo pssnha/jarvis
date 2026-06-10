@@ -22,22 +22,27 @@ export interface MemberLite {
   name: string | null;
 }
 
-export interface GroupSummary {
+/** A WhatsApp group within a circle (a shared calendar). */
+export interface CircleGroup {
   id: string;
   name: string;
-  kind: string; // 'group' | 'maintenance'
-  timezone: string;
   icalToken: string;
   whatsappGroupId: string | null;
+}
+
+/** A circle the signed-in user can see (Calendar / Vacations / Chat picker). */
+export interface Circle {
+  id: string;
+  name: string;
+  timezone: string;
+  groups: CircleGroup[];
   members: MemberLite[];
 }
 
 export interface CalendarOccurrence {
   eventId: string;
-  /** Owning group — stamped client-side (esp. for cross-group individual views). */
-  groupId?: string;
   title: string;
-  dateKey: string; // yyyy-MM-dd in the group's zone
+  dateKey: string; // yyyy-MM-dd in the circle's zone
   startLocal: string;
   endLocal: string | null;
   timeLabel: string;
@@ -48,7 +53,8 @@ export interface CalendarOccurrence {
   color: string | null;
   location: string | null;
   assigneeName: string | null;
-  maintainsName: string | null;
+  /** True for a private (individual) event — has no group. */
+  isPrivate: boolean;
 }
 
 export interface EventDetail {
@@ -71,6 +77,14 @@ export interface Me {
   email: string;
   name: string | null;
   role: 'admin' | 'member';
+  /** Circles this user is a per-circle admin of (empty for site admins). */
+  adminCircleIds: string[];
+}
+
+export interface CircleAdminUser {
+  id: string;
+  email: string;
+  name: string | null;
 }
 
 export interface AdminUser {
@@ -82,14 +96,45 @@ export interface AdminUser {
   waId: string | null;
 }
 
-export interface AdminGroup {
+export interface CircleEmailConfig {
+  address: string | null;
+  host: string | null;
+  port: number | null;
+  enabled: boolean;
+  hasCredential: boolean;
+  firstScanDone: boolean;
+  lastPolledAt: string | null;
+}
+
+export interface AdminCircleGroup {
+  id: string;
+  name: string;
+  whatsappGroupId: string | null;
+  icalToken: string;
+  memberIds: string[];
+}
+
+export interface AdminCircleMember {
+  id: string;
+  name: string | null;
+  email: string | null;
+  waId: string | null;
+}
+
+/** A maintenance job that can be muted per circle. */
+export type MaintenanceJob = 'email_poll' | 'daily_brief' | 'health_check';
+
+export interface AdminCircle {
   id: string;
   name: string;
   timezone: string;
-  whatsappGroupId: string | null;
-  inviteLink: string | null;
-  icalToken: string;
-  _count?: { members: number; events: number };
+  waSelf: string | null;
+  coverImageUrl: string | null;
+  email: CircleEmailConfig;
+  mutedJobs: MaintenanceJob[];
+  counts: { events: number; vacations: number };
+  groups: AdminCircleGroup[];
+  members: AdminCircleMember[];
 }
 
 export interface WhatsAppGroup {
@@ -104,23 +149,6 @@ export interface WhatsAppStatus {
   groups: WhatsAppGroup[];
 }
 
-export interface GroupMember {
-  id: string;
-  name: string | null;
-  email: string | null;
-  waId: string | null;
-}
-
-export interface GroupEmailConfig {
-  address: string | null;
-  host: string | null;
-  port: number | null;
-  enabled: boolean;
-  hasCredential: boolean;
-  firstScanDone: boolean;
-  lastPolledAt: string | null;
-}
-
 export interface EventPayload {
   title: string;
   start: string;
@@ -133,6 +161,9 @@ export interface EventPayload {
   color?: string | null;
   kind?: EventKind;
   reminderLeadMinutes?: number | null;
+  /** Target: a group (shared) or a member (private). Omit → circle primary group. */
+  groupId?: string | null;
+  ownerMemberId?: string | null;
 }
 
 // ---------- Vacations ----------

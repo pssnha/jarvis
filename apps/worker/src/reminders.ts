@@ -1,71 +1,92 @@
-import { prisma, type Group } from '@jarvis/db';
-import { formatEventTime, occurrencesBetween } from '@jarvis/agent';
-import { isConnected, sendGroupText } from './whatsapp/client';
+import { prisma } from '@jarvis/db';
+import { decryptValue, formatEventTime, occurrencesBetween } from '@jarvis/agent';
+import { isConnected, sendDirectText, sendGroupText } from './whatsapp/client';
+
+type ReminderEvent = {
+  id: string;
+  circleId: string;
+  title: string;
+  startsAt: Date;
+  rrule: string | null;
+  remindedAt: Date | null;
+  reminderLeadMinutes: number | null;
+  group: { whatsappGroupId: string | null; name: string } | null;
+  owner: { waEnc: string | null; name: string | null } | null;
+  circle: { timezone: string; name: string };
+};
 
 /**
- * Fire reminders for events whose time has arrived since the last check —
- * including each occurrence of a recurring reminder. Announcements go to the
- * group's linked WhatsApp group when connected; otherwise they are logged.
+ * Fire reminders for events whose time has arrived since the last check.
+ * Group events post to the linked WhatsApp group; private events DM their owner.
  */
 export async function sendDueReminders(): Promise<void> {
   const now = new Date();
-  // Look ahead enough to fire events with a lead time (default cap: 7 days).
   const horizon = new Date(now.getTime() + 7 * 86_400_000);
 
-  const events = await prisma.event.findMany({
+  const events = (await prisma.event.findMany({
     where: {
       OR: [
-        { NOT: { rrule: null } }, // recurring: always a candidate
-        { rrule: null, remindedAt: null, startsAt: { lte: horizon } }, // one-off, upcoming, unsent
+        { NOT: { rrule: null } },
+        { rrule: null, remindedAt: null, startsAt: { lte: horizon } },
       ],
     },
-    include: { group: true },
-  });
+    include: {
+      group: { select: { whatsappGroupId: true, name: true } },
+      owner: { select: { waEnc: true, name: true } },
+      circle: { select: { timezone: true, name: true } },
+    },
+  })) as unknown as ReminderEvent[];
 
   for (const ev of events) {
     const leadMs = (ev.reminderLeadMinutes ?? 0) * 60_000;
+    const tz = ev.circle.timezone;
 
     if (ev.rrule) {
-      // Fire when an occurrence's (start − lead) falls in (lastSent, now].
       const after = new Date((ev.remindedAt ?? new Date(0)).getTime() + 1000);
       const occ = occurrencesBetween(
         ev.rrule,
         ev.startsAt,
-        ev.group.timezone,
+        tz,
         new Date(after.getTime() + leadMs),
         new Date(now.getTime() + leadMs),
       );
       if (occ.length === 0) continue;
-      await announce(ev.group, ev.title, occ[occ.length - 1]!, ev.reminderLeadMinutes);
+      await announce(ev, occ[occ.length - 1]!);
       await prisma.event.update({ where: { id: ev.id }, data: { remindedAt: now } });
     } else {
-      // One-off: due when start − lead has passed.
       if (ev.startsAt.getTime() - leadMs > now.getTime()) continue;
-      await announce(ev.group, ev.title, ev.startsAt, ev.reminderLeadMinutes);
+      await announce(ev, ev.startsAt);
       await prisma.event.update({ where: { id: ev.id }, data: { remindedAt: now } });
     }
   }
 }
 
-async function announce(
-  group: Group,
-  title: string,
-  when: Date,
-  leadMinutes?: number | null,
-): Promise<void> {
-  const lead = leadMinutes && leadMinutes > 0 ? ` (in ${formatLead(leadMinutes)})` : '';
-  const text = `⏰ Reminder: ${title} — ${formatEventTime(when, null, false, group.timezone)}${lead}`;
+async function announce(ev: ReminderEvent, when: Date): Promise<void> {
+  const lead =
+    ev.reminderLeadMinutes && ev.reminderLeadMinutes > 0
+      ? ` (in ${formatLead(ev.reminderLeadMinutes)})`
+      : '';
+  const text = `⏰ Reminder: ${ev.title} — ${formatEventTime(when, null, false, ev.circle.timezone)}${lead}`;
 
-  if (group.whatsappGroupId && isConnected()) {
-    try {
-      await sendGroupText(group.whatsappGroupId, text);
-      console.log(`[reminder→whatsapp] ${group.name}: ${title}`);
-      return;
-    } catch (err) {
-      console.error(`[reminder] WhatsApp send failed for ${group.name}:`, err);
-    }
+  if (!isConnected(ev.circleId)) {
+    console.log(`[reminder] ${ev.circle.name}: ${text}`);
+    return;
   }
-  console.log(`[reminder] ${group.name}: ${text}`);
+  try {
+    if (ev.group?.whatsappGroupId) {
+      await sendGroupText(ev.circleId, ev.group.whatsappGroupId, text);
+      return;
+    }
+    // Private event → DM the owner.
+    const num = ev.owner?.waEnc ? decryptValue(ev.owner.waEnc) : null;
+    if (num) {
+      await sendDirectText(ev.circleId, num, text);
+      return;
+    }
+  } catch (err) {
+    console.error(`[reminder] WhatsApp send failed for ${ev.circle.name}:`, err);
+  }
+  console.log(`[reminder] ${ev.circle.name}: ${text}`);
 }
 
 function formatLead(minutes: number): string {

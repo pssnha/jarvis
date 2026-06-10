@@ -2,6 +2,7 @@ import { Prisma, prisma, type Event } from '@jarvis/db';
 import type { Channel, EventDraft, Recurrence } from '@jarvis/shared';
 import { localIsoToUtc } from './datetime';
 import { buildRRule, describeRecurrence, nextOccurrence, occurrencesBetween } from './recurrence';
+import { scopeWhere, type ScheduleScope } from './scope';
 
 /** "reminder" (simple, non-blocking) or "event" (hard block, conflict-checked). */
 export type EventKind = 'reminder' | 'event';
@@ -10,7 +11,11 @@ export type EventKind = 'reminder' | 'event';
 export const REMINDER_BLOCK_MINUTES = 30;
 
 export interface CreateEventInput {
-  groupId: string;
+  circleId: string;
+  /** Set for a shared group event; null/omitted for a private individual event. */
+  groupId?: string | null;
+  /** Owner of a private event (when groupId is null). */
+  ownerMemberId?: string | null;
   draft: EventDraft;
   source: Channel;
   timezone: string;
@@ -18,19 +23,20 @@ export interface CreateEventInput {
   rawText?: string;
   createdById?: string;
   assigneeId?: string | null;
-  maintainsGroupId?: string | null;
   color?: string | null;
   kind?: EventKind;
   reminderLeadMinutes?: number | null;
 }
 
 export async function createEvent(input: CreateEventInput) {
-  const { groupId, draft, source, timezone, sourceRef, rawText, createdById, assigneeId } = input;
+  const { draft, source, timezone } = input;
   const allDay = draft.allDay ?? false;
   const kind: EventKind = input.kind ?? 'reminder';
   return prisma.event.create({
     data: {
-      groupId,
+      circleId: input.circleId,
+      groupId: input.groupId ?? null,
+      ownerMemberId: input.ownerMemberId ?? null,
       title: draft.title,
       startsAt: localIsoToUtc(draft.start, timezone),
       endsAt: draft.end ? localIsoToUtc(draft.end, timezone) : null,
@@ -42,18 +48,19 @@ export async function createEvent(input: CreateEventInput) {
       reminderLeadMinutes: kind === 'event' ? (input.reminderLeadMinutes ?? null) : null,
       rrule: draft.recurrence ? buildRRule(draft.recurrence, timezone) : null,
       source,
-      sourceRef,
-      rawText,
-      createdById,
-      assigneeId: assigneeId ?? null,
-      maintainsGroupId: input.maintainsGroupId ?? null,
+      sourceRef: input.sourceRef,
+      rawText: input.rawText,
+      createdById: input.createdById,
+      assigneeId: input.assigneeId ?? null,
     },
   });
 }
 
-/** Insert an event with already-resolved UTC times and an optional raw RRULE (used by importers). */
+/** Insert an event with already-resolved UTC times and an optional raw RRULE (importers). */
 export interface RawEventInput {
-  groupId: string;
+  circleId: string;
+  groupId?: string | null;
+  ownerMemberId?: string | null;
   title: string;
   description?: string | null;
   startsAt: Date;
@@ -65,7 +72,6 @@ export interface RawEventInput {
   source: string;
   sourceRef?: string | null;
   assigneeId?: string | null;
-  maintainsGroupId?: string | null;
   color?: string | null;
   kind?: EventKind;
   reminderLeadMinutes?: number | null;
@@ -75,7 +81,9 @@ export async function createRawEvent(input: RawEventInput) {
   const kind: EventKind = input.kind ?? 'reminder';
   return prisma.event.create({
     data: {
-      groupId: input.groupId,
+      circleId: input.circleId,
+      groupId: input.groupId ?? null,
+      ownerMemberId: input.ownerMemberId ?? null,
       title: input.title,
       description: input.description ?? null,
       startsAt: input.startsAt,
@@ -90,43 +98,36 @@ export async function createRawEvent(input: RawEventInput) {
       source: input.source,
       sourceRef: input.sourceRef ?? null,
       assigneeId: input.assigneeId ?? null,
-      maintainsGroupId: input.maintainsGroupId ?? null,
     },
   });
 }
 
-export async function getEvent(groupId: string, eventId: string) {
-  return prisma.event.findFirst({ where: { id: eventId, groupId } });
+/** Single-event lookup is isolated by circle. */
+export async function getEvent(circleId: string, eventId: string) {
+  return prisma.event.findFirst({ where: { id: eventId, circleId } });
 }
 
 export interface UpdateEventInput {
   title?: string;
-  /** Local ISO start. */
   start?: string;
-  /** Local ISO end, or null to clear. */
   end?: string | null;
   allDay?: boolean;
   location?: string | null;
   category?: string | null;
-  /** Structured recurrence, or null to make it one-off. */
   recurrence?: Recurrence | null;
-  /** Member id this event is for, or null to unassign. */
   assigneeId?: string | null;
-  /** Hex color, or null to clear (use the category color). */
   color?: string | null;
-  /** "reminder" or "event". */
   kind?: EventKind;
-  /** For events: minutes before start to send the reminder (null = at start). */
   reminderLeadMinutes?: number | null;
 }
 
 export async function updateEvent(
-  groupId: string,
+  circleId: string,
   eventId: string,
   patch: UpdateEventInput,
   timezone: string,
 ) {
-  const ev = await prisma.event.findFirst({ where: { id: eventId, groupId } });
+  const ev = await prisma.event.findFirst({ where: { id: eventId, circleId } });
   if (!ev) return null;
 
   const data: Prisma.EventUpdateInput = {};
@@ -135,39 +136,32 @@ export async function updateEvent(
   if (patch.location !== undefined) data.location = patch.location;
   if (patch.category !== undefined) data.category = patch.category;
   if (patch.start !== undefined) data.startsAt = localIsoToUtc(patch.start, timezone);
-  if (patch.end !== undefined) {
-    data.endsAt = patch.end ? localIsoToUtc(patch.end, timezone) : null;
-  }
+  if (patch.end !== undefined) data.endsAt = patch.end ? localIsoToUtc(patch.end, timezone) : null;
   if (patch.recurrence !== undefined) {
     data.rrule = patch.recurrence ? buildRRule(patch.recurrence, timezone) : null;
   }
   if (patch.assigneeId !== undefined) {
-    data.assignee = patch.assigneeId
-      ? { connect: { id: patch.assigneeId } }
-      : { disconnect: true };
+    data.assignee = patch.assigneeId ? { connect: { id: patch.assigneeId } } : { disconnect: true };
   }
   if (patch.color !== undefined) data.color = patch.color;
   if (patch.kind !== undefined) data.kind = patch.kind;
-  if (patch.reminderLeadMinutes !== undefined) {
-    data.reminderLeadMinutes = patch.reminderLeadMinutes;
-  }
-  // A reminder never carries a lead time; clear it if switching away from event.
+  if (patch.reminderLeadMinutes !== undefined) data.reminderLeadMinutes = patch.reminderLeadMinutes;
   const effectiveKind = (patch.kind ?? ev.kind) as EventKind;
   if (effectiveKind !== 'event') data.reminderLeadMinutes = null;
 
   return prisma.event.update({ where: { id: ev.id }, data });
 }
 
-export async function findEvents(groupId: string, query: string) {
+export async function findEvents(scope: ScheduleScope, query: string) {
   return prisma.event.findMany({
-    where: { groupId, title: { contains: query } },
+    where: { ...(await scopeWhere(scope)), title: { contains: query } },
     orderBy: { startsAt: 'asc' },
     take: 10,
   });
 }
 
-export async function cancelEvent(groupId: string, eventId: string) {
-  const ev = await prisma.event.findFirst({ where: { id: eventId, groupId } });
+export async function cancelEvent(circleId: string, eventId: string) {
+  const ev = await prisma.event.findFirst({ where: { id: eventId, circleId } });
   if (!ev) return null;
   await prisma.event.delete({ where: { id: ev.id } });
   return ev;
@@ -180,48 +174,31 @@ export async function getGroup(groupId: string) {
 /** A schedule entry resolved to its next relevant time (handles recurrence). */
 export interface ScheduleItem {
   event: Event;
-  /** The effective upcoming time (next occurrence for recurring events). */
   when: Date;
-  /** Human-readable recurrence, if the event repeats. */
   recurrence?: string;
-  /** Name of the individual this event is for, if any. */
   assigneeName?: string | null;
 }
 
-/**
- * Upcoming schedule for a group: one-off events by start time, plus the next
- * occurrence of each recurring event, merged and sorted.
- */
+/** Upcoming schedule for a scope: one-offs + next occurrence of recurring, merged. */
 export async function getSchedule(
-  groupId: string,
+  scope: ScheduleScope,
   timezone: string,
-  opts?: { from?: Date; to?: Date; limit?: number; memberId?: string },
+  opts?: { from?: Date; to?: Date; limit?: number },
 ): Promise<ScheduleItem[]> {
   const from = opts?.from ?? new Date();
   const items: ScheduleItem[] = [];
-  const assigneeFilter = opts?.memberId ? { assigneeId: opts.memberId } : {};
-
+  const base = await scopeWhere(scope);
   const include = { assignee: { select: { name: true } } } as const;
 
-  // One-off events within the window.
   const oneOff = await prisma.event.findMany({
-    where: {
-      groupId,
-      rrule: null,
-      startsAt: { gte: from, ...(opts?.to ? { lte: opts.to } : {}) },
-      ...assigneeFilter,
-    },
+    where: { ...base, rrule: null, startsAt: { gte: from, ...(opts?.to ? { lte: opts.to } : {}) } },
     orderBy: { startsAt: 'asc' },
     include,
   });
   for (const ev of oneOff)
     items.push({ event: ev, when: ev.startsAt, assigneeName: ev.assignee?.name ?? null });
 
-  // Recurring events: compute the next occurrence from `from`.
-  const recurring = await prisma.event.findMany({
-    where: { groupId, NOT: { rrule: null }, ...assigneeFilter },
-    include,
-  });
+  const recurring = await prisma.event.findMany({ where: { ...base, NOT: { rrule: null } }, include });
   for (const ev of recurring) {
     if (!ev.rrule) continue;
     const next = nextOccurrence(ev.rrule, ev.startsAt, timezone, from);
@@ -252,35 +229,31 @@ export interface Occurrence {
   color: string | null;
   location: string | null;
   assigneeName: string | null;
-  maintainsName: string | null;
+  /** True for a private (individual) event — no group. */
+  isPrivate: boolean;
 }
 
 const REMINDER_MS = REMINDER_BLOCK_MINUTES * 60_000;
 
-/** Effective end of an event for rendering/overlap: reminders get a 30-min block. */
 function effectiveEnd(start: Date, end: Date | null, kind: string): Date | null {
   if (end) return end;
   if (kind === 'reminder') return new Date(start.getTime() + REMINDER_MS);
   return null;
 }
 
-/** Expand the schedule into individual occurrences within [from, to] for a calendar view. */
+/** Expand the schedule into occurrences within [from, to] for a calendar view. */
 export async function expandCalendar(
-  groupId: string,
+  scope: ScheduleScope,
   timezone: string,
   from: Date,
   to: Date,
-  memberId?: string,
 ): Promise<Occurrence[]> {
   const out: Occurrence[] = [];
-  const assigneeFilter = memberId ? { assigneeId: memberId } : {};
-  const include = {
-    assignee: { select: { name: true } },
-    maintainsGroup: { select: { name: true } },
-  } as const;
+  const base = await scopeWhere(scope);
+  const include = { assignee: { select: { name: true } } } as const;
 
   const oneOff = await prisma.event.findMany({
-    where: { groupId, rrule: null, startsAt: { lte: to }, ...assigneeFilter },
+    where: { ...base, rrule: null, startsAt: { lte: to } },
     include,
   });
   for (const ev of oneOff) {
@@ -299,14 +272,11 @@ export async function expandCalendar(
       color: ev.color,
       location: ev.location,
       assigneeName: ev.assignee?.name ?? null,
-      maintainsName: ev.maintainsGroup?.name ?? null,
+      isPrivate: ev.groupId === null,
     });
   }
 
-  const recurring = await prisma.event.findMany({
-    where: { groupId, NOT: { rrule: null }, ...assigneeFilter },
-    include,
-  });
+  const recurring = await prisma.event.findMany({ where: { ...base, NOT: { rrule: null } }, include });
   for (const ev of recurring) {
     if (!ev.rrule) continue;
     const durationMs = ev.endsAt
@@ -327,7 +297,7 @@ export async function expandCalendar(
         color: ev.color,
         location: ev.location,
         assigneeName: ev.assignee?.name ?? null,
-        maintainsName: ev.maintainsGroup?.name ?? null,
+        isPrivate: ev.groupId === null,
       });
     }
   }
@@ -346,22 +316,20 @@ export interface Conflict {
 
 const EVENT_DEFAULT_MS = 60 * 60_000;
 
-/**
- * Find hard-block events (kind = "event") that overlap [start, end] in a group.
- * Reminders never conflict. Used to warn before scheduling a new event.
- */
+/** Hard-block events (kind="event") in the scope overlapping [start, end]. */
 export async function findConflicts(
-  groupId: string,
+  scope: ScheduleScope,
   timezone: string,
   start: Date,
   end: Date,
   excludeEventId?: string,
 ): Promise<Conflict[]> {
   const out: Conflict[] = [];
+  const base = await scopeWhere(scope);
   const idFilter = excludeEventId ? { id: { not: excludeEventId } } : {};
 
   const oneOff = await prisma.event.findMany({
-    where: { groupId, kind: 'event', rrule: null, ...idFilter },
+    where: { ...base, kind: 'event', rrule: null, ...idFilter },
   });
   for (const ev of oneOff) {
     const s = ev.startsAt;
@@ -370,7 +338,7 @@ export async function findConflicts(
   }
 
   const recurring = await prisma.event.findMany({
-    where: { groupId, kind: 'event', rrule: { not: null }, ...idFilter },
+    where: { ...base, kind: 'event', rrule: { not: null }, ...idFilter },
   });
   for (const ev of recurring) {
     if (!ev.rrule) continue;
@@ -378,9 +346,7 @@ export async function findConflicts(
     const windowStart = new Date(start.getTime() - durationMs);
     for (const occ of occurrencesBetween(ev.rrule, ev.startsAt, timezone, windowStart, end)) {
       const e = new Date(occ.getTime() + durationMs);
-      if (occ < end && e > start) {
-        out.push({ eventId: ev.id, title: ev.title, start: occ, end: e });
-      }
+      if (occ < end && e > start) out.push({ eventId: ev.id, title: ev.title, start: occ, end: e });
     }
   }
 

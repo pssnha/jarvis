@@ -4,7 +4,7 @@ import {
   createEvent,
   deleteEvent,
   getEvent,
-  listGroupMembers,
+  listCircleMembers,
   updateEvent,
 } from '../lib/api';
 import type {
@@ -48,18 +48,24 @@ const CATEGORIES = ['', 'appointment', 'vacation', 'reminder', 'other'];
 const COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0d9488', '#db2777', '#64748b'];
 
 interface Props {
-  groupId: string;
+  circleId: string;
   eventId?: string | null;
   initialDateKey?: string;
+  /** Where a *new* event lands: a group (shared) or a member (private). */
+  target?: { groupId?: string | null; ownerMemberId?: string | null };
+  /** The active calendar scope (for scoped conflict checks). */
+  scope?: string;
   defaultAssigneeId?: string;
   onClose: () => void;
   onSaved: () => void;
 }
 
 export function EventModal({
-  groupId,
+  circleId,
   eventId,
   initialDateKey,
+  target,
+  scope,
   defaultAssigneeId,
   onClose,
   onSaved,
@@ -89,13 +95,13 @@ export function EventModal({
   const [until, setUntil] = useState('');
 
   useEffect(() => {
-    listGroupMembers(groupId).then(setMembers).catch(() => {});
-  }, [groupId]);
+    listCircleMembers(circleId).then(setMembers).catch(() => {});
+  }, [circleId]);
 
   useEffect(() => {
     if (!eventId) return;
     let active = true;
-    getEvent(groupId, eventId)
+    getEvent(circleId, eventId)
       .then((ev) => {
         if (!active) return;
         setTitle(ev.title);
@@ -120,7 +126,7 @@ export function EventModal({
     return () => {
       active = false;
     };
-  }, [groupId, eventId]);
+  }, [circleId, eventId]);
 
   // Live conflict check for hard-block events (reminders never conflict).
   useEffect(() => {
@@ -130,7 +136,7 @@ export function EventModal({
     }
     let active = true;
     const t = setTimeout(() => {
-      checkConflicts(groupId, start, end, eventId ?? undefined)
+      checkConflicts(circleId, start, end, eventId ?? undefined, scope)
         .then((c) => active && setConflicts(c))
         .catch(() => active && setConflicts([]));
     }, 400);
@@ -138,7 +144,7 @@ export function EventModal({
       active = false;
       clearTimeout(t);
     };
-  }, [groupId, eventId, kind, allDay, start, end]);
+  }, [circleId, eventId, kind, allDay, start, end, scope]);
 
   function switchKind(next: EventKind) {
     setKind(next);
@@ -200,8 +206,8 @@ export function EventModal({
       recurrence,
     };
     try {
-      if (editing && eventId) await updateEvent(groupId, eventId, payload);
-      else await createEvent(groupId, payload);
+      if (editing && eventId) await updateEvent(circleId, eventId, payload);
+      else await createEvent(circleId, { ...payload, ...target });
       onSaved();
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -215,7 +221,7 @@ export function EventModal({
       return;
     setBusy(true);
     try {
-      await deleteEvent(groupId, eventId);
+      await deleteEvent(circleId, eventId);
       onSaved();
     } catch (e) {
       setError(String((e as Error).message ?? e));

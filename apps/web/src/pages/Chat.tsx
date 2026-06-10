@@ -8,14 +8,16 @@ interface ChatMessage {
 
 type ChatSurface = 'calendar' | 'vacations' | 'general';
 
-/** The assistant pane. It acts on whatever group the center pane is showing
- *  (`groupId`) and is scoped to the active page (`surface`). */
+/** The assistant pane. It acts on whatever circle + scope the center pane is
+ *  showing, and is scoped to the active page (`surface`). */
 export function Chat({
-  groupId,
+  circleId,
+  scope,
   surface,
   onClose,
 }: {
-  groupId?: string | null;
+  circleId?: string | null;
+  scope?: string;
   surface?: ChatSurface;
   onClose?: () => void;
 }) {
@@ -53,13 +55,14 @@ export function Chat({
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const where = surface === 'vacations' ? 'this trip' : surface === 'calendar' ? 'the calendar' : 'the schedule';
+  const where =
+    surface === 'vacations' ? 'this trip' : surface === 'calendar' ? 'the calendar' : 'the schedule';
 
   function send() {
     const text = input.trim();
-    if (!text || !groupId) return;
+    if (!text || !circleId) return;
     setMessages((m) => [...m, { role: 'user', text }]);
-    socket.emit('chat:message', { text, groupId, surface });
+    socket.emit('chat:message', { text, circleId, scope, surface });
     setInput('');
   }
 
@@ -76,9 +79,9 @@ export function Chat({
       <div className="chat">
         {messages.length === 0 && (
           <p className="empty">
-            {groupId
+            {circleId
               ? `Ask about ${where}, or make a change — e.g. “add a dentist appointment next Tuesday at 3pm”.`
-              : 'Open a group on the Calendar or Vacations page to start.'}
+              : 'Open a circle on the Calendar or Vacations page to start.'}
           </p>
         )}
         {messages.map((m, i) => (
@@ -95,10 +98,10 @@ export function Chat({
           onKeyDown={(e) => {
             if (e.key === 'Enter') send();
           }}
-          placeholder={!groupId ? 'No group selected' : connected ? 'Message Jarvis…' : 'connecting…'}
-          disabled={!groupId}
+          placeholder={!circleId ? 'No circle selected' : connected ? 'Message Jarvis…' : 'connecting…'}
+          disabled={!circleId}
         />
-        <button onClick={send} disabled={!groupId}>
+        <button onClick={send} disabled={!circleId}>
           Send
         </button>
       </div>

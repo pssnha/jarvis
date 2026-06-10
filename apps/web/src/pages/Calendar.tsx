@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getCalendar, listGroups } from '../lib/api';
-import type { CalendarOccurrence, GroupSummary } from '../lib/types';
+import { getCalendar, listCircles } from '../lib/api';
+import type { CalendarOccurrence, Circle } from '../lib/types';
 import { EventModal } from '../components/EventModal';
 import {
   HOUR_PX,
@@ -71,7 +71,7 @@ interface TimeGridProps {
   byDay: Map<string, CalendarOccurrence[]>;
   individual: boolean;
   todayKey: string;
-  onPick: (eventId: string, groupId?: string) => void;
+  onPick: (eventId: string) => void;
   onAdd: (dateKey: string) => void;
 }
 
@@ -138,7 +138,7 @@ function TimeGrid({ days, byDay, individual, todayKey, onPick, onAdd }: TimeGrid
                     title={o.title}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onPick(o.eventId, o.groupId);
+                      onPick(o.eventId);
                     }}
                   >
                     {o.title}
@@ -196,7 +196,7 @@ function TimeGrid({ days, byDay, individual, todayKey, onPick, onAdd }: TimeGrid
                     title={b.o.title}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onPick(b.o.eventId, b.o.groupId);
+                      onPick(b.o.eventId);
                     }}
                   >
                     <span className="tg-ev-title">
@@ -251,74 +251,59 @@ function computeRange(view: ViewMode, a: Anchor): Range {
   return { from: base, to: new Date(base.getTime() + DAY), cells: [base] };
 }
 
-interface Membership {
-  groupId: string;
-  memberId: string;
-}
-/** What the calendar is scoped to: a group, one person across all their groups, or maintenance. */
+/** What the calendar is scoped to within a circle: a group (shared) or one
+ *  member's merged calendar (their groups + their private items). */
 type Scope =
   | { kind: 'group'; groupId: string }
-  | { kind: 'maintenance'; groupId: string }
-  | { kind: 'individual'; name: string; memberships: Membership[] };
+  | { kind: 'individual'; memberId: string };
 
-export function Calendar({ onActiveGroup }: { onActiveGroup?: (groupId: string) => void }) {
+function scopeParam(s: Scope): string {
+  return s.kind === 'group' ? `group:${s.groupId}` : `individual:${s.memberId}`;
+}
+
+export function Calendar({
+  onActive,
+}: {
+  onActive?: (a: { circleId: string; scope?: string }) => void;
+}) {
   const today = new Date();
   const todayAnchor: Anchor = { y: today.getFullYear(), m: today.getMonth(), d: today.getDate() };
-  const [groups, setGroups] = useState<GroupSummary[]>([]);
+  const [circles, setCircles] = useState<Circle[]>([]);
+  const [circleId, setCircleId] = useState<string | null>(null);
   const [scope, setScope] = useState<Scope | null>(null);
   const [view, setView] = useState<ViewMode>('week');
   const [anchor, setAnchor] = useState<Anchor>(todayAnchor);
   const [byDay, setByDay] = useState<Map<string, CalendarOccurrence[]>>(new Map());
   const [error, setError] = useState<string | null>(null);
-  const [modal, setModal] = useState<{ eventId?: string; dateKey?: string; groupId?: string } | null>(
-    null,
-  );
+  const [modal, setModal] = useState<{ eventId?: string; dateKey?: string } | null>(null);
 
   const range = useMemo(() => computeRange(view, anchor), [view, anchor]);
   const todayKey = ymd(new Date(Date.UTC(todayAnchor.y, todayAnchor.m, todayAnchor.d)));
 
-  const realGroups = groups.filter((g) => g.kind !== 'maintenance');
-  const maintenanceGroup = groups.find((g) => g.kind === 'maintenance');
-  const individualNames = [
-    ...new Set(realGroups.flatMap((g) => g.members.filter((m) => m.name).map((m) => m.name!))),
-  ].sort();
-
-  // The representative group for the active scope — used for the timezone note,
-  // iCal feed, and where new events/edits are created.
-  const repGroup = useMemo(() => {
-    if (!scope) return null;
-    const id = scope.kind === 'individual' ? scope.memberships[0]?.groupId : scope.groupId;
-    return groups.find((g) => g.id === id) ?? null;
-  }, [scope, groups]);
+  const circle = useMemo(() => circles.find((c) => c.id === circleId) ?? null, [circles, circleId]);
   const individual = scope?.kind === 'individual';
-  const repMemberId =
-    scope?.kind === 'individual'
-      ? scope.memberships.find((m) => m.groupId === repGroup?.id)?.memberId
-      : undefined;
+  // The group backing the active scope — used for the iCal feed and as the
+  // create target. Individual scope creates private events (no group).
+  const scopeGroup =
+    scope?.kind === 'group' ? (circle?.groups.find((g) => g.id === scope.groupId) ?? null) : null;
+  const createTarget = useMemo(() => {
+    if (scope?.kind === 'group') return { groupId: scope.groupId };
+    if (scope?.kind === 'individual') return { ownerMemberId: scope.memberId };
+    return {};
+  }, [scope]);
 
   const load = useCallback(
-    async (sc: Scope) => {
+    async (cid: string, sc: Scope) => {
       try {
         // Pad ±1 day so tz-shifted occurrences still land in the visible cells.
         const from = new Date(range.from.getTime() - DAY).toISOString();
         const to = new Date(range.to.getTime() + DAY).toISOString();
-        const sources =
-          sc.kind === 'individual'
-            ? sc.memberships.map((m) => ({ groupId: m.groupId, memberId: m.memberId }))
-            : [{ groupId: sc.groupId, memberId: undefined as string | undefined }];
-        const results = await Promise.all(
-          sources.map((s) =>
-            getCalendar(s.groupId, from, to, s.memberId).then((occ) => ({ groupId: s.groupId, occ })),
-          ),
-        );
+        const occ = await getCalendar(cid, from, to, scopeParam(sc));
         const map = new Map<string, CalendarOccurrence[]>();
-        for (const { groupId, occ } of results) {
-          for (const o of occ) {
-            const stamped = { ...o, groupId };
-            const list = map.get(o.dateKey) ?? [];
-            list.push(stamped);
-            map.set(o.dateKey, list);
-          }
+        for (const o of occ) {
+          const list = map.get(o.dateKey) ?? [];
+          list.push(o);
+          map.set(o.dateKey, list);
         }
         for (const list of map.values()) list.sort((a, b) => a.startLocal.localeCompare(b.startLocal));
         setByDay(map);
@@ -330,32 +315,45 @@ export function Calendar({ onActiveGroup }: { onActiveGroup?: (groupId: string) 
   );
 
   useEffect(() => {
-    listGroups()
-      .then((gs) => {
-        setGroups(gs);
-        const first = gs.find((g) => g.kind !== 'maintenance') ?? gs[0];
-        setScope((s) => s ?? (first ? { kind: 'group', groupId: first.id } : null));
+    listCircles()
+      .then((cs) => {
+        setCircles(cs);
+        setCircleId((id) => id ?? cs[0]?.id ?? null);
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, []);
 
+  // When the active circle changes, default the scope to its first group.
   useEffect(() => {
-    if (scope) void load(scope);
-  }, [scope, load]);
+    if (!circle) return;
+    setScope((s) => {
+      if (s) {
+        // Keep the scope only if it still belongs to this circle.
+        if (s.kind === 'group' && circle.groups.some((g) => g.id === s.groupId)) return s;
+        if (s.kind === 'individual' && circle.members.some((m) => m.id === s.memberId)) return s;
+      }
+      const g = circle.groups[0];
+      return g ? { kind: 'group', groupId: g.id } : null;
+    });
+  }, [circle]);
+
+  useEffect(() => {
+    if (circleId && scope) void load(circleId, scope);
+  }, [circleId, scope, load]);
 
   // Refetch when the chat assistant reports a change.
   useEffect(() => {
     const h = () => {
-      if (scope) void load(scope);
+      if (circleId && scope) void load(circleId, scope);
     };
     window.addEventListener('jarvis:refresh', h);
     return () => window.removeEventListener('jarvis:refresh', h);
-  }, [scope, load]);
+  }, [circleId, scope, load]);
 
-  // Tell the shell which group is active so the chat pane matches this pane.
+  // Tell the shell which circle + scope is active so the chat pane matches.
   useEffect(() => {
-    if (repGroup) onActiveGroup?.(repGroup.id);
-  }, [repGroup, onActiveGroup]);
+    if (circleId) onActive?.({ circleId, scope: scope ? scopeParam(scope) : undefined });
+  }, [circleId, scope, onActive]);
 
   function shift(delta: number) {
     setAnchor((a) => {
@@ -370,26 +368,16 @@ export function Calendar({ onActiveGroup }: { onActiveGroup?: (groupId: string) 
   }
   function onSaved() {
     setModal(null);
-    if (scope) void load(scope);
+    if (circleId && scope) void load(circleId, scope);
   }
   function onScopeChange(value: string) {
-    const id = value.slice(2);
-    if (value.startsWith('g:')) setScope({ kind: 'group', groupId: id });
-    else if (value.startsWith('m:')) setScope({ kind: 'maintenance', groupId: id });
-    else if (value.startsWith('i:')) {
-      const name = id;
-      const memberships = realGroups.flatMap((g) =>
-        g.members.filter((m) => m.name === name).map((m) => ({ groupId: g.id, memberId: m.id })),
-      );
-      setScope({ kind: 'individual', name, memberships });
-    }
+    if (value.startsWith('group:')) setScope({ kind: 'group', groupId: value.slice(6) });
+    else if (value.startsWith('individual:'))
+      setScope({ kind: 'individual', memberId: value.slice(11) });
   }
 
-  const scopeValue = !scope
-    ? ''
-    : scope.kind === 'individual'
-      ? `i:${scope.name}`
-      : `${scope.kind === 'maintenance' ? 'm' : 'g'}:${scope.groupId}`;
+  const scopeValue = scope ? scopeParam(scope) : '';
+  const namedMembers = circle?.members.filter((m) => m.name) ?? [];
 
   const title = useMemo(() => {
     if (view === 'month') return `${MONTHS[anchor.m]} ${anchor.y}`;
@@ -402,13 +390,12 @@ export function Calendar({ onActiveGroup }: { onActiveGroup?: (groupId: string) 
     return `${DOW[d.getUTCDay()]}, ${MON_SHORT[d.getUTCMonth()]} ${d.getUTCDate()} ${d.getUTCFullYear()}`;
   }, [view, anchor, range]);
 
-  if (groups.length === 0) {
+  if (circles.length === 0) {
     return (
       <div className="calendar">
         {error && <p className="error">{error}</p>}
         <p className="empty">
-          No calendars yet. Connect WhatsApp (the groups your number is in appear automatically), or
-          add a group in the Admin tab.
+          No circles yet. Create a circle in the Admin tab — its WhatsApp groups appear automatically.
         </p>
       </div>
     );
@@ -435,37 +422,47 @@ export function Calendar({ onActiveGroup }: { onActiveGroup?: (groupId: string) 
               </button>
             ))}
           </div>
-          <select value={scopeValue} onChange={(e) => onScopeChange(e.target.value)}>
-            <optgroup label="Group">
-              {realGroups.map((g) => (
-                <option key={g.id} value={`g:${g.id}`}>
-                  {g.name}
+          {circles.length > 1 && (
+            <select value={circleId ?? ''} onChange={(e) => setCircleId(e.target.value)}>
+              {circles.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
                 </option>
               ))}
-            </optgroup>
-            {individualNames.length > 0 && (
-              <optgroup label="Individual">
-                {individualNames.map((n) => (
-                  <option key={n} value={`i:${n}`}>
-                    {n}
+            </select>
+          )}
+          <select value={scopeValue} onChange={(e) => onScopeChange(e.target.value)}>
+            {circle && circle.groups.length > 0 && (
+              <optgroup label="Group">
+                {circle.groups.map((g) => (
+                  <option key={g.id} value={`group:${g.id}`}>
+                    {g.name}
                   </option>
                 ))}
               </optgroup>
             )}
-            {maintenanceGroup && (
-              <optgroup label="Maintenance">
-                <option value={`m:${maintenanceGroup.id}`}>Maintenance</option>
+            {namedMembers.length > 0 && (
+              <optgroup label="Individual">
+                {namedMembers.map((m) => (
+                  <option key={m.id} value={`individual:${m.id}`}>
+                    {m.name}
+                  </option>
+                ))}
               </optgroup>
             )}
           </select>
-          {repGroup && !individual && (
-            <a className="ical-link" href={`/api/calendar/${repGroup.icalToken}.ics`} title="Subscribe">
+          {scopeGroup && (
+            <a
+              className="ical-link"
+              href={`/api/calendar/${scopeGroup.icalToken}.ics`}
+              title="Subscribe"
+            >
               iCal feed
             </a>
           )}
           <button
             className="primary"
-            onClick={() => setModal({ dateKey: ymd(range.cells[0]!), groupId: repGroup?.id })}
+            onClick={() => setModal({ dateKey: ymd(range.cells[0]!) })}
           >
             + New
           </button>
@@ -473,10 +470,11 @@ export function Calendar({ onActiveGroup }: { onActiveGroup?: (groupId: string) 
       </div>
 
       {error && <p className="error">{error}</p>}
-      {repGroup && (
+      {circle && (
         <p className="muted tz-note">
-          Times in {repGroup.timezone}
-          {individual && scope?.kind === 'individual' && ` · ${scope.name} · all groups`}
+          Times in {circle.timezone}
+          {individual &&
+            ` · ${namedMembers.find((m) => m.id === (scope as { memberId: string }).memberId)?.name ?? 'member'} · all groups + private`}
         </p>
       )}
 
@@ -496,7 +494,7 @@ export function Calendar({ onActiveGroup }: { onActiveGroup?: (groupId: string) 
                   (cd.getUTCMonth() === anchor.m ? '' : ' out') +
                   (key === todayKey ? ' today' : '')
                 }
-                onClick={() => setModal({ dateKey: key, groupId: repGroup?.id })}
+                onClick={() => setModal({ dateKey: key })}
               >
                 <div className="cal-daynum">{cd.getUTCDate()}</div>
                 <div className="cal-events">
@@ -508,13 +506,13 @@ export function Calendar({ onActiveGroup }: { onActiveGroup?: (groupId: string) 
                       title={`${o.title}${o.assigneeName ? ` · ${o.assigneeName}` : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setModal({ eventId: o.eventId, groupId: o.groupId });
+                        setModal({ eventId: o.eventId });
                       }}
                     >
                       <span className="chip-time">{o.allDay ? '•' : o.timeLabel}</span>{' '}
                       <span className="chip-title">{o.title}</span>
                       {!individual && o.assigneeName && <span className="chip-who"> · {o.assigneeName}</span>}
-                      {o.maintainsName && <span className="chip-who"> → {o.maintainsName}</span>}
+                      {o.isPrivate && <span className="chip-who"> · 🔒</span>}
                       {o.recurring && <span className="chip-rec"> ↻</span>}
                     </button>
                   ))}
@@ -529,17 +527,18 @@ export function Calendar({ onActiveGroup }: { onActiveGroup?: (groupId: string) 
           byDay={byDay}
           individual={individual}
           todayKey={todayKey}
-          onPick={(eventId, groupId) => setModal({ eventId, groupId })}
-          onAdd={(dk) => setModal({ dateKey: dk, groupId: repGroup?.id })}
+          onPick={(eventId) => setModal({ eventId })}
+          onAdd={(dk) => setModal({ dateKey: dk })}
         />
       )}
 
-      {modal && (modal.groupId ?? repGroup?.id) && (
+      {modal && circleId && (
         <EventModal
-          groupId={(modal.groupId ?? repGroup?.id)!}
+          circleId={circleId}
           eventId={modal.eventId}
           initialDateKey={modal.dateKey}
-          defaultAssigneeId={modal.eventId ? undefined : repMemberId}
+          target={modal.eventId ? undefined : createTarget}
+          scope={scopeValue || undefined}
           onClose={() => setModal(null)}
           onSaved={onSaved}
         />

@@ -1,11 +1,11 @@
 import { describeNow } from './datetime';
 
 export interface PromptOptions {
-  /** Admins get general Q&A + maintenance; non-admins are schedule-only. */
+  /** Admins get general Q&A; non-admins are schedule-only. */
   isAdmin?: boolean;
-  /** True when operating on the maintenance calendar (admin direct chat). */
-  maintenance?: boolean;
-  /** Email proposals awaiting confirmation in this group. */
+  /** True in a group chat — must never reveal/touch any individual's private items. */
+  groupContext?: boolean;
+  /** Email proposals awaiting confirmation in this circle. */
   pendingProposals?: { code: string; kind: string; summary: string }[];
   /** Trips in this group (for routing itinerary items to the right trip). */
   trips?: { id: string; title: string; destinations: string | null; start: string; end: string }[];
@@ -77,41 +77,32 @@ trip's date range, or that are clearly routine/home life rather than travel. If 
 unclear, ask one short question.`
       : '';
 
-  if (opts.maintenance) {
-    return `You are Jarvis's maintenance assistant, talking privately with an admin.
-This is the internal MAINTENANCE calendar (cron jobs, pollers, health checks) — not a user group.
+  // Group chat: shared schedule only, strict privacy — never surface anyone's
+  // private/individual items, and only manage this group's shared calendar.
+  if (opts.groupContext) {
+    return `You are Jarvis, the scheduling assistant for this WhatsApp group.
 ${now}
 
-You can view and manage maintenance tasks here with the scheduling tools (create_event,
-list_events, find_event, cancel_event). These tasks never post to any WhatsApp group.
-You may also answer the admin's general questions.
+You ONLY help with this group's shared schedule. ${tools}${proposals}${tripsNote}
 
-${tools}${proposals}${tripsNote}
+PRIVACY: never reveal or modify any individual's private schedule here — those are visible only to
+that person in their own chat with you. Everything here is shared with the whole group.
+If the user asks for something off-topic, reply in one line: "Sorry, I can only help with this group's schedule."
 
 ${style}`;
   }
 
-  if (opts.isAdmin) {
-    return `You are Jarvis, a helpful assistant for a small group, talking with an admin.
-Your main job is the group's shared schedule, but you can also answer general questions.
+  // Direct chat / web (a member or admin acting as themselves): they manage their
+  // own merged calendar (their groups' shared events + their private items).
+  const privacyNote = opts.isAdmin
+    ? 'Items you add here go to the circle, not to a single person.'
+    : 'Anything you add here is PRIVATE to this person — only they can see it. To add something to a group, they should ask in that group chat.';
+  return `You are Jarvis, a helpful personal assistant.
 ${now}
 
-${tools}${proposals}${tripsNote}
-When a message is not about scheduling, just answer it helpfully.
-
-${style}`;
-  }
-
-  // Non-admin: schedule-only.
-  return `You are Jarvis, the scheduling assistant for this group.
-${now}
-
-You ONLY help with this group's schedule. ${tools}${proposals}${tripsNote}
-
-If the user asks for anything that is NOT about the schedule (general questions, maintenance, system
-or admin topics), politely refuse in one line: "Sorry, I can only help with this group's schedule."
-Confirming or skipping the email proposals listed above IS part of managing the schedule.
-Do not answer off-topic questions and do not reveal system or maintenance details.
+You help this person with their own schedule — their groups' shared events plus their private items
+(which only they can see). ${privacyNote} ${tools}${proposals}${tripsNote}
+${opts.isAdmin ? 'You may also answer general questions helpfully.' : ''}
 
 ${style}`;
 }

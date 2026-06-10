@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   appendMessages,
+  ensureGroupMember,
+  getCircle,
   getGroupByWhatsappId,
   getOrCreateConversation,
   loadHistory,
@@ -55,16 +57,21 @@ async function handleInbound(body: unknown): Promise<void> {
       continue;
     }
 
-    const member = await resolveMember(group.id, { waId: m.from });
-    const convo = await getOrCreateConversation(group.id, 'whatsapp');
+    const circle = await getCircle(group.circleId);
+    if (!circle) continue;
+    const member = await resolveMember(group.circleId, { waId: m.from });
+    if (member) await ensureGroupMember(group.id, member.id);
+    const convo = await getOrCreateConversation(group.circleId, 'whatsapp', { groupId: group.id });
     const history = await loadHistory(convo.id);
 
     const { reply } = await runAgent({
       ctx: {
-        groupId: group.id,
-        timezone: group.timezone,
+        circleId: group.circleId,
+        scope: { circleId: group.circleId, kind: 'group', groupId: group.id },
+        timezone: circle.timezone,
         source: 'whatsapp',
         createdById: member?.id,
+        groupContext: true,
       },
       history,
       userText: m.text,

@@ -5,7 +5,7 @@ import { env } from './config/env';
 import { registerCookieAndGuards, registerAuthRoutes } from './auth';
 import { registerHealth } from './routes/health';
 import { registerCalendar } from './routes/calendar';
-import { registerGroups } from './routes/groups';
+import { registerCircles } from './routes/circles';
 import { registerVacations } from './routes/vacations';
 import { registerAdmin } from './routes/admin';
 import { registerWhatsApp } from './whatsapp';
@@ -48,13 +48,13 @@ export async function buildApp(): Promise<FastifyInstance> {
       // --- Authenticated users ---
       await api.register(async (scoped) => {
         scoped.addHook('preHandler', app.requireAuth);
-        await registerGroups(scoped);
+        await registerCircles(scoped);
         await registerVacations(scoped);
       });
 
-      // --- Admins only ---
+      // --- Admin area (site admins + per-circle admins; enforced per route) ---
       await api.register(async (scoped) => {
-        scoped.addHook('preHandler', app.requireAdmin);
+        scoped.addHook('preHandler', app.requireAuth);
         await registerAdmin(scoped);
       });
     },

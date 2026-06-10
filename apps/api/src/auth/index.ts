@@ -130,7 +130,18 @@ export async function registerAuthRoutes(api: FastifyInstance): Promise<void> {
   api.get('/auth/me', async (req, reply) => {
     const user = await resolveUser(api, req);
     if (!user) return reply.code(401).send({ error: 'unauthenticated' });
-    return { id: user.id, email: user.email, name: user.name, role: user.role };
+    // Circles this user can administer beyond the site role (per-circle admins).
+    const grants = await prisma.circleAdmin.findMany({
+      where: { authUserId: user.id },
+      select: { circleId: true },
+    });
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      adminCircleIds: grants.map((g) => g.circleId),
+    };
   });
 
   api.post('/auth/logout', async (_req, reply) => {

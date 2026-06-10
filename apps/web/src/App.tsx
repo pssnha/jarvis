@@ -4,18 +4,19 @@ import type { Me } from './lib/types';
 import { Calendar } from './pages/Calendar';
 import { Vacations } from './pages/Vacations';
 import { Chat } from './pages/Chat';
-import { Admin } from './pages/Admin';
+import { Circles, Permissions } from './pages/Admin';
 import { Login } from './pages/Login';
 
-type View = 'calendar' | 'vacations' | 'admin';
+type View = 'calendar' | 'vacations' | 'circles' | 'permissions';
 
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [view, setView] = useState<View>('calendar');
   const [navOpen, setNavOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  // The group the visible center pane is showing — the chat pane matches it.
-  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  // What the visible center pane is showing — the chat pane acts on the same
+  // circle + scope.
+  const [active, setActive] = useState<{ circleId: string; scope?: string } | null>(null);
 
   useEffect(() => {
     getMe()
@@ -31,6 +32,9 @@ export function App() {
     );
   }
   if (me === null) return <Login />;
+
+  const siteAdmin = me.role === 'admin';
+  const circleAdmin = (me.adminCircleIds?.length ?? 0) > 0;
 
   async function signOut() {
     await logout();
@@ -70,7 +74,13 @@ export function App() {
           <nav className="side-nav">
             {item('calendar', 'Calendar')}
             {item('vacations', 'Vacations')}
-            {me.role === 'admin' && item('admin', 'Admin')}
+            {(siteAdmin || circleAdmin) && (
+              <>
+                <div className="side-group">Admin</div>
+                {item('circles', 'Circles')}
+                {siteAdmin && item('permissions', 'Permissions')}
+              </>
+            )}
           </nav>
           <div className="side-foot">
             <div className="side-email">{me.email}</div>
@@ -81,15 +91,17 @@ export function App() {
         </aside>
 
         <main className="content">
-          {view === 'calendar' && <Calendar onActiveGroup={setActiveGroupId} />}
-          {view === 'vacations' && <Vacations onActiveGroup={setActiveGroupId} />}
-          {view === 'admin' && me.role === 'admin' && <Admin />}
+          {view === 'calendar' && <Calendar onActive={setActive} />}
+          {view === 'vacations' && <Vacations onActive={setActive} />}
+          {view === 'circles' && (siteAdmin || circleAdmin) && <Circles siteAdmin={siteAdmin} />}
+          {view === 'permissions' && siteAdmin && <Permissions />}
         </main>
 
         {chatOpen && <div className="backdrop chat-backdrop" onClick={() => setChatOpen(false)} />}
         <aside className={chatOpen ? 'chatpane open' : 'chatpane'}>
           <Chat
-            groupId={activeGroupId}
+            circleId={active?.circleId ?? null}
+            scope={active?.scope}
             surface={view === 'vacations' ? 'vacations' : view === 'calendar' ? 'calendar' : 'general'}
             onClose={() => setChatOpen(false)}
           />

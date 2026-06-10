@@ -1,30 +1,33 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { prisma, type Group } from '@jarvis/db';
+import { prisma, type Circle } from '@jarvis/db';
 import {
+  adminWhatsAppNumber,
   analyzeEmail,
   createProposals,
   decryptValue,
   listPendingProposals,
   markNotified,
 } from '@jarvis/agent';
-import { isConnected, sendGroupText } from '../whatsapp/client';
+import { isConnected, sendDirectText } from '../whatsapp/client';
 
 let polling = false;
 
-/** Poll every group that has a configured, enabled mailbox. */
-export async function pollGroupMailboxes(): Promise<void> {
+/** Poll every circle that has a configured, enabled mailbox (maintenance job). */
+export async function pollCircleMailboxes(): Promise<void> {
   if (polling) return;
   polling = true;
   try {
-    const groups = await prisma.group.findMany({
+    const circles = await prisma.circle.findMany({
       where: { emailEnabled: true, emailAddress: { not: null }, emailEncCred: { not: null } },
+      include: { mutedJobs: { select: { job: true } } },
     });
-    for (const group of groups) {
+    for (const circle of circles) {
+      if (circle.mutedJobs.some((m) => m.job === 'email_poll')) continue;
       try {
-        await pollGroupMailbox(group);
+        await pollCircleMailbox(circle);
       } catch (err) {
-        console.error(`[group-email] poll failed for ${group.name}:`, err);
+        console.error(`[email] poll failed for ${circle.name}:`, err);
       }
     }
   } finally {
@@ -32,26 +35,26 @@ export async function pollGroupMailboxes(): Promise<void> {
   }
 }
 
-async function pollGroupMailbox(group: Group): Promise<void> {
-  const pass = group.emailEncCred ? decryptValue(group.emailEncCred) : null;
-  if (!group.emailAddress || !pass) return;
+async function pollCircleMailbox(circle: Circle): Promise<void> {
+  const pass = circle.emailEncCred ? decryptValue(circle.emailEncCred) : null;
+  if (!circle.emailAddress || !pass) return;
 
   const client = new ImapFlow({
-    host: group.emailHost || 'imap.gmail.com',
-    port: group.emailPort ?? 993,
+    host: circle.emailHost || 'imap.gmail.com',
+    port: circle.emailPort ?? 993,
     secure: true,
-    auth: { user: group.emailAddress, pass },
+    auth: { user: circle.emailAddress, pass },
     logger: false,
   });
 
-  let maxUid = group.emailLastUid ?? 0;
+  let maxUid = circle.emailLastUid ?? 0;
   try {
     await client.connect();
     const lock = await client.getMailboxLock('INBOX');
     try {
       // First scan: everything. Later: only UIDs above the last processed one.
-      const lastUid = group.emailLastUid ?? 0;
-      const range = group.emailFirstScanDone ? `${lastUid + 1}:*` : '1:*';
+      const lastUid = circle.emailLastUid ?? 0;
+      const range = circle.emailFirstScanDone ? `${lastUid + 1}:*` : '1:*';
       const found = await client.search({ uid: range }, { uid: true });
       const fresh = (Array.isArray(found) ? found : []).filter((u: number) => u > lastUid);
 
@@ -66,17 +69,17 @@ async function pollGroupMailbox(group: Group): Promise<void> {
           const proposals = await analyzeEmail({
             text,
             subject: parsed.subject ?? undefined,
-            timezone: group.timezone,
+            timezone: circle.timezone,
           });
           if (proposals.length > 0) {
-            await createProposals(group.id, proposals, {
+            await createProposals(circle.id, proposals, {
               fromEmail: parsed.from?.value?.[0]?.address?.toLowerCase(),
               subject: parsed.subject ?? undefined,
               messageId: parsed.messageId ?? undefined,
             });
           }
         } catch (err) {
-          console.error(`[group-email] analyze failed (uid ${uid}):`, err);
+          console.error(`[email] analyze failed (uid ${uid}):`, err);
         }
       }
     } finally {
@@ -90,34 +93,36 @@ async function pollGroupMailbox(group: Group): Promise<void> {
     }
   }
 
-  await prisma.group.update({
-    where: { id: group.id },
+  await prisma.circle.update({
+    where: { id: circle.id },
     data: { emailLastUid: maxUid, emailFirstScanDone: true, emailLastPolledAt: new Date() },
   });
 
-  await notifyPending(group);
+  await notifyPending(circle);
 }
 
 const CHUNK = 12;
 
-/** Post any not-yet-notified pending proposals to the group's WhatsApp chat. */
-async function notifyPending(group: Group): Promise<void> {
-  if (!group.whatsappGroupId || !isConnected()) return;
-  const pending = (await listPendingProposals(group.id)).filter((p) => p.notifiedAt === null);
+/** DM any not-yet-notified pending proposals to the circle's owner (admin). */
+async function notifyPending(circle: Circle): Promise<void> {
+  if (!isConnected(circle.id)) return;
+  const owner = await adminWhatsAppNumber();
+  if (!owner) return;
+  const pending = (await listPendingProposals(circle.id)).filter((p) => p.notifiedAt === null);
   if (pending.length === 0) return;
 
   const header =
     pending.length === 1
-      ? '📥 I found 1 item in the inbox. Reply to add it or skip it:'
-      : `📥 I found ${pending.length} items in the inbox. Reply with which to add (e.g. "add 1 and 3", "add all", or "no"):`;
-  await sendGroupText(group.whatsappGroupId, header);
+      ? `📥 [${circle.name}] I found 1 item in the inbox. Reply to add it or skip it:`
+      : `📥 [${circle.name}] I found ${pending.length} items in the inbox. Reply with which to add (e.g. "add 1 and 3", "add all", or "no"):`;
+  await sendDirectText(circle.id, owner, header);
 
   for (let i = 0; i < pending.length; i += CHUNK) {
     const lines = pending
       .slice(i, i + CHUNK)
       .map((p) => `[${p.code}] ${kindEmoji(p.kind)} ${p.summary}`)
       .join('\n');
-    await sendGroupText(group.whatsappGroupId, lines);
+    await sendDirectText(circle.id, owner, lines);
     if (i + CHUNK < pending.length) await sleep(800);
   }
 

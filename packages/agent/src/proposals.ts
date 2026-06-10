@@ -1,6 +1,7 @@
 import { prisma, type EmailProposal } from '@jarvis/db';
 import type { AnalyzedProposal } from './extract';
-import { createEvent, getGroup } from './schedule';
+import { createEvent } from './schedule';
+import { getCircle } from './conversation';
 import { addVacationItem, createVacation } from './vacations';
 import { resolveVacationImage } from './vacationImage';
 
@@ -10,10 +11,16 @@ export interface ProposalMeta {
   messageId?: string;
 }
 
-/** Smallest positive integer not already used by this group's pending proposals. */
-async function nextCode(groupId: string): Promise<string> {
+/** The circle's primary (oldest) group, where email-confirmed events land. */
+async function primaryGroupId(circleId: string): Promise<string | null> {
+  const g = await prisma.group.findFirst({ where: { circleId }, orderBy: { createdAt: 'asc' } });
+  return g?.id ?? null;
+}
+
+/** Smallest positive integer not already used by this circle's pending proposals. */
+async function nextCode(circleId: string): Promise<string> {
   const pending = await prisma.emailProposal.findMany({
-    where: { groupId, status: 'pending' },
+    where: { circleId, status: 'pending' },
     select: { code: true },
   });
   const used = new Set(pending.map((p) => p.code));
@@ -23,28 +30,28 @@ async function nextCode(groupId: string): Promise<string> {
 }
 
 /**
- * Persist detected proposals for a group (status "pending", not yet notified).
+ * Persist detected proposals for a circle (status "pending", not yet notified).
  * De-duplicates on the email Message-ID so re-polling the same mail is a no-op.
  */
 export async function createProposals(
-  groupId: string,
+  circleId: string,
   analyzed: AnalyzedProposal[],
   meta: ProposalMeta = {},
 ): Promise<EmailProposal[]> {
   if (analyzed.length === 0) return [];
   if (meta.messageId) {
     const existing = await prisma.emailProposal.count({
-      where: { groupId, messageId: meta.messageId },
+      where: { circleId, messageId: meta.messageId },
     });
     if (existing > 0) return [];
   }
 
   const created: EmailProposal[] = [];
   for (const a of analyzed) {
-    const code = await nextCode(groupId);
+    const code = await nextCode(circleId);
     const row = await prisma.emailProposal.create({
       data: {
-        groupId,
+        circleId,
         code,
         kind: a.kind,
         title: a.title,
@@ -60,9 +67,9 @@ export async function createProposals(
   return created;
 }
 
-export async function listPendingProposals(groupId: string): Promise<EmailProposal[]> {
+export async function listPendingProposals(circleId: string): Promise<EmailProposal[]> {
   return prisma.emailProposal.findMany({
-    where: { groupId, status: 'pending' },
+    where: { circleId, status: 'pending' },
     orderBy: { createdAt: 'asc' },
   });
 }
@@ -75,15 +82,14 @@ export async function markNotified(ids: string[]): Promise<void> {
   });
 }
 
-/** Create the entity a confirmed proposal describes, scoped to the group. */
-export async function confirmProposal(groupId: string, code: string): Promise<string> {
-  const p = await prisma.emailProposal.findFirst({
-    where: { groupId, code, status: 'pending' },
-  });
+/** Create the entity a confirmed proposal describes. Events land in the circle's
+ *  primary group; trips on the circle's vacation calendar. */
+export async function confirmProposal(circleId: string, code: string): Promise<string> {
+  const p = await prisma.emailProposal.findFirst({ where: { circleId, code, status: 'pending' } });
   if (!p) return `No pending proposal "${code}".`;
-  const group = await getGroup(groupId);
-  if (!group) return 'Group not found.';
-  const zone = group.timezone;
+  const circle = await getCircle(circleId);
+  if (!circle) return 'Circle not found.';
+  const zone = circle.timezone;
   const a = JSON.parse(p.payload) as AnalyzedProposal;
 
   let confirmation: string;
@@ -95,7 +101,7 @@ export async function confirmProposal(groupId: string, code: string): Promise<st
       }).catch(() => null);
       const v = await createVacation(
         {
-          groupId,
+          circleId,
           title: a.vacation.title,
           destinations: a.vacation.destinations ?? null,
           startDate: a.vacation.startDate,
@@ -128,7 +134,8 @@ export async function confirmProposal(groupId: string, code: string): Promise<st
       confirmation = `Created trip "${v.title}".`;
     } else if (a.draft) {
       const ev = await createEvent({
-        groupId,
+        circleId,
+        groupId: await primaryGroupId(circleId),
         draft: a.draft,
         source: 'email',
         timezone: zone,
@@ -151,10 +158,8 @@ export async function confirmProposal(groupId: string, code: string): Promise<st
   return confirmation;
 }
 
-export async function rejectProposal(groupId: string, code: string): Promise<string> {
-  const p = await prisma.emailProposal.findFirst({
-    where: { groupId, code, status: 'pending' },
-  });
+export async function rejectProposal(circleId: string, code: string): Promise<string> {
+  const p = await prisma.emailProposal.findFirst({ where: { circleId, code, status: 'pending' } });
   if (!p) return `No pending proposal "${code}".`;
   await prisma.emailProposal.update({
     where: { id: p.id },

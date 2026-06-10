@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import ical from 'node-ical';
 import { prisma } from '@jarvis/db';
 import {
@@ -6,8 +6,7 @@ import {
   decryptValue,
   encryptPhone,
   encryptValue,
-  ensureMaintenanceGroup,
-  isMaintenanceText,
+  ensureGroupMember,
   maskPhone,
   openclawJobsToEvents,
   setUserWhatsApp,
@@ -16,6 +15,48 @@ import {
 import { createRedis } from '../plugins/redis';
 
 const redis = createRedis();
+
+const MAINTENANCE_JOBS = ['email_poll', 'daily_brief', 'health_check'] as const;
+
+/** Site admins manage everything; per-circle admins manage only their circle(s). */
+function isSiteAdmin(req: FastifyRequest): boolean {
+  return req.authUser?.role === 'admin';
+}
+
+/** Guard a site-admin-only route. Returns true if the request may proceed. */
+function requireSite(req: FastifyRequest, reply: FastifyReply): boolean {
+  if (isSiteAdmin(req)) return true;
+  reply.code(403).send({ error: 'forbidden' });
+  return false;
+}
+
+/** Guard a per-circle route (site admin or an admin of this circle). */
+async function requireCircle(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  circleId: string,
+): Promise<boolean> {
+  if (isSiteAdmin(req)) return true;
+  if (req.authUser?.id) {
+    const g = await prisma.circleAdmin.findUnique({
+      where: { circleId_authUserId: { circleId, authUserId: req.authUser.id } },
+    });
+    if (g) return true;
+  }
+  reply.code(403).send({ error: 'forbidden' });
+  return false;
+}
+
+/** Circle ids the user can administer: site admin → null (all); else their grants. */
+async function adminCircleScope(req: FastifyRequest): Promise<string[] | null> {
+  if (isSiteAdmin(req)) return null;
+  if (!req.authUser?.id) return [];
+  const rows = await prisma.circleAdmin.findMany({
+    where: { authUserId: req.authUser.id },
+    select: { circleId: true },
+  });
+  return rows.map((r) => r.circleId);
+}
 
 /** Parse an iCalendar document into importable events. */
 function parseIcs(text: string): { events: ImportedEvent[]; errors: string[] } {
@@ -50,10 +91,11 @@ function parseIcs(text: string): { events: ImportedEvent[]; errors: string[] } {
   return { events, errors };
 }
 
-/** Admin-only routes (site users, groups, members, WhatsApp linking). */
+/** Admin-only routes (site users, circles, members, groups, WhatsApp). */
 export async function registerAdmin(app: FastifyInstance): Promise<void> {
-  // ----- Site users (access control) -----
-  app.get('/admin/users', async () => {
+  // ----- Site users (access control) — site admins only -----
+  app.get('/admin/users', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
     const users = await prisma.authUser.findMany({ orderBy: { createdAt: 'asc' } });
     return users.map((u) => ({
       id: u.id,
@@ -65,8 +107,8 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     }));
   });
 
-  // Set/clear an admin's WhatsApp number (stored encrypted) so their 1:1 chat is recognized.
   app.post('/admin/users/:id/whatsapp', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
     const { id } = req.params as { id: string };
     const body = (req.body ?? {}) as { number?: string };
     const u = await prisma.authUser.findUnique({ where: { id } });
@@ -76,6 +118,7 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/admin/users', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
     const body = (req.body ?? {}) as { email?: string; name?: string; role?: string };
     if (!body.email) return reply.code(400).send({ error: 'email is required' });
     const role = body.role === 'admin' ? 'admin' : 'member';
@@ -89,6 +132,7 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
   });
 
   app.delete('/admin/users/:id', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
     const { id } = req.params as { id: string };
     const user = await prisma.authUser.findUnique({ where: { id } });
     if (!user) return reply.code(404).send({ error: 'user not found' });
@@ -100,46 +144,154 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  // ----- Groups -----
-  app.get('/admin/groups', async () =>
-    prisma.group.findMany({
+  // ----- Circles (site admins see all; circle admins see their own) -----
+  app.get('/admin/circles', async (req) => {
+    const scope = await adminCircleScope(req);
+    const circles = await prisma.circle.findMany({
+      where: scope === null ? {} : { id: { in: scope } },
       orderBy: { createdAt: 'asc' },
-      include: { _count: { select: { members: true, events: true } } },
-    }),
-  );
-
-  app.post('/admin/groups', async (req, reply) => {
-    const body = (req.body ?? {}) as { name?: string; timezone?: string };
-    if (!body.name) return reply.code(400).send({ error: 'name is required' });
-    const group = await prisma.group.create({
-      data: { name: body.name, timezone: body.timezone || 'UTC' },
+      include: {
+        groups: {
+          orderBy: { createdAt: 'asc' },
+          include: { members: { select: { memberId: true } } },
+        },
+        members: { orderBy: { createdAt: 'asc' } },
+        mutedJobs: { select: { job: true } },
+        _count: { select: { events: true, vacations: true } },
+      },
     });
-    return { ...group, icalUrl: `/api/calendar/${group.icalToken}.ics` };
-  });
-
-  // ----- Group members (schedule participants for WhatsApp/email routing) -----
-  app.get('/admin/groups/:id/members', async (req) => {
-    const { id } = req.params as { id: string };
-    const members = await prisma.member.findMany({
-      where: { groupId: id },
-      orderBy: { createdAt: 'asc' },
-    });
-    return members.map((m) => ({
-      id: m.id,
-      name: m.name,
-      email: m.email,
-      waId: m.waEnc ? maskPhone(decryptValue(m.waEnc)) : null,
+    return circles.map((c) => ({
+      id: c.id,
+      name: c.name,
+      timezone: c.timezone,
+      waSelf: c.waSelf,
+      coverImageUrl: c.coverImageUrl,
+      email: {
+        address: c.emailAddress,
+        host: c.emailHost,
+        port: c.emailPort,
+        enabled: c.emailEnabled,
+        hasCredential: Boolean(c.emailEncCred),
+        firstScanDone: c.emailFirstScanDone,
+        lastPolledAt: c.emailLastPolledAt,
+      },
+      mutedJobs: c.mutedJobs.map((m) => m.job),
+      counts: { events: c._count.events, vacations: c._count.vacations },
+      groups: c.groups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        whatsappGroupId: g.whatsappGroupId,
+        icalToken: g.icalToken,
+        memberIds: g.members.map((m) => m.memberId),
+      })),
+      members: c.members.map((m) => ({
+        id: m.id,
+        name: m.name,
+        email: m.email,
+        waId: m.waEnc ? maskPhone(decryptValue(m.waEnc)) : null,
+      })),
     }));
   });
 
-  app.post('/admin/groups/:id/members', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const body = (req.body ?? {}) as { name?: string; waId?: string; email?: string };
-    const group = await prisma.group.findUnique({ where: { id } });
-    if (!group) return reply.code(404).send({ error: 'group not found' });
+  app.post('/admin/circles', async (req, reply) => {
+    if (!requireSite(req, reply)) return; // only site admins create circles (tenants)
+    const body = (req.body ?? {}) as { name?: string; timezone?: string };
+    if (!body.name) return reply.code(400).send({ error: 'name is required' });
+    const circle = await prisma.circle.create({
+      data: { name: body.name, timezone: body.timezone || 'UTC' },
+    });
+    // Ask the worker to boot a WhatsApp session for the new circle (QR surfaces
+    // in the per-circle Admin card).
+    await redis.publish('wa:control', JSON.stringify({ action: 'start', circleId: circle.id }));
+    return circle;
+  });
 
-    const data: { groupId: string; name?: string; email?: string; waEnc?: string; waHash?: string } = {
-      groupId: id,
+  app.delete('/admin/circles/:cid', async (req, reply) => {
+    if (!requireSite(req, reply)) return; // only site admins delete circles
+    const { cid } = req.params as { cid: string };
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
+    await prisma.circle.delete({ where: { id: cid } });
+    await redis.publish('wa:control', JSON.stringify({ action: 'stop', circleId: cid }));
+    return { ok: true };
+  });
+
+  // ----- Per-circle admins (assign which AuthUsers manage a circle) — site only -----
+  app.get('/admin/circles/:cid/admins', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
+    const { cid } = req.params as { cid: string };
+    const rows = await prisma.circleAdmin.findMany({
+      where: { circleId: cid },
+      include: { user: { select: { id: true, email: true, name: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((r) => ({ id: r.user.id, email: r.user.email, name: r.user.name }));
+  });
+
+  app.post('/admin/circles/:cid/admins', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
+    const { cid } = req.params as { cid: string };
+    const body = (req.body ?? {}) as { email?: string };
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
+    if (!body.email) return reply.code(400).send({ error: 'email is required' });
+    const user = await prisma.authUser.findUnique({ where: { email: body.email.toLowerCase() } });
+    if (!user) {
+      return reply.code(404).send({ error: 'no site member with that email — add them under Permissions first' });
+    }
+    await prisma.circleAdmin.upsert({
+      where: { circleId_authUserId: { circleId: cid, authUserId: user.id } },
+      update: {},
+      create: { circleId: cid, authUserId: user.id },
+    });
+    return { id: user.id, email: user.email, name: user.name };
+  });
+
+  app.delete('/admin/circles/:cid/admins/:userId', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
+    const { cid, userId } = req.params as { cid: string; userId: string };
+    await prisma.circleAdmin.deleteMany({ where: { circleId: cid, authUserId: userId } });
+    return { ok: true };
+  });
+
+  // Upload a card background image for a circle (stored as a data URL).
+  const MAX_COVER_BYTES = 3 * 1024 * 1024; // 3 MB
+  app.post('/admin/circles/:cid/cover', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
+
+    const file = await (req as any).file?.();
+    if (!file) return reply.code(400).send({ error: 'no file uploaded' });
+    const mime = String(file.mimetype ?? '');
+    if (!mime.startsWith('image/')) return reply.code(400).send({ error: 'file must be an image' });
+    const buf = (await file.toBuffer()) as Buffer;
+    if (buf.length > MAX_COVER_BYTES) {
+      return reply.code(413).send({ error: 'image is too large (max 3 MB)' });
+    }
+    const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+    await prisma.circle.update({ where: { id: cid }, data: { coverImageUrl: dataUrl } });
+    return { coverImageUrl: dataUrl };
+  });
+
+  app.delete('/admin/circles/:cid/cover', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
+    await prisma.circle.update({ where: { id: cid }, data: { coverImageUrl: null } });
+    return { ok: true };
+  });
+
+  // ----- Circle members -----
+  app.post('/admin/circles/:cid/members', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const body = (req.body ?? {}) as { name?: string; waId?: string; email?: string };
+    const circle = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!circle) return reply.code(404).send({ error: 'circle not found' });
+    const data: { circleId: string; name?: string; email?: string; waEnc?: string; waHash?: string } = {
+      circleId: cid,
       name: body.name,
       email: body.email?.toLowerCase(),
     };
@@ -152,33 +304,41 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     return { id: m.id, name: m.name, email: m.email, waId: body.waId ? maskPhone(body.waId) : null };
   });
 
-  app.delete('/admin/groups/:id/members/:memberId', async (req, reply) => {
-    const { id, memberId } = req.params as { id: string; memberId: string };
-    const m = await prisma.member.findFirst({ where: { id: memberId, groupId: id } });
+  app.delete('/admin/circles/:cid/members/:memberId', async (req, reply) => {
+    const { cid, memberId } = req.params as { cid: string; memberId: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const m = await prisma.member.findFirst({ where: { id: memberId, circleId: cid } });
     if (!m) return reply.code(404).send({ error: 'member not found' });
     await prisma.member.delete({ where: { id: m.id } });
     return { ok: true };
   });
 
-  // ----- Per-group email polling config (IMAP) -----
-  // The credential (app-password) is stored encrypted and never returned.
-  app.get('/admin/groups/:id/email', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const g = await prisma.group.findUnique({ where: { id } });
-    if (!g) return reply.code(404).send({ error: 'group not found' });
-    return {
-      address: g.emailAddress,
-      host: g.emailHost,
-      port: g.emailPort,
-      enabled: g.emailEnabled,
-      hasCredential: Boolean(g.emailEncCred),
-      firstScanDone: g.emailFirstScanDone,
-      lastPolledAt: g.emailLastPolledAt,
-    };
+  // ----- Group membership (which members are in which WhatsApp group) -----
+  app.post('/admin/circles/:cid/groups/:gid/members', async (req, reply) => {
+    const { cid, gid } = req.params as { cid: string; gid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const body = (req.body ?? {}) as { memberId?: string };
+    if (!body.memberId) return reply.code(400).send({ error: 'memberId is required' });
+    const g = await prisma.group.findFirst({ where: { id: gid, circleId: cid } });
+    const m = await prisma.member.findFirst({ where: { id: body.memberId, circleId: cid } });
+    if (!g || !m) return reply.code(404).send({ error: 'group or member not found' });
+    await ensureGroupMember(gid, body.memberId);
+    return { ok: true };
   });
 
-  app.post('/admin/groups/:id/email', async (req, reply) => {
-    const { id } = req.params as { id: string };
+  app.delete('/admin/circles/:cid/groups/:gid/members/:mid', async (req, reply) => {
+    const { cid, gid, mid } = req.params as { cid: string; gid: string; mid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const g = await prisma.group.findFirst({ where: { id: gid, circleId: cid } });
+    if (!g) return reply.code(404).send({ error: 'group not found' });
+    await prisma.groupMember.deleteMany({ where: { groupId: gid, memberId: mid } });
+    return { ok: true };
+  });
+
+  // ----- Per-circle email polling config (IMAP); credential never returned -----
+  app.post('/admin/circles/:cid/email', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
     const body = (req.body ?? {}) as {
       address?: string;
       credential?: string;
@@ -186,30 +346,29 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
       port?: number;
       enabled?: boolean;
     };
-    const g = await prisma.group.findUnique({ where: { id } });
-    if (!g) return reply.code(404).send({ error: 'group not found' });
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
     if (!body.address) return reply.code(400).send({ error: 'address is required' });
-
-    await prisma.group.update({
-      where: { id },
+    await prisma.circle.update({
+      where: { id: cid },
       data: {
         emailAddress: body.address.trim().toLowerCase(),
         emailHost: body.host?.trim() || 'imap.gmail.com',
         emailPort: body.port ?? 993,
         emailEnabled: body.enabled ?? true,
-        // Only overwrite the credential when a new one is supplied.
         ...(body.credential ? { emailEncCred: encryptValue(body.credential) } : {}),
       },
     });
     return { ok: true };
   });
 
-  app.delete('/admin/groups/:id/email', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const g = await prisma.group.findUnique({ where: { id } });
-    if (!g) return reply.code(404).send({ error: 'group not found' });
-    await prisma.group.update({
-      where: { id },
+  app.delete('/admin/circles/:cid/email', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
+    await prisma.circle.update({
+      where: { id: cid },
       data: {
         emailAddress: null,
         emailEncCred: null,
@@ -224,13 +383,37 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  // ----- WhatsApp linked-device status (QR + connection + available groups) -----
-  app.get('/admin/whatsapp/status', async () => {
+  // ----- Per-job, per-circle maintenance mute -----
+  app.put('/admin/circles/:cid/jobs/:job', async (req, reply) => {
+    const { cid, job } = req.params as { cid: string; job: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const body = (req.body ?? {}) as { muted?: boolean };
+    if (!MAINTENANCE_JOBS.includes(job as (typeof MAINTENANCE_JOBS)[number])) {
+      return reply.code(400).send({ error: 'unknown job' });
+    }
+    if (body.muted) {
+      await prisma.circleMutedJob.upsert({
+        where: { circleId_job: { circleId: cid, job } },
+        update: {},
+        create: { circleId: cid, job },
+      });
+    } else {
+      await prisma.circleMutedJob.deleteMany({ where: { circleId: cid, job } });
+    }
+    return { ok: true };
+  });
+
+  // ----- Per-circle WhatsApp linked-device status (one session per circle) -----
+  app.get('/admin/circles/:cid/whatsapp/status', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
     const [status, qr, groups, self] = await Promise.all([
-      redis.get('wa:status'),
-      redis.get('wa:qr'),
-      redis.get('wa:groups'),
-      redis.get('wa:self'),
+      redis.get(`wa:${cid}:status`),
+      redis.get(`wa:${cid}:qr`),
+      redis.get(`wa:${cid}:groups`),
+      redis.get(`wa:${cid}:self`),
     ]);
     return {
       status: status ?? 'offline',
@@ -240,11 +423,23 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     };
   });
 
-  // Import a schedule into a group: .ics calendar OR an openclaw schedules JSON export.
-  app.post('/admin/groups/:id/import', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const group = await prisma.group.findUnique({ where: { id } });
-    if (!group) return reply.code(404).send({ error: 'group not found' });
+  // Ask the worker to (re)start a circle's session — e.g. to surface a fresh QR.
+  app.post('/admin/circles/:cid/whatsapp/start', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
+    await redis.publish('wa:control', JSON.stringify({ action: 'start', circleId: cid }));
+    return { ok: true };
+  });
+
+  // Import a schedule into a circle's group: .ics calendar OR an openclaw JSON export.
+  app.post('/admin/circles/:cid/groups/:gid/import', async (req, reply) => {
+    const { cid, gid } = req.params as { cid: string; gid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const circle = await prisma.circle.findUnique({ where: { id: cid } });
+    const group = await prisma.group.findFirst({ where: { id: gid, circleId: cid } });
+    if (!circle || !group) return reply.code(404).send({ error: 'circle or group not found' });
 
     const file = await (req as any).file?.();
     if (!file) return reply.code(400).send({ error: 'no file uploaded' });
@@ -267,7 +462,7 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'file is not valid JSON or ICS' });
       }
       if (data && typeof data === 'object' && 'jobs' in (data as object)) {
-        const r = openclawJobsToEvents(data, group.timezone);
+        const r = openclawJobsToEvents(data, circle.timezone);
         imported = r.events;
         skipped = r.skipped;
         errors.push(...r.errors);
@@ -276,50 +471,16 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // Maintenance tasks go to the (internal) maintenance calendar, tagged with
-    // the group they maintain; everything else goes to the chosen group.
-    const maint = imported.some((e) => e.maintenance)
-      ? await ensureMaintenanceGroup(group.timezone)
-      : null;
-
     let created = 0;
-    let maintenanceCount = 0;
     for (const ev of imported) {
-      const { maintenance, ...rest } = ev;
+      const { maintenance: _m, ...rest } = ev;
       try {
-        if (maintenance && maint) {
-          await createRawEvent({ ...rest, groupId: maint.id, source: 'import', maintainsGroupId: id });
-          maintenanceCount++;
-        } else {
-          await createRawEvent({ ...rest, groupId: id, source: 'import' });
-        }
+        await createRawEvent({ ...rest, circleId: cid, groupId: gid, source: 'import' });
         created++;
       } catch (err) {
         errors.push(`Failed to save "${ev.title}": ${(err as Error).message}`);
       }
     }
-
-    return { created, skipped, maintenance: maintenanceCount, errors };
+    return { created, skipped, errors };
   });
-
-  // One-time: move existing maintenance-looking events out of user groups into
-  // the maintenance calendar (so they stop showing in groups / WhatsApp).
-  app.post('/admin/maintenance/migrate', async () => {
-    const maint = await ensureMaintenanceGroup('America/Los_Angeles');
-    const candidates = await prisma.event.findMany({
-      where: { group: { kind: { not: 'maintenance' } } },
-      select: { id: true, title: true, description: true, groupId: true },
-    });
-    let moved = 0;
-    for (const ev of candidates) {
-      if (!isMaintenanceText(ev.title, ev.description)) continue;
-      await prisma.event.update({
-        where: { id: ev.id },
-        data: { groupId: maint.id, maintainsGroupId: ev.groupId },
-      });
-      moved++;
-    }
-    return { moved };
-  });
-
 }

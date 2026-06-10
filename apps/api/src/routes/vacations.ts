@@ -68,26 +68,26 @@ function cardDTO(
 /** Schedule data routes for trips — available to any authenticated user. */
 export async function registerVacations(app: FastifyInstance): Promise<void> {
   // List trips (cards). ?includePast=1 to include finished trips.
-  app.get('/groups/:id/vacations', async (req, reply) => {
-    const { id } = req.params as { id: string };
+  app.get('/circles/:cid/vacations', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
     const { includePast } = req.query as { includePast?: string };
-    const group = await prisma.group.findUnique({ where: { id } });
-    if (!group) return reply.code(404).send({ error: 'group not found' });
+    const circle = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!circle) return reply.code(404).send({ error: 'circle not found' });
 
-    const vacations = await listVacations(id, { includePast: includePast === '1' });
-    return vacations.map((v) => cardDTO(v, v.timezone ?? group.timezone));
+    const vacations = await listVacations(cid, { includePast: includePast === '1' });
+    return vacations.map((v) => cardDTO(v, v.timezone ?? circle.timezone));
   });
 
   // Create a trip.
-  app.post('/groups/:id/vacations', async (req, reply) => {
-    const { id } = req.params as { id: string };
+  app.post('/circles/:cid/vacations', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
     const body = (req.body ?? {}) as VacationBody;
-    const group = await prisma.group.findUnique({ where: { id } });
-    if (!group) return reply.code(404).send({ error: 'group not found' });
+    const circle = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!circle) return reply.code(404).send({ error: 'circle not found' });
     if (!body.title || !body.startDate || !body.endDate) {
       return reply.code(400).send({ error: 'title, startDate and endDate are required' });
     }
-    const zone = body.timezone || group.timezone;
+    const zone = body.timezone || circle.timezone;
     // Best-effort: let the LLM pick a destination cover photo (never blocks creation).
     let coverImageUrl = body.coverImageUrl ?? null;
     if (!coverImageUrl) {
@@ -98,7 +98,7 @@ export async function registerVacations(app: FastifyInstance): Promise<void> {
     }
     const v = await createVacation(
       {
-        groupId: id,
+        circleId: cid,
         title: body.title,
         destinations: body.destinations ?? null,
         startDate: body.startDate,
@@ -114,14 +114,14 @@ export async function registerVacations(app: FastifyInstance): Promise<void> {
   });
 
   // Trip detail: trip fields + itinerary (grouped by day) + flights/hotels + travelers.
-  app.get('/groups/:id/vacations/:vid', async (req, reply) => {
-    const { id, vid } = req.params as { id: string; vid: string };
-    const group = await prisma.group.findUnique({ where: { id } });
-    if (!group) return reply.code(404).send({ error: 'group not found' });
-    const v = await getVacation(id, vid);
+  app.get('/circles/:cid/vacations/:vid', async (req, reply) => {
+    const { cid, vid } = req.params as { cid: string; vid: string };
+    const circle = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!circle) return reply.code(404).send({ error: 'circle not found' });
+    const v = await getVacation(cid, vid);
     if (!v) return reply.code(404).send({ error: 'vacation not found' });
 
-    const zone = v.timezone ?? group.timezone;
+    const zone = v.timezone ?? circle.timezone;
     const itinerary = await expandItinerary(vid, zone);
     const allItems: ItineraryItemDTO[] = v.items.map((it) => toItineraryItemDTO(it, zone));
 
@@ -135,17 +135,17 @@ export async function registerVacations(app: FastifyInstance): Promise<void> {
   });
 
   // Update a trip.
-  app.patch('/groups/:id/vacations/:vid', async (req, reply) => {
-    const { id, vid } = req.params as { id: string; vid: string };
+  app.patch('/circles/:cid/vacations/:vid', async (req, reply) => {
+    const { cid, vid } = req.params as { cid: string; vid: string };
     const body = (req.body ?? {}) as VacationBody;
-    const group = await prisma.group.findUnique({ where: { id } });
-    if (!group) return reply.code(404).send({ error: 'group not found' });
-    const existing = await prisma.vacation.findFirst({ where: { id: vid, groupId: id } });
+    const circle = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!circle) return reply.code(404).send({ error: 'circle not found' });
+    const existing = await prisma.vacation.findFirst({ where: { id: vid, circleId: cid } });
     if (!existing) return reply.code(404).send({ error: 'vacation not found' });
 
-    const zone = (body.timezone ?? existing.timezone) || group.timezone;
+    const zone = (body.timezone ?? existing.timezone) || circle.timezone;
     const v = await updateVacation(
-      id,
+      cid,
       vid,
       {
         title: body.title,
@@ -160,48 +160,48 @@ export async function registerVacations(app: FastifyInstance): Promise<void> {
       zone,
     );
     if (!v) return reply.code(404).send({ error: 'vacation not found' });
-    return cardDTO(v, v.timezone ?? group.timezone);
+    return cardDTO(v, v.timezone ?? circle.timezone);
   });
 
   // Delete a trip (cascades items + traveler links).
-  app.delete('/groups/:id/vacations/:vid', async (req, reply) => {
-    const { id, vid } = req.params as { id: string; vid: string };
-    const v = await deleteVacation(id, vid);
+  app.delete('/circles/:cid/vacations/:vid', async (req, reply) => {
+    const { cid, vid } = req.params as { cid: string; vid: string };
+    const v = await deleteVacation(cid, vid);
     if (!v) return reply.code(404).send({ error: 'vacation not found' });
     return { ok: true };
   });
 
   // Add an itinerary item.
-  app.post('/groups/:id/vacations/:vid/items', async (req, reply) => {
-    const { id, vid } = req.params as { id: string; vid: string };
+  app.post('/circles/:cid/vacations/:vid/items', async (req, reply) => {
+    const { cid, vid } = req.params as { cid: string; vid: string };
     const body = (req.body ?? {}) as VacationItemBody;
-    const group = await prisma.group.findUnique({ where: { id } });
-    if (!group) return reply.code(404).send({ error: 'group not found' });
-    const v = await prisma.vacation.findFirst({ where: { id: vid, groupId: id } });
+    const circle = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!circle) return reply.code(404).send({ error: 'circle not found' });
+    const v = await prisma.vacation.findFirst({ where: { id: vid, circleId: cid } });
     if (!v) return reply.code(404).send({ error: 'vacation not found' });
     if (!body.title || !body.type || !body.startsAt) {
       return reply.code(400).send({ error: 'type, title and startsAt are required' });
     }
-    const zone = v.timezone ?? group.timezone;
+    const zone = v.timezone ?? circle.timezone;
     return addVacationItem(vid, { ...body, type: body.type, title: body.title, startsAt: body.startsAt }, zone);
   });
 
   // Update an itinerary item.
-  app.patch('/groups/:id/vacations/:vid/items/:itemId', async (req, reply) => {
-    const { id, vid, itemId } = req.params as { id: string; vid: string; itemId: string };
+  app.patch('/circles/:cid/vacations/:vid/items/:itemId', async (req, reply) => {
+    const { cid, vid, itemId } = req.params as { cid: string; vid: string; itemId: string };
     const body = (req.body ?? {}) as VacationItemBody;
-    const group = await prisma.group.findUnique({ where: { id } });
-    if (!group) return reply.code(404).send({ error: 'group not found' });
-    const v = await prisma.vacation.findFirst({ where: { id: vid, groupId: id } });
+    const circle = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!circle) return reply.code(404).send({ error: 'circle not found' });
+    const v = await prisma.vacation.findFirst({ where: { id: vid, circleId: cid } });
     if (!v) return reply.code(404).send({ error: 'vacation not found' });
-    const zone = v.timezone ?? group.timezone;
+    const zone = v.timezone ?? circle.timezone;
     const item = await updateVacationItem(vid, itemId, body, zone);
     if (!item) return reply.code(404).send({ error: 'item not found' });
     return item;
   });
 
   // Delete an itinerary item.
-  app.delete('/groups/:id/vacations/:vid/items/:itemId', async (req, reply) => {
+  app.delete('/circles/:cid/vacations/:vid/items/:itemId', async (req, reply) => {
     const { vid, itemId } = req.params as { id: string; vid: string; itemId: string };
     const item = await deleteVacationItem(vid, itemId);
     if (!item) return reply.code(404).send({ error: 'item not found' });

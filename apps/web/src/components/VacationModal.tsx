@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react';
 import {
   createVacation,
   deleteVacation,
-  listGroupMembers,
+  listCircleMembers,
   updateVacation,
 } from '../lib/api';
 import type { MemberLite, VacationDetail, VacationPayload } from '../lib/types';
 
 interface Props {
-  groupId: string;
-  groupTimezone: string;
+  circleId: string;
+  circleTimezone: string;
   /** Present when editing. */
   existing?: VacationDetail;
   onClose: () => void;
@@ -18,8 +18,8 @@ interface Props {
 }
 
 export function VacationModal({
-  groupId,
-  groupTimezone,
+  circleId,
+  circleTimezone,
   existing,
   onClose,
   onSaved,
@@ -34,15 +34,15 @@ export function VacationModal({
   const [destinations, setDestinations] = useState(existing?.destinations ?? '');
   const [startDate, setStartDate] = useState(existing?.startDateLocal ?? '');
   const [endDate, setEndDate] = useState(existing?.endDateLocal ?? '');
-  const [timezone, setTimezone] = useState(existing?.timezone ?? groupTimezone);
+  const [timezone, setTimezone] = useState(existing?.timezone ?? circleTimezone);
   const [description, setDescription] = useState(existing?.description ?? '');
   const [travelerIds, setTravelerIds] = useState<Set<string>>(
     new Set(existing?.travelers.map((t) => t.id) ?? []),
   );
 
   useEffect(() => {
-    listGroupMembers(groupId).then(setMembers).catch(() => {});
-  }, [groupId]);
+    listCircleMembers(circleId).then(setMembers).catch(() => {});
+  }, [circleId]);
 
   function toggleTraveler(id: string) {
     setTravelerIds((prev) => {
@@ -74,8 +74,8 @@ export function VacationModal({
       travelerIds: [...travelerIds],
     };
     try {
-      if (editing && existing) await updateVacation(groupId, existing.id, payload);
-      else await createVacation(groupId, payload);
+      if (editing && existing) await updateVacation(circleId, existing.id, payload);
+      else await createVacation(circleId, payload);
       onSaved();
     } catch (e) {
       setError(String((e as Error).message ?? e));
@@ -88,7 +88,7 @@ export function VacationModal({
     if (!confirm('Delete this trip and its whole itinerary?')) return;
     setBusy(true);
     try {
-      await deleteVacation(groupId, existing.id);
+      await deleteVacation(circleId, existing.id);
       onDeleted?.();
     } catch (e) {
       setError(String((e as Error).message ?? e));

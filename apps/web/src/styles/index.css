@@ -202,6 +202,15 @@ textarea {
   gap: 0.15rem;
   margin-top: 0.25rem;
 }
+.side-group {
+  margin: 0.9rem 0 0.1rem;
+  padding: 0 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted, #94a3b8);
+}
 .side-item {
   text-align: left;
   border: none;
@@ -1004,6 +1013,16 @@ button.primary:active {
 .subsec h4 {
   margin: 0 0 0.25rem;
   font-size: 0.95rem;
+}
+.cover-preview {
+  width: 100%;
+  max-width: 360px;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-md, 10px);
+  background-size: cover;
+  background-position: center;
+  margin: 0.4rem 0;
+  border: 1px solid var(--border, #e2e8f0);
 }
 .admin-form {
   display: flex;

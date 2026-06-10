@@ -45,7 +45,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const reply = await getProvider().runConversation({
     system: buildSystemPrompt(opts.ctx.timezone, {
       isAdmin: opts.ctx.isAdmin,
-      maintenance: opts.ctx.maintenance,
+      groupContext: opts.ctx.groupContext,
       pendingProposals: opts.pendingProposals,
       trips: opts.trips,
       surface: opts.surface,

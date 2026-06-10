@@ -11,7 +11,7 @@ datasource db {
 }
 
 /// A person who can sign in to the web app (access control). Distinct from
-/// Member, which is a participant in a group's schedule.
+/// Member, which is a participant in a circle's schedule.
 model AuthUser {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -24,85 +24,137 @@ model AuthUser {
   waHash    String?  @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  /// Circles this user is a (per-circle) admin of.
+  circleAdminOf CircleAdmin[]
 }
 
-/// A scheduling group (a family, friend group, team, …). Jarvis hosts one
-/// WhatsApp group per Group and keeps a single shared schedule.
-model Group {
-  id              String  @id @default(cuid())
-  name            String
-  /// 'group' for a normal user group, 'maintenance' for the single internal
-  /// maintenance calendar (cron/pollers). Maintenance groups never link to a
-  /// WhatsApp group, so their reminders never reach a chat.
-  kind            String  @default("group")
-  /// IANA time zone (e.g. "America/New_York"). One zone per group.
-  timezone        String  @default("UTC")
-  /// The WhatsApp group id once Jarvis has created/hosted the group.
-  whatsappGroupId String? @unique
-  /// Invite link members use to join the WhatsApp group.
-  inviteLink      String?
-  /// Secret token for the read-only iCal subscription feed.
-  icalToken       String  @unique @default(cuid())
+/// Grants an AuthUser admin rights over a single circle (manage its members,
+/// groups, WhatsApp, email, jobs, cover) — but NOT site-wide Permissions.
+model CircleAdmin {
+  circleId   String
+  authUserId String
+  circle     Circle   @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  user       AuthUser @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
 
-  /// Dedicated mailbox (IMAP) Jarvis polls for scheduling emails.
+  @@id([circleId, authUserId])
+  @@index([authUserId])
+}
+
+/// The top-level tenant: a family / friend group, bound to its own dedicated
+/// Jarvis WhatsApp number. Everything below is isolated per circle.
+model Circle {
+  id       String @id @default(cuid())
+  name     String
+  /// Default IANA time zone for this circle.
+  timezone String @default("UTC")
+  /// The linked Jarvis WhatsApp number (display only; auth state on disk).
+  waSelf   String?
+  /// Card background image — an uploaded data URL (admin-managed).
+  coverImageUrl String? @db.LongText
+
+  /// Dedicated mailbox (IMAP) the email-poll maintenance job reads.
   emailAddress       String?  @unique
-  /// Encrypted IMAP app-password (encryptValue); never returned by the API.
   emailEncCred       String?  @db.Text
   emailHost          String?
   emailPort          Int?
   emailEnabled       Boolean  @default(false)
-  /// True once the initial full-mailbox scan has completed.
   emailFirstScanDone Boolean  @default(false)
-  /// Highest processed IMAP UID (incremental polling after the first scan).
   emailLastUid       Int?
   emailLastPolledAt  DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  groups        Group[]
   members       Member[]
   events        Event[]
-  conversations Conversation[]
   vacations     Vacation[]
   proposals     EmailProposal[]
-  /// Maintenance events that target this group.
-  maintainedBy  Event[]        @relation("EventMaintains")
+  conversations Conversation[]
+  mutedJobs     CircleMutedJob[]
+  admins        CircleAdmin[]
+}
 
+/// A WhatsApp group the circle's Jarvis number is in. Has a shared calendar.
+model Group {
+  id              String @id @default(cuid())
+  circleId        String
+  circle          Circle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  name            String
+  /// The WhatsApp group id (jid).
+  whatsappGroupId String? @unique
+  inviteLink      String?
+  /// Secret token for the read-only iCal subscription feed.
+  icalToken       String  @unique @default(cuid())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members       GroupMember[]
+  events        Event[]
+  conversations Conversation[]
+
+  @@index([circleId])
   @@index([whatsappGroupId])
 }
 
-/// A person who belongs to a Group. The same human in two groups is two Members.
+/// A person in a circle. The same human in two circles is two Members.
 model Member {
-  id      String @id @default(cuid())
-  groupId String
-  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  circleId String
+  circle   Circle @relation(fields: [circleId], references: [id], onDelete: Cascade)
 
   name  String?
   /// Encrypted WhatsApp number (AES-256-GCM, base64).
   waEnc  String? @db.Text
   /// Blind index (HMAC) of the WhatsApp number, for equality lookups.
   waHash String?
-  /// Personal email address used when forwarding schedules to Jarvis.
+  /// Personal email; links a Google web login to this member.
   email String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  groups         GroupMember[]
   createdEvents  Event[] @relation("EventCreator")
   assignedEvents Event[] @relation("EventAssignee")
+  /// Private events this member owns (their individual schedule).
+  ownedEvents    Event[] @relation("EventOwner")
+  conversations  Conversation[]
   /// Trips this member is travelling on (implicit m2m -> _VacationTravelers).
   vacations      Vacation[] @relation("VacationTravelers")
 
-  @@index([groupId])
+  @@index([circleId])
   @@index([waHash])
   @@index([email])
 }
 
-/// A scheduled item: appointment, vacation, reminder, etc. Times stored in UTC.
+/// Which members belong to which WhatsApp group (within a circle).
+model GroupMember {
+  groupId  String
+  memberId String
+  group    Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([groupId, memberId])
+  @@index([memberId])
+}
+
+/// A scheduled item. Times stored in UTC. `circleId` is the isolation key.
+/// A SHARED group event has `groupId` set; a PRIVATE individual event has
+/// `groupId` null and `ownerMemberId` set.
 model Event {
-  id      String @id @default(cuid())
-  groupId String
-  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  circleId String
+  circle   Circle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  groupId  String?
+  group    Group? @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// Owner of a private event (groupId null). Null for shared group events.
+  ownerMemberId String?
+  owner         Member? @relation("EventOwner", fields: [ownerMemberId], references: [id], onDelete: Cascade)
 
   title       String
   description String?  @db.Text
@@ -110,39 +162,27 @@ model Event {
   endsAt      DateTime?
   allDay      Boolean   @default(false)
   location    String?
-  /// "reminder" = simple, non-blocking notification (shows as a 30-min
-  /// "available" slot, never causes conflicts). "event" = a hard block on the
-  /// calendar (start+end, marked busy, warns on overlap with other events).
+  /// "reminder" = simple non-blocking nudge; "event" = a hard time block.
   kind        String    @default("reminder")
-  /// For events: how many minutes before `startsAt` the reminder is sent.
-  /// Null = at start time. Ignored for reminders (they fire at start).
+  /// For events: minutes before `startsAt` to send the reminder (null = at start).
   reminderLeadMinutes Int?
   /// appointment | vacation | reminder | other
   category    String?
-  /// Optional hex color (e.g. "#2563eb"); falls back to the category color.
+  /// Optional hex color; falls back to the category color.
   color       String?
-  /// RFC 5545 RRULE value (without the "RRULE:" prefix) for recurring events,
-  /// e.g. "FREQ=WEEKLY;BYDAY=TU". Null for one-off events. `startsAt` is the
-  /// first occurrence / anchor.
+  /// RFC 5545 RRULE value (without "RRULE:" prefix). Null for one-off events.
   rrule       String?  @db.Text
 
   /// Where this event came from: whatsapp | email | web.
   source    String
-  /// Provider message/email id, for de-duplication.
   sourceRef String?
-  /// Original text the event was extracted from.
   rawText   String?  @db.Text
 
   createdById String?
   createdBy   Member? @relation("EventCreator", fields: [createdById], references: [id], onDelete: SetNull)
-
   /// The individual this event is for (null = whole group).
   assigneeId String?
   assignee   Member? @relation("EventAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-
-  /// For maintenance events: which group this task maintains (null = global).
-  maintainsGroupId String?
-  maintainsGroup   Group?  @relation("EventMaintains", fields: [maintainsGroupId], references: [id], onDelete: SetNull)
 
   /// When a reminder was last sent for this event.
   remindedAt DateTime?
@@ -150,36 +190,33 @@ model Event {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([circleId, startsAt])
   @@index([groupId, startsAt])
+  @@index([ownerMemberId, startsAt])
   @@index([source, sourceRef])
   @@index([assigneeId])
 }
 
-/// A planned trip. Times are stored UTC and displayed in `timezone` (defaults
-/// to the group's zone). Self-contained: does not create calendar Events.
+/// A planned trip — one circle-wide vacation calendar. Times stored UTC.
 model Vacation {
   id           String  @id @default(cuid())
-  groupId      String
-  group        Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  circleId     String
+  circle       Circle  @relation(fields: [circleId], references: [id], onDelete: Cascade)
   title        String
-  /// Comma-separated cities for the card subtitle, e.g. "Lisbon, Porto".
   destinations String?
-  /// Trip span (all-day boundaries; stored UTC, rendered in `timezone`).
   startDate    DateTime
   endDate      DateTime
-  /// IANA zone the whole trip displays in. Null = use group.timezone.
+  /// IANA zone the whole trip displays in. Null = use circle.timezone.
   timezone     String?
   description  String?  @db.Text
-  /// Cover photo of the destination (resolved via LLM on create in prod).
   coverImageUrl String? @db.Text
-  /// Group members on this trip (implicit m2m -> _VacationTravelers).
   travelers    Member[] @relation("VacationTravelers")
   items        VacationItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([groupId, startDate])
+  @@index([circleId, startDate])
 }
 
 /// One itinerary entry within a trip (activity, flight, hotel, …).
@@ -190,32 +227,21 @@ model VacationItem {
   /// activity | flight | hotel | transport | meal | note
   type       String   @default("activity")
   title      String
-  /// flight=departure, hotel=check-in, activity/meal=start. UTC.
   startsAt   DateTime
-  /// flight=arrival, hotel=check-out, activity end. UTC. Nullable.
   endsAt     DateTime?
   allDay     Boolean  @default(false)
   location   String?
   notes      String?  @db.Text
-  /// Booking / PNR / reservation code.
   confirmation String?
-  /// Airline / hotel chain / rental company.
   provider   String?
-  /// Flight number / booking number.
   number     String?
-  /// Departure airport / pickup point.
   fromLabel  String?
-  /// Arrival airport / dropoff point.
   toLabel    String?
-  /// IANA zones for transit items, so departure/arrival show in their own zones.
   fromTimezone String?
   toTimezone   String?
-  /// Seat / room number / cabin.
   seat       String?
   phone      String?
-  /// Free-text cost, e.g. "€420".
   cost       String?
-  /// Optional hex color; falls back to a per-type default in the UI.
   color      String?
 
   createdAt DateTime @default(now())
@@ -224,43 +250,42 @@ model VacationItem {
   @@index([vacationId, startsAt])
 }
 
-/// A scheduling item detected in a polled email, awaiting group confirmation
-/// over WhatsApp before it is created. `payload` is JSON used to recreate the
-/// right entity (reminder/event/vacation) on confirmation.
+/// A scheduling item detected in a polled email, awaiting confirmation in the
+/// owner's DM before it is created. `payload` is JSON used to recreate it.
 model EmailProposal {
   id         String   @id @default(cuid())
-  groupId    String
-  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  /// Short human ref shown in WhatsApp (e.g. "A1"), unique among pending ones.
+  circleId   String
+  circle     Circle   @relation(fields: [circleId], references: [id], onDelete: Cascade)
   code       String
   /// reminder | event | vacation
   kind       String
   title      String
-  /// Human-readable line shown in the WhatsApp confirmation digest.
   summary    String   @db.Text
-  /// JSON: an EventDraft (+kind/lead) or a vacation { trip, item? }.
   payload    String   @db.Text
   fromEmail  String?
   subject    String?
-  /// Email Message-ID, used to de-duplicate across polls.
   messageId  String?
   /// pending | confirmed | rejected
   status     String   @default("pending")
-  /// When the proposal was posted to the WhatsApp group (null = not yet).
   notifiedAt DateTime?
   decidedAt  DateTime?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  @@index([groupId, status])
+  @@index([circleId, status])
   @@index([messageId])
 }
 
-/// Per-group, per-channel conversation history used for agent context.
+/// Conversation history for agent context. Scoped to a circle, optionally to a
+/// WhatsApp group thread (groupId) or a member's private DM thread (memberId).
 model Conversation {
-  id      String @id @default(cuid())
-  groupId String
-  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  circleId String
+  circle   Circle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  groupId  String?
+  group    Group?  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  memberId String?
+  member   Member? @relation(fields: [memberId], references: [id], onDelete: SetNull)
   /// whatsapp | web
   channel String
 
@@ -269,7 +294,9 @@ model Conversation {
 
   messages Message[]
 
+  @@index([circleId, channel])
   @@index([groupId])
+  @@index([memberId])
 }
 
 model Message {
@@ -278,10 +305,20 @@ model Message {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   /// user | assistant
   role       String
-  /// Display name of the member who sent a user message (group context).
   authorName String?
   content    String   @db.Text
   createdAt  DateTime @default(now())
 
   @@index([conversationId])
+}
+
+/// Per-job, per-circle maintenance mute. Presence = muted.
+model CircleMutedJob {
+  circleId String
+  circle   Circle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  /// 'email_poll' | 'daily_brief' | 'health_check'
+  job      String
+  createdAt DateTime @default(now())
+
+  @@id([circleId, job])
 }

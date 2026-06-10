@@ -9,22 +9,34 @@ import {
   type VacationItemInput,
 } from '../vacations';
 import { VACATION_ITEM_TYPES } from '@jarvis/shared';
-import { findMemberByName } from '../conversation';
+import { findMemberByName, primaryGroupId } from '../conversation';
 import { formatEventTime } from '../datetime';
 import { describeRecurrence } from '../recurrence';
+import type { ScheduleScope } from '../scope';
 import type { JsonSchema } from '../llm/schema';
 import type { ToolSpec } from '../llm/types';
 
-/** Context passed to every tool handler — scopes actions to one group. */
+/** Context passed to every tool handler — scopes actions to a circle + view. */
 export interface ToolContext {
-  groupId: string;
+  circleId: string;
+  scope: ScheduleScope;
   timezone: string;
   source: Channel;
+  /** Resolved member id of the speaker (for assignment / private ownership). */
   createdById?: string;
-  /** Admins get general Q&A + maintenance; non-admins are schedule-only. */
   isAdmin?: boolean;
-  /** True when this turn operates on the maintenance calendar. */
-  maintenance?: boolean;
+  /** True in a group chat — tools must never read/write private events. */
+  groupContext?: boolean;
+}
+
+/** Where a newly created event lands, given the active scope. */
+async function eventTarget(
+  ctx: ToolContext,
+): Promise<{ groupId: string | null; ownerMemberId: string | null }> {
+  if (ctx.scope.kind === 'group') return { groupId: ctx.scope.groupId, ownerMemberId: null };
+  if (ctx.scope.kind === 'individual') return { groupId: null, ownerMemberId: ctx.scope.memberId };
+  // circle (admin) → the circle's primary group.
+  return { groupId: await primaryGroupId(ctx.circleId), ownerMemberId: null };
 }
 
 export interface AgentTool {
@@ -131,14 +143,17 @@ export const tools: AgentTool[] = [
       let assigneeId: string | null = null;
       let assigneeName: string | null = null;
       if (typeof input.assignee === 'string' && input.assignee.trim()) {
-        const m = await findMemberByName(ctx.groupId, input.assignee.trim());
+        const m = await findMemberByName(ctx.circleId, input.assignee.trim());
         if (m) {
           assigneeId = m.id;
           assigneeName = m.name ?? input.assignee.trim();
         }
       }
+      const target = await eventTarget(ctx);
       const ev = await createEvent({
-        groupId: ctx.groupId,
+        circleId: ctx.circleId,
+        groupId: target.groupId,
+        ownerMemberId: target.ownerMemberId,
         draft,
         source: ctx.source,
         timezone: ctx.timezone,
@@ -152,7 +167,7 @@ export const tools: AgentTool[] = [
       let warning = '';
       if (kind === 'event' && ev.endsAt && !ev.rrule) {
         const conflicts = await findConflicts(
-          ctx.groupId,
+          ctx.scope,
           ctx.timezone,
           ev.startsAt,
           ev.endsAt,
@@ -186,7 +201,7 @@ export const tools: AgentTool[] = [
     handler: async (input, ctx) => {
       const days = typeof input.days_ahead === 'number' ? input.days_ahead : undefined;
       const to = days ? new Date(Date.now() + days * 86_400_000) : undefined;
-      const items = await getSchedule(ctx.groupId, ctx.timezone, { to });
+      const items = await getSchedule(ctx.scope, ctx.timezone, { to });
       if (items.length === 0) return 'No upcoming events.';
       return items
         .map((it) => {
@@ -211,7 +226,7 @@ export const tools: AgentTool[] = [
       },
     },
     handler: async (input, ctx) => {
-      const events = await findEvents(ctx.groupId, String(input.query));
+      const events = await findEvents(ctx.scope, String(input.query));
       if (events.length === 0) return 'No matching events.';
       return events
         .map(
@@ -234,7 +249,7 @@ export const tools: AgentTool[] = [
       },
     },
     handler: async (input, ctx) => {
-      const ev = await cancelEvent(ctx.groupId, String(input.event_id));
+      const ev = await cancelEvent(ctx.circleId, String(input.event_id));
       return ev ? `Cancelled "${ev.title}".` : 'No event with that id in this group.';
     },
   },
@@ -249,7 +264,7 @@ export const tools: AgentTool[] = [
         required: ['code'],
       },
     },
-    handler: async (input, ctx) => confirmProposal(ctx.groupId, String(input.code)),
+    handler: async (input, ctx) => confirmProposal(ctx.circleId, String(input.code)),
   },
   {
     spec: {
@@ -262,7 +277,7 @@ export const tools: AgentTool[] = [
         required: ['code'],
       },
     },
-    handler: async (input, ctx) => rejectProposal(ctx.groupId, String(input.code)),
+    handler: async (input, ctx) => rejectProposal(ctx.circleId, String(input.code)),
   },
   {
     spec: {
@@ -272,7 +287,7 @@ export const tools: AgentTool[] = [
       parameters: { type: 'object', properties: {} },
     },
     handler: async (_input, ctx) => {
-      const trips = await listVacations(ctx.groupId, { includePast: true });
+      const trips = await listVacations(ctx.circleId, { includePast: true });
       if (trips.length === 0) return 'No trips planned.';
       const lines: string[] = [];
       for (const t of trips) {
@@ -281,7 +296,7 @@ export const tools: AgentTool[] = [
         lines.push(
           `• ${t.title}${t.destinations ? ` (${t.destinations})` : ''} — ${dates} [trip:${t.id}]`,
         );
-        const full = await getVacation(ctx.groupId, t.id);
+        const full = await getVacation(ctx.circleId, t.id);
         for (const it of full?.items ?? []) {
           lines.push(
             `    - ${it.type}: ${it.title} — ${formatEventTime(it.startsAt, it.endsAt, it.allDay, zone)} [item:${it.id}]`,
@@ -331,7 +346,7 @@ export const tools: AgentTool[] = [
     },
     handler: async (input, ctx) => {
       const tripId = String(input.trip_id);
-      const v = await getVacation(ctx.groupId, tripId);
+      const v = await getVacation(ctx.circleId, tripId);
       if (!v) return 'No trip with that id — call list_trips for valid ids.';
       const zone = v.timezone ?? ctx.timezone;
       const str = (k: string) => (typeof input[k] === 'string' ? (input[k] as string) : undefined);
@@ -368,7 +383,7 @@ export const tools: AgentTool[] = [
       },
     },
     handler: async (input, ctx) => {
-      const v = await getVacation(ctx.groupId, String(input.trip_id));
+      const v = await getVacation(ctx.circleId, String(input.trip_id));
       if (!v) return 'No trip with that id.';
       const removed = await deleteVacationItem(String(input.trip_id), String(input.item_id));
       return removed ? `Removed "${removed.title}".` : 'No item with that id on this trip.';

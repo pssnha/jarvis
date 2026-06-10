@@ -139,30 +139,61 @@ export interface VacationItemInput {
   color?: string | null;
 }
 
+/** Normalized title for spotting duplicate items (strip case/punctuation). */
+function normTitle(s: string | null | undefined): string {
+  return (s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 export async function addVacationItem(vacationId: string, input: VacationItemInput, zone: string) {
-  return prisma.vacationItem.create({
-    data: {
-      vacationId,
-      type: input.type,
-      title: input.title,
-      startsAt: localIsoToUtc(input.startsAt, input.fromTimezone || zone),
-      endsAt: input.endsAt ? localIsoToUtc(input.endsAt, input.toTimezone || zone) : null,
-      allDay: input.allDay ?? false,
-      location: input.location ?? null,
-      notes: input.notes ?? null,
-      confirmation: input.confirmation ?? null,
-      provider: input.provider ?? null,
-      number: input.number ?? null,
-      fromLabel: input.fromLabel ?? null,
-      toLabel: input.toLabel ?? null,
-      fromTimezone: input.fromTimezone ?? null,
-      toTimezone: input.toTimezone ?? null,
-      seat: input.seat ?? null,
-      phone: input.phone ?? null,
-      cost: input.cost ?? null,
-      color: input.color ?? null,
-    },
+  const startsAt = localIsoToUtc(input.startsAt, input.fromTimezone || zone);
+  const data = {
+    type: input.type,
+    title: input.title,
+    startsAt,
+    endsAt: input.endsAt ? localIsoToUtc(input.endsAt, input.toTimezone || zone) : null,
+    allDay: input.allDay ?? false,
+    location: input.location ?? null,
+    notes: input.notes ?? null,
+    confirmation: input.confirmation ?? null,
+    provider: input.provider ?? null,
+    number: input.number ?? null,
+    fromLabel: input.fromLabel ?? null,
+    toLabel: input.toLabel ?? null,
+    fromTimezone: input.fromTimezone ?? null,
+    toTimezone: input.toTimezone ?? null,
+    seat: input.seat ?? null,
+    phone: input.phone ?? null,
+    cost: input.cost ?? null,
+    color: input.color ?? null,
+  };
+
+  // De-dupe: the same booking shares a confirmation number, or the same type +
+  // flight number, or the same type + day + (near-)identical title. Prevents
+  // email re-scans / repeated confirmations from piling up duplicate hotels.
+  const existing = await prisma.vacationItem.findMany({ where: { vacationId, type: input.type } });
+  const dup = existing.find((e) => {
+    if (data.confirmation && e.confirmation && e.confirmation === data.confirmation) return true;
+    if (data.number && e.number && e.number === data.number) return true;
+    const sameDay = Math.abs(e.startsAt.getTime() - startsAt.getTime()) < 86_400_000;
+    const nt = normTitle(data.title);
+    const en = normTitle(e.title);
+    return sameDay && nt.length > 0 && (nt === en || nt.startsWith(en) || en.startsWith(nt));
   });
+
+  if (dup) {
+    // Enrich the kept item with any detail it was missing, rather than duplicate it.
+    const fill: Record<string, unknown> = {};
+    for (const k of [
+      'endsAt', 'location', 'notes', 'confirmation', 'provider', 'number',
+      'fromLabel', 'toLabel', 'fromTimezone', 'toTimezone', 'seat', 'phone', 'cost',
+    ] as const) {
+      if (!dup[k] && data[k]) fill[k] = data[k];
+    }
+    if (Object.keys(fill).length === 0) return dup;
+    return prisma.vacationItem.update({ where: { id: dup.id }, data: fill });
+  }
+
+  return prisma.vacationItem.create({ data: { vacationId, ...data } });
 }
 
 export async function updateVacationItem(

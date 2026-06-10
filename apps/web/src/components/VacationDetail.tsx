@@ -58,9 +58,11 @@ export function VacationDetail({ circleId, vacationId, onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState(0);
   const [editTrip, setEditTrip] = useState(false);
-  const [itemModal, setItemModal] = useState<{ dateKey: string; existing?: ItineraryItem } | null>(
-    null,
-  );
+  const [itemModal, setItemModal] = useState<{
+    dateKey: string;
+    existing?: ItineraryItem;
+    initialType?: VacationItemType;
+  } | null>(null);
 
   const load = useCallback(() => {
     getVacation(circleId, vacationId)
@@ -168,54 +170,76 @@ export function VacationDetail({ circleId, vacationId, onBack }: Props) {
         </div>
       </div>
 
-      {(v.flights.length > 0 || v.hotels.length > 0) && (
-        <div className="vac-summary">
-          {v.flights.length > 0 && (
-            <div className="vac-sum-section">
-              <h3>✈️ Flights</h3>
-              {v.flights.map((it) => (
-                <button
-                  key={it.id}
-                  className="vac-sum-row"
-                  onClick={() => setItemModal({ dateKey: it.startLocal.slice(0, 10), existing: it })}
-                >
-                  <span className="vac-sum-main">
-                    {it.provider ? `${it.provider} ` : ''}
-                    {it.number ?? it.title}
-                    {it.fromLabel && it.toLabel ? ` · ${it.fromLabel} → ${it.toLabel}` : ''}
-                  </span>
-                  <span className="vac-sum-meta">
-                    {it.departLabel && it.arriveLabel
-                      ? `${it.departLabel} → ${it.arriveLabel}`
-                      : it.timeLabel}
-                    {it.seat ? ` · seat ${it.seat}` : ''}
-                    {it.confirmation ? ` · ${it.confirmation}` : ''}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-          {v.hotels.length > 0 && (
-            <div className="vac-sum-section">
-              <h3>🏨 Hotels</h3>
-              {v.hotels.map((it) => (
-                <button
-                  key={it.id}
-                  className="vac-sum-row"
-                  onClick={() => setItemModal({ dateKey: it.startLocal.slice(0, 10), existing: it })}
-                >
-                  <span className="vac-sum-main">{it.title}</span>
-                  <span className="vac-sum-meta">
-                    {it.startLocal.slice(0, 10)} → {(it.endLocal ?? it.startLocal).slice(0, 10)}
-                    {it.seat ? ` · room ${it.seat}` : ''}
-                    {it.confirmation ? ` · ${it.confirmation}` : ''}
-                  </span>
-                </button>
-              ))}
-            </div>
+      <div className="vac-summary">
+        <div className="vac-sum-section">
+          <div className="vac-sum-head">
+            <h3>✈️ Flights</h3>
+            <button
+              className="btn-quiet sm"
+              onClick={() =>
+                setItemModal({ dateKey: dayKey || v.startDateLocal, initialType: 'flight' })
+              }
+            >
+              + Flight
+            </button>
+          </div>
+          {v.flights.length === 0 ? (
+            <p className="conn-sub">No flights yet.</p>
+          ) : (
+            v.flights.map((it) => (
+              <button
+                key={it.id}
+                className="vac-sum-row"
+                onClick={() => setItemModal({ dateKey: it.startLocal.slice(0, 10), existing: it })}
+              >
+                <span className="vac-sum-main">
+                  {it.provider ? `${it.provider} ` : ''}
+                  {it.number ?? it.title}
+                  {it.fromLabel && it.toLabel ? ` · ${it.fromLabel} → ${it.toLabel}` : ''}
+                </span>
+                <span className="vac-sum-meta">
+                  {it.departLabel && it.arriveLabel
+                    ? `${it.departLabel} → ${it.arriveLabel}`
+                    : it.timeLabel}
+                  {it.seat ? ` · seat ${it.seat}` : ''}
+                  {it.confirmation ? ` · ${it.confirmation}` : ''}
+                </span>
+              </button>
+            ))
           )}
         </div>
-      )}
+        <div className="vac-sum-section">
+          <div className="vac-sum-head">
+            <h3>🏨 Hotels</h3>
+            <button
+              className="btn-quiet sm"
+              onClick={() =>
+                setItemModal({ dateKey: dayKey || v.startDateLocal, initialType: 'hotel' })
+              }
+            >
+              + Hotel
+            </button>
+          </div>
+          {v.hotels.length === 0 ? (
+            <p className="conn-sub">No hotels yet.</p>
+          ) : (
+            v.hotels.map((it) => (
+              <button
+                key={it.id}
+                className="vac-sum-row"
+                onClick={() => setItemModal({ dateKey: it.startLocal.slice(0, 10), existing: it })}
+              >
+                <span className="vac-sum-main">{it.title}</span>
+                <span className="vac-sum-meta">
+                  {it.startLocal.slice(0, 10)} → {(it.endLocal ?? it.startLocal).slice(0, 10)}
+                  {it.seat ? ` · room ${it.seat}` : ''}
+                  {it.confirmation ? ` · ${it.confirmation}` : ''}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
 
       <div className="vac-daytabs">
         {v.itinerary.map((d, i) => {
@@ -343,6 +367,7 @@ export function VacationDetail({ circleId, vacationId, onBack }: Props) {
           circleId={circleId}
           vacationId={vacationId}
           initialDateKey={itemModal.dateKey}
+          initialType={itemModal.initialType}
           existing={itemModal.existing}
           onClose={() => setItemModal(null)}
           onSaved={() => {

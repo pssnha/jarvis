@@ -2153,8 +2153,14 @@ button.primary:active {
   box-shadow: var(--shadow-sm);
 }
 .vac-sum-section h3 {
-  margin: 0 0 0.5rem;
+  margin: 0;
   font-size: 0.95rem;
+}
+.vac-sum-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
 }
 .vac-sum-row {
   display: flex;

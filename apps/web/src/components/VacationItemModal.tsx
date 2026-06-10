@@ -16,6 +16,8 @@ interface Props {
   circleId: string;
   vacationId: string;
   initialDateKey: string;
+  /** Pre-selects the item type for a new item (e.g. "flight"/"hotel"). */
+  initialType?: VacationItemType;
   /** Present when editing. */
   existing?: ItineraryItem;
   onClose: () => void;
@@ -56,6 +58,7 @@ export function VacationItemModal({
   circleId,
   vacationId,
   initialDateKey,
+  initialType,
   existing,
   onClose,
   onSaved,
@@ -64,7 +67,7 @@ export function VacationItemModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [type, setType] = useState<VacationItemType>(existing?.type ?? 'activity');
+  const [type, setType] = useState<VacationItemType>(existing?.type ?? initialType ?? 'activity');
   const [title, setTitle] = useState(existing?.title ?? '');
   const [allDay, setAllDay] = useState(existing?.allDay ?? false);
   const [start, setStart] = useState(existing?.startLocal ?? `${initialDateKey}T09:00`);

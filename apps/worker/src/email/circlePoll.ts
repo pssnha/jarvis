@@ -110,6 +110,10 @@ async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; fou
     secure: true,
     auth: { user: circle.emailAddress, pass },
     logger: false,
+    // Never let a hung connection stall polling indefinitely.
+    connectionTimeout: 15_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 30_000,
   });
 
   let maxUid = circle.emailLastUid ?? 0;
@@ -129,7 +133,9 @@ async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; fou
         const msg = await client.fetchOne(String(uid), { source: true }, { uid: true });
         if (!msg || !msg.source) continue;
         const parsed = await simpleParser(msg.source);
-        const text = parsed.text ?? '';
+        // Many real emails (airline/hotel/school) are HTML-only — fall back to a
+        // stripped version of the HTML body so they aren't silently skipped.
+        const text = bodyText(parsed.text, typeof parsed.html === 'string' ? parsed.html : null);
         if (!text.trim()) continue;
         try {
           const proposals = await analyzeEmail({
@@ -195,6 +201,21 @@ async function notifyPending(circle: Circle): Promise<void> {
   }
 
   await markNotified(pending.map((p) => p.id));
+}
+
+/** Plain text for analysis: the text part, or HTML stripped to readable text. */
+function bodyText(text: string | undefined, html: string | null): string {
+  if (text && text.trim()) return text;
+  if (!html) return '';
+  return html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function kindEmoji(kind: string): string {

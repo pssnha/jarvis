@@ -17,6 +17,7 @@ import {
   type UpdateEventInput,
 } from '@jarvis/agent';
 import type { EventDraft, Recurrence } from '@jarvis/shared';
+import { accessibleCircleIds as accessibleCircleIdsForUser, canAccessCircle } from '../lib/access';
 
 interface EventBody {
   title?: string;
@@ -35,31 +36,13 @@ interface EventBody {
   ownerMemberId?: string | null;
 }
 
-/** Circles the user may access: site admins see all; otherwise match members by
- *  email/waHash and include any circles they're a per-circle admin of. */
-async function accessibleCircleIds(req: FastifyRequest): Promise<string[] | 'all'> {
-  if (req.authUser?.role === 'admin') return 'all';
-  const ids = new Set<string>();
-  const or: Record<string, unknown>[] = [];
-  if (req.authUser?.email) or.push({ email: req.authUser.email });
-  if (req.authUser?.waHash) or.push({ waHash: req.authUser.waHash });
-  if (or.length > 0) {
-    const members = await prisma.member.findMany({ where: { OR: or }, select: { circleId: true } });
-    for (const m of members) ids.add(m.circleId);
-  }
-  if (req.authUser?.id) {
-    const grants = await prisma.circleAdmin.findMany({
-      where: { authUserId: req.authUser.id },
-      select: { circleId: true },
-    });
-    for (const g of grants) ids.add(g.circleId);
-  }
-  return [...ids];
+/** Circles the user may access (see lib/access). */
+function accessibleCircleIds(req: FastifyRequest): Promise<string[] | 'all'> {
+  return accessibleCircleIdsForUser(req.authUser);
 }
 
-async function canAccess(req: FastifyRequest, circleId: string): Promise<boolean> {
-  const ids = await accessibleCircleIds(req);
-  return ids === 'all' || ids.includes(circleId);
+function canAccess(req: FastifyRequest, circleId: string): Promise<boolean> {
+  return canAccessCircle(req.authUser, circleId);
 }
 
 function parseScope(circleId: string, raw?: string): ScheduleScope {

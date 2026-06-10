@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '@jarvis/db';
 import { setUserWhatsApp } from '@jarvis/agent';
 import { env } from '../config/env';
-import { SESSION_COOKIE } from './constants';
+import { SESSION_COOKIE, OAUTH_RETURN_COOKIE } from './constants';
 
 const isProd = env.NODE_ENV === 'production';
 
@@ -119,6 +119,14 @@ export async function registerAuthRoutes(api: FastifyInstance): Promise<void> {
         path: '/',
         maxAge: 60 * 60 * 24 * 30,
       });
+
+      // If login was triggered by an OAuth account-linking flow, return there.
+      const ret = req.cookies?.[OAUTH_RETURN_COOKIE];
+      const unsignedRet = ret ? api.unsignCookie(ret) : null;
+      if (unsignedRet?.valid && unsignedRet.value?.startsWith('/api/oauth/authorize')) {
+        reply.clearCookie(OAUTH_RETURN_COOKIE, { path: '/' });
+        return reply.redirect(`${env.AUTH_BASE_URL}${unsignedRet.value}`);
+      }
       return reply.redirect(`${env.AUTH_BASE_URL}/`);
     });
   } else {

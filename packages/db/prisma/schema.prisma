@@ -27,6 +27,9 @@ model AuthUser {
 
   /// Circles this user is a (per-circle) admin of.
   circleAdminOf CircleAdmin[]
+  /// OAuth account-linking (e.g. Alexa) issued to this user.
+  oauthAuthCodes OAuthAuthCode[]
+  oauthTokens    OAuthToken[]
 }
 
 /// Grants an AuthUser admin rights over a single circle (manage its members,
@@ -356,4 +359,58 @@ model CircleMutedJob {
   createdAt DateTime @default(now())
 
   @@id([circleId, job])
+}
+
+/// An OAuth2 client that links an external account to a Jarvis user — e.g. the
+/// Alexa skill (account linking). Created/managed by a site admin.
+model OAuthClient {
+  id           String   @id @default(cuid())
+  /// Public client_id used in the OAuth flow.
+  clientId     String   @unique
+  /// sha256 hex of the client secret.
+  secretHash   String
+  name         String
+  /// Allowed redirect URIs, comma-separated.
+  redirectUris String   @db.Text
+  createdAt    DateTime @default(now())
+
+  authCodes OAuthAuthCode[]
+  tokens    OAuthToken[]
+}
+
+/// Short-lived authorization code for the Auth Code grant (with PKCE).
+model OAuthAuthCode {
+  id                  String      @id @default(cuid())
+  /// sha256 hex of the issued code.
+  codeHash            String      @unique
+  clientId            String
+  client              OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  authUserId          String
+  authUser            AuthUser    @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+  redirectUri         String      @db.Text
+  /// PKCE code challenge + method (S256).
+  codeChallenge       String
+  codeChallengeMethod String      @default("S256")
+  expiresAt           DateTime
+  createdAt           DateTime    @default(now())
+
+  @@index([authUserId])
+}
+
+/// An issued access + refresh token pair, scoped to one AuthUser. Tokens are
+/// stored hashed; the bearer value is shown only once at issue time.
+model OAuthToken {
+  id               String      @id @default(cuid())
+  clientId         String
+  client           OAuthClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  authUserId       String
+  authUser         AuthUser    @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+  /// sha256 hex of the access token.
+  accessTokenHash  String      @unique
+  /// sha256 hex of the refresh token.
+  refreshTokenHash String?     @unique
+  expiresAt        DateTime
+  createdAt        DateTime    @default(now())
+
+  @@index([authUserId])
 }

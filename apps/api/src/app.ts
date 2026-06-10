@@ -8,6 +8,8 @@ import { registerCalendar } from './routes/calendar';
 import { registerCircles } from './routes/circles';
 import { registerVacations } from './routes/vacations';
 import { registerAdmin } from './routes/admin';
+import { registerOAuth, bearerAuth } from './routes/oauth';
+import { registerVoice } from './routes/voice';
 import { registerWhatsApp } from './whatsapp';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -37,6 +39,19 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   );
 
+  // Form-encoded bodies (the OAuth /token endpoint posts these).
+  app.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      try {
+        done(null, Object.fromEntries(new URLSearchParams(body as string)));
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    },
+  );
+
   await app.register(
     async (api) => {
       // --- Public ---
@@ -44,6 +59,13 @@ export async function buildApp(): Promise<FastifyInstance> {
       await registerCalendar(api); // /api/calendar/:token.ics (secret token)
       await registerWhatsApp(api); // /api/whatsapp/webhook (signature-verified)
       await registerAuthRoutes(api); // /api/auth/*
+      await registerOAuth(api); // /api/oauth/{authorize,token} (account linking)
+
+      // --- Voice API (Bearer access token from account linking) ---
+      await api.register(async (scoped) => {
+        scoped.addHook('preHandler', bearerAuth);
+        await registerVoice(scoped);
+      });
 
       // --- Authenticated users ---
       await api.register(async (scoped) => {

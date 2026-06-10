@@ -141,12 +141,12 @@ async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; fou
               timezone: circle.timezone,
             });
             if (proposals.length > 0) {
-              await createProposals(circle.id, proposals, {
+              const created = await createProposals(circle.id, proposals, {
                 fromEmail: parsed.from?.value?.[0]?.address?.toLowerCase(),
                 subject: parsed.subject ?? undefined,
                 messageId: parsed.messageId ?? undefined,
               });
-              foundCount += proposals.length;
+              foundCount += created.length; // actually-persisted items (de-dup aware)
             }
           }
           // Processed — move it out of the inbox. If there's no Processed label we

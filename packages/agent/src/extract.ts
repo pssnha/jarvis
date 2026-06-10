@@ -248,11 +248,22 @@ export interface AnalyzeEmailOptions {
 
 /** Classify an email into reminder/event/vacation proposals (nothing is created here). */
 export async function analyzeEmail(opts: AnalyzeEmailOptions): Promise<AnalyzedProposal[]> {
-  const system = `You triage emails sent to a shared group's scheduling assistant. Decide what, if anything, should go on the group's schedule.
-Right now it is ${describeNow(opts.timezone)} in the group's time zone (${opts.timezone}).
+  const system = `You triage emails sent to a shared family's scheduling assistant. Decide what, if anything, should go on the schedule.
+Right now it is ${describeNow(opts.timezone)} in the time zone (${opts.timezone}).
 Resolve relative dates against that and return local wall-clock times without a timezone offset.
-Classify each schedulable item as a reminder, event, or vacation. Ignore marketing, newsletters,
-receipts and anything with no clear date/action — return an empty list for those.`;
+
+Capture as proposals:
+- event: a real, time-bound commitment — appointment, meeting, class, school event, test, party, reservation.
+- reminder: a dated nudge with no hard time block — a bill due, a birthday, "renew X", a deadline.
+- vacation: ANY trip or travel booking — flights, hotels, car rentals, tours, cruises, itineraries, or
+  "your trip/booking is confirmed" emails — EVEN when the email looks like a receipt, statement, or
+  confirmation, or comes from a bank, credit card, airline, hotel, or booking site. Extract the
+  destination and dates, and capture the specific booking (flight/hotel/etc.) as the item with its
+  times, confirmation number, and locations.
+
+Return an empty list ONLY for pure marketing, promotions, newsletters, social/app notifications, and
+security or login/password notices that carry no schedulable date or action. When an email clearly
+describes travel, a date, or an action, prefer capturing it over ignoring it.`;
 
   const text = opts.subject ? `Email subject: ${opts.subject}\n\n${opts.text}` : opts.text;
   const args = await getProvider().extractStructured({

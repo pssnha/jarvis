@@ -227,18 +227,27 @@ async function resolveProcessedMailbox(client: ImapFlow): Promise<string | null>
   }
 }
 
-/** Plain text for analysis: the text part, or HTML stripped to readable text. */
+/** Plain text for analysis: the text part, or HTML stripped to readable text,
+ *  with URL/link noise removed so the classifier sees the actual content. */
 function bodyText(text: string | undefined, html: string | null): string {
-  if (text && text.trim()) return text;
-  if (!html) return '';
-  return html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/\s+/g, ' ')
+  let s: string;
+  if (text && text.trim()) {
+    s = text;
+  } else if (html) {
+    s = html
+      .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>');
+  } else {
+    return '';
+  }
+  return s
+    .replace(/\[https?:\/\/[^\]\s]*\]/gi, '') // [https://…] link references
+    .replace(/https?:\/\/\S+/gi, '') // bare URLs
+    .replace(/[^\S\n]{2,}/g, ' ') // collapse runs of spaces/tabs, keep newlines
     .trim();
 }
 

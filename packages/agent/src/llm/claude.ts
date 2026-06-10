@@ -53,7 +53,9 @@ export const claudeProvider: LlmProvider = {
   async extractStructured(opts: ExtractOpts): Promise<Record<string, unknown>> {
     const response = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 1024,
+      // Rich emails (multi-leg trip itineraries) need room — too small a cap
+      // truncates the tool call and yields an empty extraction.
+      max_tokens: 8192,
       system: opts.system,
       tools: [
         {

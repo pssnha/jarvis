@@ -444,6 +444,55 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
+  // Trigger an immediate (ad-hoc) poll of the circle's mailbox.
+  app.post('/admin/circles/:cid/email/poll', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
+    if (!c.emailAddress) return reply.code(400).send({ error: 'no mailbox configured' });
+    await redis.publish('email:control', JSON.stringify({ action: 'poll', circleId: cid }));
+    return { ok: true };
+  });
+
+  // Email activity: recent poll runs + the items they identified and their outcome.
+  app.get('/admin/circles/:cid/email/activity', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const [polls, items] = await Promise.all([
+      prisma.emailPollLog.findMany({
+        where: { circleId: cid },
+        orderBy: { ranAt: 'desc' },
+        take: 50,
+      }),
+      prisma.emailProposal.findMany({
+        where: { circleId: cid },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: {
+          id: true,
+          kind: true,
+          title: true,
+          summary: true,
+          fromEmail: true,
+          subject: true,
+          status: true,
+          createdAt: true,
+          decidedAt: true,
+        },
+      }),
+    ]);
+    return {
+      polls: polls.map((p) => ({
+        ranAt: p.ranAt,
+        scanned: p.scanned,
+        found: p.found,
+        error: p.error,
+      })),
+      items,
+    };
+  });
+
   // ----- Per-job, per-circle maintenance mute -----
   app.put('/admin/circles/:cid/jobs/:job', async (req, reply) => {
     const { cid, job } = req.params as { cid: string; job: string };
@@ -462,6 +511,95 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
       await prisma.circleMutedJob.deleteMany({ where: { circleId: cid, job } });
     }
     return { ok: true };
+  });
+
+  // ----- Maintenance job-run calendar (site admins; cross-circle) -----
+  // Per-day, per-job aggregates over [from, to). Email polls come from
+  // EmailPollLog; daily_brief / health_check from MaintenanceRun.
+  app.get('/admin/maintenance/calendar', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
+    const { from, to } = req.query as { from?: string; to?: string };
+    const fromD = from ? new Date(from) : new Date(Date.now() - 14 * 86_400_000);
+    const toD = to ? new Date(to) : new Date(Date.now() + 86_400_000);
+
+    const toKey = (d: Date | string): string =>
+      typeof d === 'string' ? d.slice(0, 10) : new Date(d).toISOString().slice(0, 10);
+
+    const emailAgg = await prisma.$queryRaw<
+      { d: Date | string; runs: bigint; found: bigint; errors: bigint }[]
+    >`SELECT DATE(ranAt) AS d, COUNT(*) AS runs, COALESCE(SUM(found),0) AS found,
+        SUM(error IS NOT NULL) AS errors
+      FROM EmailPollLog WHERE ranAt >= ${fromD} AND ranAt < ${toD}
+      GROUP BY DATE(ranAt)`;
+    const maintAgg = await prisma.$queryRaw<
+      { d: Date | string; job: string; runs: bigint; errors: bigint }[]
+    >`SELECT DATE(ranAt) AS d, job, COUNT(*) AS runs, SUM(NOT ok) AS errors
+      FROM MaintenanceRun WHERE ranAt >= ${fromD} AND ranAt < ${toD}
+      GROUP BY DATE(ranAt), job`;
+
+    const cells = [
+      ...emailAgg.map((r) => ({
+        date: toKey(r.d),
+        job: 'email_poll' as const,
+        runs: Number(r.runs),
+        found: Number(r.found),
+        errors: Number(r.errors),
+      })),
+      ...maintAgg.map((r) => ({
+        date: toKey(r.d),
+        job: r.job,
+        runs: Number(r.runs),
+        found: 0,
+        errors: Number(r.errors),
+      })),
+    ];
+    return { cells };
+  });
+
+  // Drill-down: a single day's individual runs for one job (site admins).
+  app.get('/admin/maintenance/runs', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
+    const { from, to, job } = req.query as { from?: string; to?: string; job?: string };
+    if (!from || !to) return reply.code(400).send({ error: 'from and to are required' });
+    const fromD = new Date(from);
+    const toD = new Date(to);
+
+    if (job === 'email_poll') {
+      const rows = await prisma.emailPollLog.findMany({
+        where: { ranAt: { gte: fromD, lt: toD } },
+        orderBy: { ranAt: 'desc' },
+        take: 200,
+        include: { circle: { select: { name: true } } },
+      });
+      return {
+        runs: rows.map((r) => ({
+          job: 'email_poll',
+          ranAt: r.ranAt,
+          ok: !r.error,
+          circle: r.circle?.name ?? null,
+          summary: r.error
+            ? `error: ${r.error}`
+            : r.scanned === 0
+              ? 'no new mail'
+              : `scanned ${r.scanned} · found ${r.found}`,
+        })),
+      };
+    }
+    const rows = await prisma.maintenanceRun.findMany({
+      where: { ranAt: { gte: fromD, lt: toD }, ...(job ? { job } : {}) },
+      orderBy: { ranAt: 'desc' },
+      take: 200,
+      include: { circle: { select: { name: true } } },
+    });
+    return {
+      runs: rows.map((r) => ({
+        job: r.job,
+        ranAt: r.ranAt,
+        ok: r.ok,
+        circle: r.circle?.name ?? null,
+        summary: r.summary ?? '',
+      })),
+    };
   });
 
   // ----- Per-circle WhatsApp linked-device status (one session per circle) -----

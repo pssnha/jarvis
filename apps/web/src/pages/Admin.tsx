@@ -3,7 +3,9 @@ import {
   adminAddCircleMember,
   adminAddGroupMember,
   adminAddUser,
+  adminCircleEmailActivity,
   adminCircleWhatsAppStatus,
+  adminPollCircleEmail,
   adminCreateCircle,
   adminDeleteCircle,
   adminDeleteCircleEmail,
@@ -27,6 +29,7 @@ import type {
   AdminCircleGroup,
   AdminUser,
   CircleMemberRole,
+  EmailActivity,
   MaintenanceJob,
   WhatsAppStatus,
 } from '../lib/types';
@@ -869,21 +872,24 @@ function EmailPollingSection({
         ? `Active · last checked ${cfg.lastPolledAt ? new Date(cfg.lastPolledAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'}`
         : 'Active · first scan pending';
     return (
-      <div className="conn-card">
-        <div className="conn-row">
-          <span className={cfg.enabled ? 'conn-dot ok' : 'conn-dot'} />
-          <div className="conn-main">
-            <div className="conn-title">{cfg.address}</div>
-            <div className="conn-sub">{sub}</div>
+      <>
+        <div className="conn-card">
+          <div className="conn-row">
+            <span className={cfg.enabled ? 'conn-dot ok' : 'conn-dot'} />
+            <div className="conn-main">
+              <div className="conn-title">{cfg.address}</div>
+              <div className="conn-sub">{sub}</div>
+            </div>
+            <button className="btn-quiet" onClick={togglePolling} disabled={busy}>
+              {cfg.enabled ? 'Pause' : 'Resume'}
+            </button>
+            <button className="btn-quiet danger" onClick={remove} disabled={busy}>
+              Remove
+            </button>
           </div>
-          <button className="btn-quiet" onClick={togglePolling} disabled={busy}>
-            {cfg.enabled ? 'Pause' : 'Resume'}
-          </button>
-          <button className="btn-quiet danger" onClick={remove} disabled={busy}>
-            Remove
-          </button>
         </div>
-      </div>
+        <EmailActivityLog circleId={circle.id} onError={onError} />
+      </>
     );
   }
 
@@ -906,6 +912,113 @@ function EmailPollingSection({
           Connect
         </button>
       </div>
+    </div>
+  );
+}
+
+const ITEM_EMOJI: Record<string, string> = { vacation: '🧳', event: '📅', reminder: '🔔' };
+function outcome(status: EmailActivity['items'][number]['status']): { label: string; cls: string } {
+  if (status === 'confirmed') return { label: 'Added', cls: 'ai-out added' };
+  if (status === 'rejected') return { label: 'Skipped', cls: 'ai-out skipped' };
+  return { label: 'Pending', cls: 'ai-out pending' };
+}
+function fmtWhen(s: string): string {
+  return new Date(s).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function EmailActivityLog({
+  circleId,
+  onError,
+}: {
+  circleId: string;
+  onError: (e: unknown) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<EmailActivity | null>(null);
+  const [polling, setPolling] = useState(false);
+
+  const load = useCallback(() => {
+    adminCircleEmailActivity(circleId).then(setData).catch(() => {});
+  }, [circleId]);
+  useEffect(() => {
+    if (!open) return;
+    load();
+    const t = setInterval(load, 8000);
+    return () => clearInterval(t);
+  }, [open, load]);
+
+  async function pollNow() {
+    setPolling(true);
+    setOpen(true);
+    try {
+      await adminPollCircleEmail(circleId);
+      // The poll runs in the worker; refresh a couple of times to catch results.
+      setTimeout(load, 2500);
+      setTimeout(load, 6000);
+    } catch (e) {
+      onError(e);
+    } finally {
+      setTimeout(() => setPolling(false), 6000);
+    }
+  }
+
+  return (
+    <div className="email-activity">
+      <div className="activity-head">
+        <button className="activity-toggle" onClick={() => setOpen((v) => !v)}>
+          {open ? 'Hide activity' : 'Show activity'}
+        </button>
+        <button className="activity-toggle" onClick={pollNow} disabled={polling}>
+          {polling ? 'Polling…' : 'Poll now'}
+        </button>
+      </div>
+      {open && data && (
+        <div className="activity-body">
+          {data.items.length > 0 && (
+            <ul className="activity-items">
+              {data.items.map((it) => {
+                const o = outcome(it.status);
+                return (
+                  <li key={it.id} className="activity-item">
+                    <span className="ai-kind">{ITEM_EMOJI[it.kind] ?? '•'}</span>
+                    <div className="ai-main">
+                      <div className="ai-title">{it.summary || it.title}</div>
+                      <div className="ai-sub">
+                        {it.subject || it.fromEmail || 'email'} · {fmtWhen(it.createdAt)}
+                      </div>
+                    </div>
+                    <span className={o.cls}>{o.label}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <div className="activity-polls">
+            <div className="activity-label">Polls</div>
+            {data.polls.length === 0 ? (
+              <div className="conn-sub">No polls yet.</div>
+            ) : (
+              data.polls.map((p, i) => (
+                <div key={i} className={p.error ? 'poll-row err' : 'poll-row'}>
+                  <span className="pr-time">{fmtWhen(p.ranAt)}</span>
+                  <span className="pr-detail">
+                    {p.error
+                      ? `error: ${p.error}`
+                      : p.scanned === 0
+                        ? 'no new mail'
+                        : `scanned ${p.scanned} · found ${p.found}`}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

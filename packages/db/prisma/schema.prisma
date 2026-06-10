@@ -75,6 +75,8 @@ model Circle {
   conversations Conversation[]
   mutedJobs     CircleMutedJob[]
   admins        CircleAdmin[]
+  emailPolls    EmailPollLog[]
+  maintRuns     MaintenanceRun[]
 }
 
 /// A WhatsApp group the circle's Jarvis number is in. Has a shared calendar.
@@ -274,6 +276,39 @@ model EmailProposal {
 
   @@index([circleId, status])
   @@index([messageId])
+}
+
+/// One row per maintenance job run (daily_brief, health_check, …) — feeds the
+/// Maintenance job-run calendar. Email polls live in EmailPollLog and are merged
+/// into the same calendar at read time.
+model MaintenanceRun {
+  id       String   @id @default(cuid())
+  /// email_poll | daily_brief | health_check
+  job      String
+  circleId String?
+  circle   Circle?  @relation(fields: [circleId], references: [id], onDelete: SetNull)
+  ranAt    DateTime @default(now())
+  ok       Boolean  @default(true)
+  summary  String?  @db.Text
+
+  @@index([ranAt])
+  @@index([job, ranAt])
+}
+
+/// One row per mailbox poll run — the activity log shown under Email.
+model EmailPollLog {
+  id       String   @id @default(cuid())
+  circleId String
+  circle   Circle   @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  ranAt    DateTime @default(now())
+  /// New messages examined this run.
+  scanned  Int      @default(0)
+  /// Proposals (items) created this run.
+  found    Int      @default(0)
+  /// Set when the poll failed (connection/auth error).
+  error    String?  @db.Text
+
+  @@index([circleId, ranAt])
 }
 
 /// Conversation history for agent context. Scoped to a circle, optionally to a

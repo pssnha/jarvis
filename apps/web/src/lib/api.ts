@@ -7,6 +7,9 @@ import type {
   CircleAdminUser,
   CircleEmailConfig,
   CircleMemberRole,
+  EmailActivity,
+  MaintenanceCell,
+  MaintenanceRunRow,
   Conflict,
   EventDetail,
   EventPayload,
@@ -182,6 +185,34 @@ export async function adminSetCircleEmail(
 }
 export async function adminDeleteCircleEmail(cid: string): Promise<void> {
   await fetch(`/api/admin/circles/${cid}/email`, { method: 'DELETE' }).then((r) => json(r));
+}
+export async function adminCircleEmailActivity(cid: string): Promise<EmailActivity> {
+  return fetch(`/api/admin/circles/${cid}/email/activity`).then((r) => json<EmailActivity>(r));
+}
+export async function adminPollCircleEmail(cid: string): Promise<void> {
+  await fetch(`/api/admin/circles/${cid}/email/poll`, { method: 'POST' }).then((r) => json(r));
+}
+
+// ---------- Admin: maintenance ----------
+export async function adminMaintenanceCalendar(
+  fromISO: string,
+  toISO: string,
+): Promise<{ cells: MaintenanceCell[] }> {
+  const u = new URL('/api/admin/maintenance/calendar', window.location.origin);
+  u.searchParams.set('from', fromISO);
+  u.searchParams.set('to', toISO);
+  return fetch(u).then((r) => json<{ cells: MaintenanceCell[] }>(r));
+}
+export async function adminMaintenanceRuns(
+  fromISO: string,
+  toISO: string,
+  job: string,
+): Promise<{ runs: MaintenanceRunRow[] }> {
+  const u = new URL('/api/admin/maintenance/runs', window.location.origin);
+  u.searchParams.set('from', fromISO);
+  u.searchParams.set('to', toISO);
+  u.searchParams.set('job', job);
+  return fetch(u).then((r) => json<{ runs: MaintenanceRunRow[] }>(r));
 }
 
 export async function adminSetCircleJob(

@@ -5,9 +5,10 @@ import { Calendar } from './pages/Calendar';
 import { Vacations } from './pages/Vacations';
 import { Chat } from './pages/Chat';
 import { Circles, Permissions } from './pages/Admin';
+import { Maintenance } from './pages/Maintenance';
 import { Login } from './pages/Login';
 
-type View = 'calendar' | 'vacations' | 'circles' | 'permissions';
+type View = 'calendar' | 'vacations' | 'circles' | 'permissions' | 'maintenance';
 
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
@@ -79,6 +80,7 @@ export function App() {
                 <div className="side-group">Admin</div>
                 {item('circles', 'Circles')}
                 {siteAdmin && item('permissions', 'Permissions')}
+                {siteAdmin && item('maintenance', 'Maintenance')}
               </>
             )}
           </nav>
@@ -95,6 +97,7 @@ export function App() {
           {view === 'vacations' && <Vacations onActive={setActive} />}
           {view === 'circles' && (siteAdmin || circleAdmin) && <Circles siteAdmin={siteAdmin} />}
           {view === 'permissions' && siteAdmin && <Permissions />}
+          {view === 'maintenance' && siteAdmin && <Maintenance />}
         </main>
 
         {chatOpen && <div className="backdrop chat-backdrop" onClick={() => setChatOpen(false)} />}

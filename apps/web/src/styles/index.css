@@ -1279,6 +1279,212 @@ button.primary:active {
   letter-spacing: -0.02em;
   margin-bottom: 0.6rem;
 }
+
+/* Maintenance job-run calendar */
+.maintenance {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+}
+.maint-page-title {
+  margin: 0 0 0.8rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.maint-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.2rem;
+}
+.mrun-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border: 1px solid var(--separator);
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 0.08rem 0.4rem;
+  font-size: 0.72rem;
+  cursor: pointer;
+  color: var(--text);
+}
+.mrun-chip:hover {
+  background: var(--surface-2-hover);
+}
+.mrun-chip.err {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+.mc-count {
+  font-weight: 600;
+}
+.mc-err {
+  color: var(--danger);
+  font-weight: 800;
+}
+.maint-detail {
+  margin-top: 1rem;
+  border: 1px solid var(--separator);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.maint-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid var(--separator);
+  background: var(--surface-2);
+}
+.maint-runs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.maint-run {
+  display: flex;
+  gap: 0.8rem;
+  align-items: baseline;
+  padding: 0.4rem 0.85rem;
+  border-bottom: 1px solid var(--separator);
+  font-size: 0.84rem;
+}
+.maint-run.err .mr-summary {
+  color: var(--danger);
+}
+.mr-time {
+  color: var(--text-secondary);
+  min-width: 70px;
+  flex-shrink: 0;
+}
+.mr-circle {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.mr-summary {
+  color: var(--text-secondary);
+}
+
+/* Email activity log */
+.email-activity {
+  margin-top: 0.6rem;
+}
+.activity-head {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+.activity-toggle {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.83rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2rem 0.1rem;
+}
+.activity-toggle:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+.activity-body {
+  margin-top: 0.5rem;
+  border: 1px solid var(--separator);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.activity-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--separator);
+}
+.ai-kind {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.ai-main {
+  flex: 1;
+  min-width: 0;
+}
+.ai-title {
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-sub {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-out {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.ai-out.added {
+  background: rgba(52, 199, 89, 0.16);
+  color: #2a9c4a;
+}
+.ai-out.skipped {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+.ai-out.pending {
+  background: rgba(255, 159, 10, 0.18);
+  color: #c77800;
+}
+.activity-polls {
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--surface-2);
+  padding: 0.4rem 0;
+}
+.activity-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  padding: 0.2rem 0.75rem 0.35rem;
+}
+.poll-row {
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.2rem 0.75rem;
+  font-size: 0.78rem;
+}
+.pr-time {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  min-width: 96px;
+}
+.pr-detail {
+  color: var(--text-secondary);
+}
+.poll-row.err .pr-detail {
+  color: var(--danger);
+}
 @keyframes pane-in {
   from {
     opacity: 0;

@@ -106,6 +106,30 @@ export interface CircleEmailConfig {
   lastPolledAt: string | null;
 }
 
+export interface EmailPoll {
+  ranAt: string;
+  scanned: number;
+  found: number;
+  error: string | null;
+}
+
+export interface EmailActivityItem {
+  id: string;
+  kind: string; // reminder | event | vacation
+  title: string;
+  summary: string;
+  fromEmail: string | null;
+  subject: string | null;
+  status: 'pending' | 'confirmed' | 'rejected';
+  createdAt: string;
+  decidedAt: string | null;
+}
+
+export interface EmailActivity {
+  polls: EmailPoll[];
+  items: EmailActivityItem[];
+}
+
 export interface AdminCircleGroup {
   id: string;
   name: string;
@@ -126,6 +150,22 @@ export interface AdminCircleMember {
 
 /** A maintenance job that can be muted per circle. */
 export type MaintenanceJob = 'email_poll' | 'daily_brief' | 'health_check';
+
+export interface MaintenanceCell {
+  date: string; // yyyy-MM-dd (UTC)
+  job: string;
+  runs: number;
+  found: number;
+  errors: number;
+}
+
+export interface MaintenanceRunRow {
+  job: string;
+  ranAt: string;
+  ok: boolean;
+  circle: string | null;
+  summary: string;
+}
 
 export interface AdminCircle {
   id: string;

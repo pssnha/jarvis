@@ -1,6 +1,7 @@
 import { prisma } from '@jarvis/db';
 import { dateKeyInZone, expandCalendar, nowIsoInZone, timeLabel } from '@jarvis/agent';
 import { isConnected, sendGroupText } from './whatsapp/client';
+import { recordRun } from './maintenance';
 
 /**
  * Maintenance job (mutable per circle): each morning, summarize each group's day
@@ -31,6 +32,8 @@ export async function sendDailyBriefs(): Promise<void> {
     if (localHour !== BRIEF_HOUR) continue;
     const todayKey = dateKeyInZone(now, circle.timezone);
 
+    let posted = 0;
+    let failed = 0;
     for (const group of circle.groups) {
       if (!group.whatsappGroupId) continue;
       if (sent.get(group.id) === todayKey) continue;
@@ -47,10 +50,19 @@ export async function sendDailyBriefs(): Promise<void> {
         const text = buildBrief(group.name, circle.timezone, todayKey, today);
         await sendGroupText(circle.id, group.whatsappGroupId, text);
         sent.set(group.id, todayKey);
+        posted++;
         console.log(`[daily-brief] ${circle.name} / ${group.name}`);
       } catch (err) {
+        failed++;
         console.error(`[daily-brief] failed for ${circle.name}/${group.name}:`, err);
       }
+    }
+    if (posted > 0 || failed > 0) {
+      await recordRun('daily_brief', {
+        circleId: circle.id,
+        ok: failed === 0,
+        summary: `posted to ${posted} group${posted === 1 ? '' : 's'}${failed ? ` · ${failed} failed` : ''}`,
+      });
     }
   }
 }

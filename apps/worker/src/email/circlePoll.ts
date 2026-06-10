@@ -9,9 +9,12 @@ import {
   listPendingProposals,
   markNotified,
 } from '@jarvis/agent';
+import { createRedis } from '../lib/redis';
 import { isConnected, sendDirectText } from '../whatsapp/client';
 
 let polling = false;
+const inFlight = new Set<string>();
+const EMAIL_CONTROL = 'email:control';
 
 /** Poll every circle that has a configured, enabled mailbox (maintenance job). */
 export async function pollCircleMailboxes(): Promise<void> {
@@ -24,20 +27,82 @@ export async function pollCircleMailboxes(): Promise<void> {
     });
     for (const circle of circles) {
       if (circle.mutedJobs.some((m) => m.job === 'email_poll')) continue;
-      try {
-        await pollCircleMailbox(circle);
-      } catch (err) {
-        console.error(`[email] poll failed for ${circle.name}:`, err);
-      }
+      await runPollForCircle(circle);
     }
   } finally {
     polling = false;
   }
 }
 
-async function pollCircleMailbox(circle: Circle): Promise<void> {
+/** Poll one circle's mailbox immediately (ad-hoc, from the Admin "Poll now"). */
+export async function pollOneCircle(circleId: string): Promise<void> {
+  const circle = await prisma.circle.findUnique({ where: { id: circleId } });
+  if (!circle || !circle.emailAddress || !circle.emailEncCred) return;
+  await runPollForCircle(circle);
+}
+
+/** Subscribe to ad-hoc poll requests published by the API. */
+export function startEmailControl(): void {
+  const sub = createRedis();
+  void sub.subscribe(EMAIL_CONTROL);
+  sub.on('message', (_chan, raw) => {
+    try {
+      const m = JSON.parse(raw) as { action: 'poll'; circleId: string };
+      if (m.action === 'poll' && m.circleId) void pollOneCircle(m.circleId).catch(() => {});
+    } catch {
+      /* ignore malformed control messages */
+    }
+  });
+}
+
+/** Run one circle's poll, dedup concurrent runs, and record the result. */
+async function runPollForCircle(circle: Circle): Promise<void> {
+  if (inFlight.has(circle.id)) return;
+  inFlight.add(circle.id);
+  try {
+    let scanned = 0;
+    let found = 0;
+    let error: string | null = null;
+    try {
+      const r = await pollCircleMailbox(circle);
+      scanned = r.scanned;
+      found = r.found;
+    } catch (err) {
+      error = (err as Error).message ?? String(err);
+      console.error(`[email] poll failed for ${circle.name}:`, err);
+    }
+    await recordPoll(circle.id, scanned, found, error);
+  } finally {
+    inFlight.delete(circle.id);
+  }
+}
+
+const POLL_LOG_RETENTION_MS = 14 * 24 * 3_600_000; // keep 14 days of poll history
+
+/** Append a poll-run row and prune old history. */
+async function recordPoll(
+  circleId: string,
+  scanned: number,
+  found: number,
+  error: string | null,
+): Promise<void> {
+  try {
+    await prisma.emailPollLog.create({
+      data: { circleId, scanned, found, error: error ? error.slice(0, 500) : null },
+    });
+    await prisma.emailPollLog.deleteMany({
+      where: { circleId, ranAt: { lt: new Date(Date.now() - POLL_LOG_RETENTION_MS) } },
+    });
+  } catch (err) {
+    console.error('[email] failed to record poll log:', err);
+  }
+}
+
+async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; found: number }> {
   const pass = circle.emailEncCred ? decryptValue(circle.emailEncCred) : null;
-  if (!circle.emailAddress || !pass) return;
+  if (!circle.emailAddress || !pass) return { scanned: 0, found: 0 };
+  let scanned = 0;
+  let foundCount = 0;
 
   const client = new ImapFlow({
     host: circle.emailHost || 'imap.gmail.com',
@@ -55,8 +120,9 @@ async function pollCircleMailbox(circle: Circle): Promise<void> {
       // First scan: everything. Later: only UIDs above the last processed one.
       const lastUid = circle.emailLastUid ?? 0;
       const range = circle.emailFirstScanDone ? `${lastUid + 1}:*` : '1:*';
-      const found = await client.search({ uid: range }, { uid: true });
-      const fresh = (Array.isArray(found) ? found : []).filter((u: number) => u > lastUid);
+      const searchRes = await client.search({ uid: range }, { uid: true });
+      const fresh = (Array.isArray(searchRes) ? searchRes : []).filter((u: number) => u > lastUid);
+      scanned = fresh.length;
 
       for (const uid of fresh) {
         if (uid > maxUid) maxUid = uid;
@@ -77,6 +143,7 @@ async function pollCircleMailbox(circle: Circle): Promise<void> {
               subject: parsed.subject ?? undefined,
               messageId: parsed.messageId ?? undefined,
             });
+            foundCount += proposals.length;
           }
         } catch (err) {
           console.error(`[email] analyze failed (uid ${uid}):`, err);
@@ -99,6 +166,7 @@ async function pollCircleMailbox(circle: Circle): Promise<void> {
   });
 
   await notifyPending(circle);
+  return { scanned, found: foundCount };
 }
 
 const CHUNK = 12;

@@ -1276,9 +1276,6 @@ button.primary:active {
   font-size: 0.82rem;
   color: var(--danger);
 }
-.email-hint {
-  margin: 0.5rem 0 0;
-}
 
 /* Pane section headings — Vacation-page weight/tracking */
 .pane .subsec h4 {

@@ -918,11 +918,6 @@ function EmailPollingSection({
         </button>
       </div>
       {err && <p className="conn-error">{err}</p>}
-      {!err && (
-        <p className="conn-sub email-hint">
-          Gmail: turn on 2-Step Verification, then create an app password and paste it here.
-        </p>
-      )}
     </div>
   );
 }

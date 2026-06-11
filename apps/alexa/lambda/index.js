@@ -15,6 +15,7 @@
  */
 
 const Alexa = require('ask-sdk-core');
+const https = require('https');
 
 // ── Configure me ──────────────────────────────────────────────────────────
 // The public base URL of your Jarvis server (the same address you open the
@@ -26,36 +27,72 @@ const API_BASE = (process.env.JARVIS_API_BASE || JARVIS_API_BASE || '').replace(
 const LINK_PROMPT =
   'Please link your account first. I have sent a card to your Alexa app with the steps.';
 
+/** Minimal JSON HTTPS request (no fetch — works on every Lambda Node runtime).
+ *  Resolves { status, json } and never throws. */
+function httpJson(method, path, opts = {}) {
+  return new Promise((resolve) => {
+    let url;
+    try {
+      url = new URL(API_BASE + path);
+    } catch (e) {
+      return resolve({ status: 0, json: null });
+    }
+    const payload = opts.body ? JSON.stringify(opts.body) : null;
+    const headers = {};
+    if (opts.token) headers.authorization = `Bearer ${opts.token}`;
+    if (payload) {
+      headers['content-type'] = 'application/json';
+      headers['content-length'] = Buffer.byteLength(payload);
+    }
+    const req = https.request(
+      {
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname + url.search,
+        method,
+        headers,
+        timeout: 7000,
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          let json = null;
+          try {
+            json = data ? JSON.parse(data) : null;
+          } catch (e) {
+            json = null;
+          }
+          resolve({ status: res.statusCode, json });
+        });
+      },
+    );
+    req.on('error', () => resolve({ status: 0, json: null }));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ status: 0, json: null });
+    });
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
 /** POST one turn to the Jarvis voice API; returns { ok, speech, needsLink }. */
 async function callTurn(accessToken, text) {
   if (!accessToken) return { ok: false, needsLink: true };
-  try {
-    const res = await fetch(`${API_BASE}/api/voice/turn`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ text }),
-    });
-    if (res.status === 401) return { ok: false, needsLink: true };
-    if (!res.ok) return { ok: false, speech: "Sorry, I couldn't reach your circle just now." };
-    const data = await res.json();
-    return { ok: true, speech: data.speech };
-  } catch (e) {
+  const res = await httpJson('POST', '/api/voice/turn', { token: accessToken, body: { text } });
+  if (res.status === 401) return { ok: false, needsLink: true };
+  if (res.status !== 200 || !res.json) {
     return { ok: false, speech: "Sorry, I couldn't reach your circle just now." };
   }
+  return { ok: true, speech: res.json.speech };
 }
 
 /** Fetch the linked circle's name (best-effort, for the welcome message). */
 async function circleName(accessToken) {
   if (!accessToken) return null;
-  try {
-    const res = await fetch(`${API_BASE}/api/voice/context`, {
-      headers: { authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) return null;
-    return (await res.json()).circleName || null;
-  } catch (e) {
-    return null;
-  }
+  const res = await httpJson('GET', '/api/voice/context', { token: accessToken });
+  return res.status === 200 && res.json ? res.json.circleName || null : null;
 }
 
 function token(handlerInput) {

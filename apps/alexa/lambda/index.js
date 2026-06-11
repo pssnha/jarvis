@@ -20,7 +20,7 @@ const https = require('https');
 // ── Configure me ──────────────────────────────────────────────────────────
 // The public base URL of your Jarvis server (the same address you open the
 // Jarvis web app at), with NO trailing slash. Example: 'https://jarvis.example.com'
-const JARVIS_API_BASE = 'https://your-jarvis-host';
+const JARVIS_API_BASE = 'https://jarvis.passanha.com';
 // ──────────────────────────────────────────────────────────────────────────
 
 const API_BASE = (process.env.JARVIS_API_BASE || JARVIS_API_BASE || '').replace(/\/$/, '');

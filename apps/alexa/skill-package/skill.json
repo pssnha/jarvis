@@ -4,13 +4,13 @@
     "publishingInformation": {
       "locales": {
         "en-US": {
-          "name": "My Circle",
+          "name": "Home Assistant",
           "summary": "Ask your circle about its calendar, vacations, and reminders.",
           "description": "A private skill for a Jarvis circle. Ask what's on the calendar, when the next vacation is, for trip details and flight times, set reminders, and message the group. Requires account linking to your Jarvis account; only members of a circle can use it.",
           "examplePhrases": [
-            "Alexa, ask my circle what's on our calendar today",
-            "Alexa, ask my circle when our next vacation is",
-            "Alexa, ask my circle to tell me about the Banff trip"
+            "Alexa, ask home assistant what's on our calendar today",
+            "Alexa, ask home assistant when our next vacation is",
+            "Alexa, ask home assistant to tell me about the Banff trip"
           ],
           "keywords": ["calendar", "family", "vacation", "reminders"],
           "smallIconUri": "",

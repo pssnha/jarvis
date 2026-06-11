@@ -81,9 +81,15 @@ export async function registerOAuth(api: FastifyInstance): Promise<void> {
     if (!client || !redirect_uri || !isAllowedRedirect(client, redirect_uri)) {
       return reply.code(400).type('text/html').send(errorPage('Invalid request', 'Unknown client or redirect URI.'));
     }
-    // PKCE is required (S256 only).
-    if (response_type !== 'code' || !code_challenge || method !== 'S256') {
-      return reply.redirect(`${redirect_uri}?error=invalid_request${state ? `&state=${encodeURIComponent(state)}` : ''}`);
+    const sepErr = redirect_uri.includes('?') ? '&' : '?';
+    const stateParam = state ? `&state=${encodeURIComponent(state)}` : '';
+    if (response_type !== 'code') {
+      return reply.redirect(`${redirect_uri}${sepErr}error=unsupported_response_type${stateParam}`);
+    }
+    // PKCE is optional (this is a confidential client authenticated by secret at
+    // the token endpoint). If a challenge is supplied we enforce it (S256 only).
+    if (code_challenge && method !== 'S256') {
+      return reply.redirect(`${redirect_uri}${sepErr}error=invalid_request${stateParam}`);
     }
 
     // Require a signed-in Jarvis user; if absent, bounce through Google login and
@@ -117,8 +123,8 @@ export async function registerOAuth(api: FastifyInstance): Promise<void> {
         clientId: client.id,
         authUserId: user.id,
         redirectUri: redirect_uri,
-        codeChallenge: code_challenge,
-        codeChallengeMethod: 'S256',
+        codeChallenge: code_challenge ?? '', // empty = no PKCE
+        codeChallengeMethod: code_challenge ? 'S256' : 'none',
         expiresAt: new Date(Date.now() + CODE_TTL_MS),
       },
     });
@@ -139,14 +145,18 @@ export async function registerOAuth(api: FastifyInstance): Promise<void> {
 
     if (body.grant_type === 'authorization_code') {
       const { code, redirect_uri, code_verifier } = body;
-      if (!code || !code_verifier) return reply.code(400).send({ error: 'invalid_request' });
+      if (!code) return reply.code(400).send({ error: 'invalid_request' });
       const row = await prisma.oAuthAuthCode.findUnique({ where: { codeHash: sha256(code) } });
+      // PKCE only enforced when a challenge was captured at /authorize.
+      const pkceOk = row?.codeChallenge
+        ? !!code_verifier && pkceMatches(code_verifier, row.codeChallenge)
+        : true;
       if (
         !row ||
         row.clientId !== client.id ||
         row.redirectUri !== redirect_uri ||
         row.expiresAt < new Date() ||
-        !pkceMatches(code_verifier, row.codeChallenge)
+        !pkceOk
       ) {
         if (row) await prisma.oAuthAuthCode.delete({ where: { id: row.id } }).catch(() => {});
         return reply.code(400).send({ error: 'invalid_grant' });

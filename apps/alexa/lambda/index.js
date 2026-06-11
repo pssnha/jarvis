@@ -8,13 +8,21 @@
  * agent as the web chat. No calendar/vacation logic lives here — handlers just
  * turn an intent + slots into a sentence and speak the agent's reply.
  *
- * Config (Lambda environment variable):
- *   JARVIS_API_BASE  e.g. https://your-jarvis-host  (no trailing slash)
+ * Config: set JARVIS_API_BASE below.
+ *   - Alexa-hosted skills can't set Lambda env vars, so edit the constant here.
+ *   - On your own AWS Lambda you may instead leave it blank and set the
+ *     JARVIS_API_BASE environment variable in the Lambda console.
  */
 
 const Alexa = require('ask-sdk-core');
 
-const API_BASE = (process.env.JARVIS_API_BASE || '').replace(/\/$/, '');
+// ── Configure me ──────────────────────────────────────────────────────────
+// The public base URL of your Jarvis server (the same address you open the
+// Jarvis web app at), with NO trailing slash. Example: 'https://jarvis.example.com'
+const JARVIS_API_BASE = 'https://your-jarvis-host';
+// ──────────────────────────────────────────────────────────────────────────
+
+const API_BASE = (process.env.JARVIS_API_BASE || JARVIS_API_BASE || '').replace(/\/$/, '');
 const LINK_PROMPT =
   'Please link your account first. I have sent a card to your Alexa app with the steps.';
 

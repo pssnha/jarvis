@@ -35,10 +35,15 @@ Reminders and group messaging come in Phase 3.
 1. Create a free **Amazon Developer account** → open the **Alexa Developer Console**.
 2. **Create Skill** → Custom model → **Alexa-hosted (Node.js)**. Region: US.
 3. **Interaction model** → JSON editor → paste `skill-package/interactionModels/custom/en-US.json` → **Build model**.
-4. **Code** tab → replace `index.js` and `package.json` with the files in `lambda/` → **Deploy**.
-   - Set the environment variable **`JARVIS_API_BASE`** to the public Jarvis URL
-     (e.g. `https://<your-jarvis-host>`, no trailing slash). On Alexa-hosted set
-     it in the Lambda config; on your own Lambda use the function's env vars.
+4. **Code** tab → replace `index.js` and `package.json` with the files in `lambda/`.
+   - **Set your Jarvis URL.** Alexa-hosted skills have no Lambda env-var UI, so
+     edit the constant near the top of `index.js`:
+     `const JARVIS_API_BASE = 'https://your-jarvis-host';` → change it to the
+     public URL you open the Jarvis web app at (no trailing slash).
+     (If you deploy to your *own* AWS Lambda instead, you can leave the constant
+     blank and set a `JARVIS_API_BASE` environment variable under
+     Lambda → Configuration → Environment variables.)
+   - Click **Save**, then **Deploy**.
 5. **Account Linking** (Build → Account Linking):
    - Auth Grant type: **Auth Code Grant**.
    - Authorization URI: `https://<jarvis>/api/oauth/authorize`

@@ -2,6 +2,7 @@ import type {
   AdminCircle,
   AdminCircleMember,
   AdminUser,
+  BillingReport,
   CalendarOccurrence,
   Circle,
   CircleAdminUser,
@@ -218,6 +219,11 @@ export async function adminRejectEmailItem(cid: string, id: string): Promise<{ m
 }
 
 // ---------- Admin: maintenance ----------
+export async function adminBilling(month: string): Promise<BillingReport> {
+  const u = new URL('/api/admin/billing', window.location.origin);
+  if (month) u.searchParams.set('month', month);
+  return fetch(u).then((r) => json<BillingReport>(r));
+}
 export async function adminMaintenanceCalendar(
   fromISO: string,
   toISO: string,

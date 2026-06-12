@@ -1,3 +1,25 @@
+export interface BillingModelRow {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+  costUsd: number;
+}
+export interface BillingCircleRow {
+  circleId: string;
+  circleName: string;
+  models: BillingModelRow[];
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+  costUsd: number;
+}
+export interface BillingReport {
+  month: string; // YYYY-MM
+  circles: BillingCircleRow[];
+  totalCostUsd: number;
+}
+
 export type RecurrenceFreq = 'daily' | 'weekly' | 'monthly' | 'yearly';
 export type Weekday = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU';
 export type EventKind = 'reminder' | 'event';

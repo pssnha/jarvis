@@ -8,6 +8,7 @@ import {
   encryptPhone,
   encryptValue,
   ensureGroupMember,
+  estimateCost,
   maskPhone,
   openclawJobsToEvents,
   rejectProposalById,
@@ -594,6 +595,97 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
       await prisma.circleMutedJob.deleteMany({ where: { circleId: cid, job } });
     }
     return { ok: true };
+  });
+
+  // ----- Billing: per-circle LLM usage + estimated cost for a month -----
+  // Site admins see every circle; per-circle admins see only theirs. Cost is
+  // estimated from list prices at query time (see estimateCost).
+  app.get('/admin/billing', async (req, reply) => {
+    const scope = await adminCircleScope(req); // null = all circles; [] = none
+    const { month } = req.query as { month?: string };
+    const now = new Date();
+    const m =
+      typeof month === 'string' && /^\d{4}-\d{2}$/.test(month)
+        ? month
+        : `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    const [y, mo] = m.split('-').map(Number);
+    const start = new Date(Date.UTC(y!, mo! - 1, 1));
+    const end = new Date(Date.UTC(y!, mo!, 1));
+
+    if (Array.isArray(scope) && scope.length === 0) {
+      return reply.send({ month: m, circles: [], totalCostUsd: 0 });
+    }
+
+    const grouped = await prisma.llmUsage.groupBy({
+      by: ['circleId', 'model'],
+      where: {
+        createdAt: { gte: start, lt: end },
+        circleId: scope ? { in: scope } : { not: null },
+      },
+      _sum: {
+        inputTokens: true,
+        outputTokens: true,
+        cacheReadTokens: true,
+        cacheCreationTokens: true,
+      },
+      _count: { _all: true },
+    });
+
+    const ids = [...new Set(grouped.map((g) => g.circleId).filter((x): x is string => !!x))];
+    const names = new Map(
+      (await prisma.circle.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })).map(
+        (c) => [c.id, c.name],
+      ),
+    );
+
+    interface Row {
+      circleId: string;
+      circleName: string;
+      models: { model: string; inputTokens: number; outputTokens: number; calls: number; costUsd: number }[];
+      inputTokens: number;
+      outputTokens: number;
+      calls: number;
+      costUsd: number;
+    }
+    const byCircle = new Map<string, Row>();
+    for (const g of grouped) {
+      if (!g.circleId) continue;
+      const inT = g._sum.inputTokens ?? 0;
+      const outT = g._sum.outputTokens ?? 0;
+      const cr = g._sum.cacheReadTokens ?? 0;
+      const cc = g._sum.cacheCreationTokens ?? 0;
+      const calls = g._count._all;
+      const costUsd = estimateCost({
+        model: g.model,
+        inputTokens: inT,
+        outputTokens: outT,
+        cacheReadTokens: cr,
+        cacheCreationTokens: cc,
+      });
+      let row = byCircle.get(g.circleId);
+      if (!row) {
+        row = {
+          circleId: g.circleId,
+          circleName: names.get(g.circleId) ?? 'Unknown',
+          models: [],
+          inputTokens: 0,
+          outputTokens: 0,
+          calls: 0,
+          costUsd: 0,
+        };
+        byCircle.set(g.circleId, row);
+      }
+      row.models.push({ model: g.model, inputTokens: inT, outputTokens: outT, calls, costUsd });
+      row.inputTokens += inT;
+      row.outputTokens += outT;
+      row.calls += calls;
+      row.costUsd += costUsd;
+    }
+
+    const circles = [...byCircle.values()].sort((a, b) => b.costUsd - a.costUsd);
+    for (const c of circles) c.models.sort((a, b) => b.costUsd - a.costUsd);
+    const totalCostUsd = circles.reduce((s, c) => s + c.costUsd, 0);
+    return reply.send({ month: m, circles, totalCostUsd });
   });
 
   // ----- Maintenance job-run calendar (site admins; cross-circle) -----

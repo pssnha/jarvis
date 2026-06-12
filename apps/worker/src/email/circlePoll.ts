@@ -139,6 +139,7 @@ async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; fou
               text,
               subject: parsed.subject ?? undefined,
               timezone: circle.timezone,
+              circleId: circle.id,
             });
             if (proposals.length > 0) {
               const created = await createProposals(circle.id, proposals, {

@@ -1,7 +1,22 @@
-import type { ExtractOpts, LlmProvider, RunConversationOpts } from './types';
+import type { ExtractOpts, LlmProvider, RunConversationOpts, UsageContext } from './types';
 import { toGeminiSchema } from './schema';
+import { recordLlmUsage } from './usage';
 
 export const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash';
+
+/** Record a Gemini response's token usage against the call's circle. */
+function record(ctx: UsageContext, response: any): void {
+  const u = response?.usageMetadata;
+  if (!u) return;
+  void recordLlmUsage({
+    circleId: ctx.circleId,
+    source: ctx.source ?? 'unknown',
+    model: GEMINI_MODEL,
+    inputTokens: u.promptTokenCount ?? 0,
+    outputTokens: u.candidatesTokenCount ?? 0,
+    cacheReadTokens: u.cachedContentTokenCount ?? 0,
+  });
+}
 
 let aiInstance: any = null;
 
@@ -41,6 +56,7 @@ export const geminiProvider: LlmProvider = {
 
     for (let turn = 0; turn < maxTurns; turn++) {
       const response = await ai.models.generateContent({ model: GEMINI_MODEL, contents, config });
+      record(opts, response);
       const calls = response.functionCalls ?? [];
 
       if (calls.length === 0) {
@@ -84,6 +100,7 @@ export const geminiProvider: LlmProvider = {
         },
       },
     });
+    record(opts, response);
     const fc = (response.functionCalls ?? [])[0];
     return (fc?.args as Record<string, unknown>) ?? {};
   },

@@ -1,6 +1,21 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, MODEL } from '../client';
-import type { ExtractOpts, LlmProvider, RunConversationOpts } from './types';
+import type { ExtractOpts, LlmProvider, RunConversationOpts, UsageContext } from './types';
+import { recordLlmUsage } from './usage';
+
+/** Record an Anthropic response's token usage against the call's circle. */
+function record(ctx: UsageContext, usage: Anthropic.Usage | undefined): void {
+  if (!usage) return;
+  void recordLlmUsage({
+    circleId: ctx.circleId,
+    source: ctx.source ?? 'unknown',
+    model: MODEL,
+    inputTokens: usage.input_tokens ?? 0,
+    outputTokens: usage.output_tokens ?? 0,
+    cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+    cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+  });
+}
 
 export const claudeProvider: LlmProvider = {
   name: 'claude',
@@ -28,6 +43,7 @@ export const claudeProvider: LlmProvider = {
         tools,
         messages,
       });
+      record(opts, response.usage);
       messages.push({ role: 'assistant', content: response.content });
 
       if (response.stop_reason !== 'tool_use') {
@@ -67,6 +83,7 @@ export const claudeProvider: LlmProvider = {
       tool_choice: { type: 'tool', name: opts.toolName },
       messages: [{ role: 'user', content: opts.text }],
     });
+    record(opts, response.usage);
     const toolUse = response.content.find(
       (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
     );

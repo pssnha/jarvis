@@ -244,6 +244,8 @@ export interface AnalyzeEmailOptions {
   text: string;
   subject?: string;
   timezone: string;
+  /** Circle this email belongs to (for usage billing). */
+  circleId?: string;
 }
 
 /** Classify an email into reminder/event/vacation proposals (nothing is created here). */
@@ -271,6 +273,8 @@ describes travel, a date, or an action, prefer capturing it over ignoring it.`;
     text,
     toolName: 'record_proposals',
     schema: ANALYZE_SCHEMA,
+    circleId: opts.circleId,
+    source: 'email',
   });
 
   const raw = (args as { proposals?: unknown }).proposals;

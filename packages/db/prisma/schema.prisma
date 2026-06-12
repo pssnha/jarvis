@@ -80,6 +80,7 @@ model Circle {
   admins        CircleAdmin[]
   emailPolls    EmailPollLog[]
   maintRuns     MaintenanceRun[]
+  llmUsage      LlmUsage[]
 }
 
 /// A WhatsApp group the circle's Jarvis number is in. Has a shared calendar.
@@ -395,6 +396,27 @@ model OAuthAuthCode {
   createdAt           DateTime    @default(now())
 
   @@index([authUserId])
+}
+
+/// One LLM API call's token usage, attributed to a circle (null = a call with no
+/// circle context). Powers per-circle billing; cost is computed at query time.
+model LlmUsage {
+  id       String  @id @default(cuid())
+  /// Null for calls made outside any circle (e.g. cover-image extraction).
+  circleId String?
+  circle   Circle? @relation(fields: [circleId], references: [id], onDelete: SetNull)
+  /// Model id, e.g. "claude-opus-4-8".
+  model    String
+  /// Where the call came from: web | whatsapp | email | alexa | …
+  source   String
+  inputTokens         Int @default(0)
+  outputTokens        Int @default(0)
+  cacheReadTokens     Int @default(0)
+  cacheCreationTokens Int @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([circleId, createdAt])
+  @@index([createdAt])
 }
 
 /// An issued access + refresh token pair, scoped to one AuthUser. Tokens are

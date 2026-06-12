@@ -13,7 +13,15 @@ export interface LlmMessage {
   content: string;
 }
 
-export interface RunConversationOpts {
+/** Usage-attribution context recorded for billing (optional). */
+export interface UsageContext {
+  /** Circle the call belongs to; null/undefined → not attributed to a circle. */
+  circleId?: string | null;
+  /** Where the call originated: web | whatsapp | email | alexa | … */
+  source?: string;
+}
+
+export interface RunConversationOpts extends UsageContext {
   system: string;
   history: LlmMessage[];
   userText: string;
@@ -22,7 +30,7 @@ export interface RunConversationOpts {
   maxTurns?: number;
 }
 
-export interface ExtractOpts {
+export interface ExtractOpts extends UsageContext {
   system: string;
   text: string;
   toolName: string;

@@ -6,9 +6,10 @@ import { Vacations } from './pages/Vacations';
 import { Chat } from './pages/Chat';
 import { Circles, Permissions } from './pages/Admin';
 import { Maintenance } from './pages/Maintenance';
+import { Billing } from './pages/Billing';
 import { Login } from './pages/Login';
 
-type View = 'calendar' | 'vacations' | 'circles' | 'permissions' | 'maintenance';
+type View = 'calendar' | 'vacations' | 'circles' | 'permissions' | 'maintenance' | 'billing';
 
 interface Route {
   view: View;
@@ -21,7 +22,7 @@ function parseRoute(): Route {
   const parts = window.location.hash.replace(/^#\/?/, '').split('/');
   const v = parts[0];
   const view: View =
-    v === 'vacations' || v === 'circles' || v === 'permissions' || v === 'maintenance'
+    v === 'vacations' || v === 'circles' || v === 'permissions' || v === 'maintenance' || v === 'billing'
       ? v
       : 'calendar';
   return { view, id: parts[1] ? decodeURIComponent(parts[1]) : null };
@@ -117,6 +118,7 @@ export function App() {
               <>
                 <div className="side-group">Admin</div>
                 {item('circles', 'Circles')}
+                {item('billing', 'Billing')}
                 {siteAdmin && item('permissions', 'Permissions')}
                 {siteAdmin && item('maintenance', 'Maintenance')}
               </>
@@ -136,13 +138,15 @@ export function App() {
             const v: View =
               view === 'circles' && (siteAdmin || circleAdmin)
                 ? 'circles'
-                : view === 'permissions' && siteAdmin
-                  ? 'permissions'
-                  : view === 'maintenance' && siteAdmin
-                    ? 'maintenance'
-                    : view === 'vacations'
-                      ? 'vacations'
-                      : 'calendar';
+                : view === 'billing' && (siteAdmin || circleAdmin)
+                  ? 'billing'
+                  : view === 'permissions' && siteAdmin
+                    ? 'permissions'
+                    : view === 'maintenance' && siteAdmin
+                      ? 'maintenance'
+                      : view === 'vacations'
+                        ? 'vacations'
+                        : 'calendar';
             const key = `${v}:${resetKey}`;
             if (v === 'vacations')
               return (
@@ -164,6 +168,7 @@ export function App() {
                   onBack={() => navigate('circles')}
                 />
               );
+            if (v === 'billing') return <Billing key={key} />;
             if (v === 'permissions') return <Permissions key={key} />;
             if (v === 'maintenance') return <Maintenance key={key} />;
             return <Calendar key={key} onActive={setActive} />;

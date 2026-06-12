@@ -55,6 +55,8 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     tools: active.map((t) => t.spec),
     runTool: dispatch,
     maxTurns: opts.maxTurns,
+    circleId: opts.ctx.circleId,
+    source: opts.ctx.source,
   });
   return { reply };
 }

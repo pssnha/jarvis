@@ -6,6 +6,7 @@ declare module 'fastify' {
     requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<unknown>;
     requireAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<unknown>;
     googleOAuth2?: any;
+    amazonOAuth2?: any;
   }
   interface FastifyRequest {
     authUser?: AuthUser;

@@ -26,7 +26,13 @@ const schema = z.object({
   /** When unset, mail is logged to the console instead of being delivered. */
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().default(587),
-  SMTP_SECURE: z.coerce.boolean().default(false),
+  // NB: z.coerce.boolean() treats any non-empty string (incl. "false") as true,
+  // so parse the flag explicitly. true => implicit TLS (port 465); false (the
+  // default) => STARTTLS (port 587).
+  SMTP_SECURE: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   /** From: header for outbound mail (defaults to ADMIN_NOTIFY_EMAIL). */

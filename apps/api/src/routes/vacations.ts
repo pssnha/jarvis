@@ -65,7 +65,8 @@ function cardDTO(
   };
 }
 
-/** Schedule data routes for trips — available to any authenticated user. */
+/** Trip routes. Circle access is enforced by the requireCircleParam preHandler
+ *  (see app.ts) for every `:cid` route here. */
 export async function registerVacations(app: FastifyInstance): Promise<void> {
   // List trips (cards). ?includePast=1 to include finished trips.
   app.get('/circles/:cid/vacations', async (req, reply) => {
@@ -202,7 +203,10 @@ export async function registerVacations(app: FastifyInstance): Promise<void> {
 
   // Delete an itinerary item.
   app.delete('/circles/:cid/vacations/:vid/items/:itemId', async (req, reply) => {
-    const { vid, itemId } = req.params as { id: string; vid: string; itemId: string };
+    const { cid, vid, itemId } = req.params as { cid: string; vid: string; itemId: string };
+    // Scope the item to the circle via its trip before deleting.
+    const v = await prisma.vacation.findFirst({ where: { id: vid, circleId: cid } });
+    if (!v) return reply.code(404).send({ error: 'vacation not found' });
     const item = await deleteVacationItem(vid, itemId);
     if (!item) return reply.code(404).send({ error: 'item not found' });
     return { ok: true };

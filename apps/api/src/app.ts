@@ -12,6 +12,7 @@ import { registerSignup, registerAdminSignups } from './routes/signup';
 import { registerOAuth, bearerAuth } from './routes/oauth';
 import { registerVoice } from './routes/voice';
 import { registerWhatsApp } from './whatsapp';
+import { requireCircleParam } from './lib/circleGuard';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -72,6 +73,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       // --- Authenticated users ---
       await api.register(async (scoped) => {
         scoped.addHook('preHandler', app.requireAuth);
+        scoped.addHook('preHandler', requireCircleParam); // fail-safe: any :cid route is circle-scoped
         await registerCircles(scoped);
         await registerVacations(scoped);
       });
@@ -79,6 +81,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       // --- Admin area (site admins + per-circle admins; enforced per route) ---
       await api.register(async (scoped) => {
         scoped.addHook('preHandler', app.requireAuth);
+        scoped.addHook('preHandler', requireCircleParam); // baseline; routes add requireSite/requireCircle
         await registerAdmin(scoped);
         await registerAdminSignups(scoped);
       });

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm)",
+      "Bash(pnpm *)",
+      "Bash(git *)",
+      "Bash(rsync *)",
+      "Bash(ssh *)",
+      "Bash(docker *)",
+      "Bash(pkill *)"
+    ]
+  }
+}

@@ -27,3 +27,8 @@ pnpm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+
+# Claude Code — local/runtime files (keep .claude/settings.json + CLAUDE.md shareable)
+.claude/settings.local.json
+.claude/worktrees/
+.claude/*.lock

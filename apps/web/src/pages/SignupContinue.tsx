@@ -129,7 +129,12 @@ function WhatsAppStep({
       <h1>Give Jarvis a WhatsApp number</h1>
       <p className="muted">
         This is the dedicated number Jarvis uses to talk to your circle. It should be a number you
-        can link as a WhatsApp account (a spare SIM or a WhatsApp Business number works well).
+        can link as a WhatsApp account (a spare SIM or a WhatsApp Business number works well). No
+        spare number?{' '}
+        <a href="https://moremins.com" target="_blank" rel="noreferrer">
+          Get a VOIP number at moremins.com
+        </a>{' '}
+        that works with WhatsApp.
       </p>
 
       <label className="onboard-field">

@@ -22,7 +22,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @jarvis/db generate
+      # Build first: cross-package typecheck resolves @jarvis/* via built dist/*.d.ts.
+      - run: pnpm -r build
       - run: pnpm -r typecheck
       - run: pnpm lint
-      - run: pnpm -r build
       - run: pnpm -r test

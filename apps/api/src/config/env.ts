@@ -13,12 +13,6 @@ const schema = z.object({
   // ---- Auth (Google OAuth + session) ----
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
-  // ---- Login with Amazon (alternate sign-in, e.g. for Alexa account linking) ----
-  AMAZON_CLIENT_ID: z.string().optional(),
-  AMAZON_CLIENT_SECRET: z.string().optional(),
-  /** Circle that authenticated users with no circle are enrolled into (for a
-   *  demo/test skill review). Unset → circle-less users are refused as before. */
-  DEMO_CIRCLE_ID: z.string().optional(),
   /** Secret for signing the session cookie. Set a strong value in production. */
   AUTH_SECRET: z.string().default('dev-insecure-secret-change-me'),
   /** Public base URL the browser uses (for the OAuth callback + post-login redirect). */

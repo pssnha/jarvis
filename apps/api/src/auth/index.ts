@@ -70,31 +70,6 @@ export async function registerCookieAndGuards(app: FastifyInstance): Promise<voi
   });
 }
 
-/** Set the session cookie and redirect — back to an OAuth /authorize flow if one
- *  triggered the login, else to the app. Shared by the Google + Amazon callbacks. */
-function finishLogin(
-  app: FastifyInstance,
-  reply: FastifyReply,
-  user: { id: string },
-  req: FastifyRequest,
-) {
-  reply.setCookie(SESSION_COOKIE, user.id, {
-    signed: true,
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: isProd,
-    path: '/',
-    maxAge: 60 * 60 * 24 * 30,
-  });
-  const ret = req.cookies?.[OAUTH_RETURN_COOKIE];
-  const unsignedRet = ret ? app.unsignCookie(ret) : null;
-  if (unsignedRet?.valid && unsignedRet.value?.startsWith('/api/oauth/authorize')) {
-    reply.clearCookie(OAUTH_RETURN_COOKIE, { path: '/' });
-    return reply.redirect(`${env.AUTH_BASE_URL}${unsignedRet.value}`);
-  }
-  return reply.redirect(`${env.AUTH_BASE_URL}/`);
-}
-
 /** Register Google OAuth + /auth/* routes (mounted under /api). */
 export async function registerAuthRoutes(api: FastifyInstance): Promise<void> {
   const configured = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
@@ -136,48 +111,28 @@ export async function registerAuthRoutes(api: FastifyInstance): Promise<void> {
         });
       }
 
-      return finishLogin(api, reply, user, req);
+      reply.setCookie(SESSION_COOKIE, user.id, {
+        signed: true,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: isProd,
+        path: '/',
+        maxAge: 60 * 60 * 24 * 30,
+      });
+
+      // If login was triggered by an OAuth account-linking flow, return there.
+      const ret = req.cookies?.[OAUTH_RETURN_COOKIE];
+      const unsignedRet = ret ? api.unsignCookie(ret) : null;
+      if (unsignedRet?.valid && unsignedRet.value?.startsWith('/api/oauth/authorize')) {
+        reply.clearCookie(OAUTH_RETURN_COOKIE, { path: '/' });
+        return reply.redirect(`${env.AUTH_BASE_URL}${unsignedRet.value}`);
+      }
+      return reply.redirect(`${env.AUTH_BASE_URL}/`);
     });
   } else {
     api.get('/auth/google/login', async (_req, reply) =>
       reply.code(503).type('text/html').send(notConfiguredHtml()),
     );
-  }
-
-  // Login with Amazon — an alternate sign-in (handy for Alexa account linking,
-  // since reviewers/users already have Amazon accounts). What a signed-in user
-  // can access is still gated by circle membership / demo-circle enrolment.
-  if (env.AMAZON_CLIENT_ID && env.AMAZON_CLIENT_SECRET) {
-    await api.register(oauth2, {
-      name: 'amazonOAuth2',
-      scope: ['profile'],
-      credentials: {
-        client: { id: env.AMAZON_CLIENT_ID, secret: env.AMAZON_CLIENT_SECRET },
-        auth: {
-          authorizeHost: 'https://www.amazon.com',
-          authorizePath: '/ap/oa',
-          tokenHost: 'https://api.amazon.com',
-          tokenPath: '/auth/o2/token',
-        },
-      },
-      startRedirectPath: '/auth/amazon/login',
-      callbackUri: `${env.AUTH_BASE_URL}/api/auth/amazon/callback`,
-    });
-
-    api.get('/auth/amazon/callback', async (req, reply) => {
-      const { token } = await api.amazonOAuth2.getAccessTokenFromAuthorizationCodeFlow(req);
-      const info = (await fetch('https://api.amazon.com/user/profile', {
-        headers: { Authorization: `Bearer ${token.access_token}` },
-      }).then((r) => r.json())) as { email?: string; name?: string; user_id?: string };
-      const email = info.email?.toLowerCase();
-      if (!email) return reply.code(400).send('Could not read email from Amazon.');
-
-      let user = await prisma.authUser.findUnique({ where: { email } });
-      if (!user) {
-        user = await prisma.authUser.create({ data: { email, name: info.name, role: 'member' } });
-      }
-      return finishLogin(api, reply, user, req);
-    });
   }
 
   api.get('/auth/me', async (req, reply) => {

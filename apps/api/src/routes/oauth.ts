@@ -49,29 +49,6 @@ function errorPage(title: string, message: string): string {
   <h1>${title}</h1><p>${message}</p>`;
 }
 
-/** Sign-in chooser shown when account linking has no Jarvis session yet. */
-function signInPage(): string {
-  const base = env.AUTH_BASE_URL;
-  const amazon = env.AMAZON_CLIENT_ID
-    ? `<a class="btn amazon" href="${base}/api/auth/amazon/login">Continue with Amazon</a>`
-    : '';
-  return `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
-  <style>
-    body{font-family:system-ui,sans-serif;background:#0b0d10;color:#e9eef3;display:flex;
-      min-height:100vh;margin:0;align-items:center;justify-content:center}
-    .card{width:320px;padding:28px;text-align:center}
-    h1{font-size:1.3rem;margin:0 0 20px}
-    .btn{display:block;padding:12px;margin:10px 0;border-radius:10px;text-decoration:none;
-      font-weight:600;color:#111;background:#fff}
-    .btn.amazon{background:#ff9900;color:#111}
-  </style>
-  <div class="card">
-    <h1>Link your circle</h1>
-    <a class="btn google" href="${base}/api/auth/google/login">Continue with Google</a>
-    ${amazon}
-  </div>`;
-}
-
 /**
  * Bearer guard for token-authenticated routes (e.g. the voice API). Resolves the
  * access token to its AuthUser and sets req.authUser, or replies 401.
@@ -115,7 +92,7 @@ export async function registerOAuth(api: FastifyInstance): Promise<void> {
       return reply.redirect(`${redirect_uri}${sepErr}error=invalid_request${stateParam}`);
     }
 
-    // Require a signed-in Jarvis user; if absent, show the sign-in chooser and
+    // Require a signed-in Jarvis user; if absent, bounce through Google login and
     // return here afterwards.
     const user = await currentUser(api, req);
     if (!user) {
@@ -127,26 +104,11 @@ export async function registerOAuth(api: FastifyInstance): Promise<void> {
         path: '/',
         maxAge: 600,
       });
-      return reply.type('text/html').send(signInPage());
+      return reply.redirect(`${env.AUTH_BASE_URL}/api/auth/google/login`);
     }
 
-    // Access gate. For a demo/test skill, enrol an authenticated-but-circle-less
-    // user (e.g. a reviewer signing in with Amazon) into the configured circle.
-    let circles = await accessibleCircleIds(user);
-    if (circles !== 'all' && circles.length === 0 && env.DEMO_CIRCLE_ID) {
-      const demo = await prisma.circle.findUnique({ where: { id: env.DEMO_CIRCLE_ID } });
-      if (demo) {
-        const existing = await prisma.member.findFirst({
-          where: { circleId: demo.id, email: user.email },
-        });
-        if (!existing) {
-          await prisma.member.create({
-            data: { circleId: demo.id, email: user.email, name: user.name ?? 'Guest' },
-          });
-        }
-        circles = await accessibleCircleIds(user);
-      }
-    }
+    // Access gate: the user must belong to (or admin) at least one circle.
+    const circles = await accessibleCircleIds(user);
     if (circles !== 'all' && circles.length === 0) {
       return reply
         .code(403)

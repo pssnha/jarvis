@@ -8,11 +8,10 @@ import { SESSION_COOKIE, OAUTH_RETURN_COOKIE } from './constants';
 
 const isProd = env.NODE_ENV === 'production';
 
-// Local-dev convenience: when not in production, auto-authenticate as the
-// seeded admin so you can click through the app without Google sign-in.
-// Can never trigger in production (containers set NODE_ENV=production); opt out
-// locally with DEV_AUTH_BYPASS=0.
-export const devBypass = !isProd && process.env.DEV_AUTH_BYPASS !== '0';
+// Local-dev convenience: auto-authenticate as the seeded admin so you can click
+// through the app without Google sign-in. Opt-in (DEV_AUTH_BYPASS=1) and never in
+// production, so a mis-set NODE_ENV alone can't turn anonymous requests into admin.
+export const devBypass = !isProd && process.env.DEV_AUTH_BYPASS === '1';
 
 /** Ensure the seeded admin account exists. */
 export async function ensureAdmin(): Promise<void> {

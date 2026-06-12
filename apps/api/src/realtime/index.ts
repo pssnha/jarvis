@@ -10,10 +10,11 @@ import {
   toLocalInput,
   type ScheduleScope,
 } from '@jarvis/agent';
-import { prisma } from '@jarvis/db';
+import { prisma, type AuthUser } from '@jarvis/db';
 import { env } from '../config/env';
 import { createRedis } from '../plugins/redis';
 import { devBypass } from '../auth';
+import { canAccessCircle } from '../lib/access';
 import { SESSION_COOKIE } from '../auth/constants';
 
 /** Attach the Socket.IO realtime gateway (web chat) to the Fastify HTTP server. */
@@ -41,11 +42,7 @@ export function attachRealtime(app: FastifyInstance): IOServer {
         });
       }
       if (!user) return next(new Error('unauthorized'));
-      const d = socket.data as { userId?: string; role?: string; email?: string; waHash?: string };
-      d.userId = user.id;
-      d.role = user.role;
-      d.email = user.email ?? undefined;
-      d.waHash = user.waHash ?? undefined;
+      (socket.data as { user?: AuthUser }).user = user;
       next();
     } catch {
       next(new Error('unauthorized'));
@@ -69,31 +66,26 @@ export function attachRealtime(app: FastifyInstance): IOServer {
             socket.emit('chat:error', { message: 'No circle selected.' });
             return;
           }
-          const d = socket.data as { userId?: string; role?: string; email?: string; waHash?: string };
+          const user = (socket.data as { user?: AuthUser }).user;
           const circle = await prisma.circle.findUnique({ where: { id: data.circleId } });
           if (!circle) {
             socket.emit('chat:error', { message: 'Circle not found.' });
             return;
           }
-          // Access check: site admins always; otherwise a member of the circle or
-          // a per-circle admin of it.
-          const isAdmin = d.role === 'admin';
-          const meMember = await prisma.member.findFirst({
-            where: {
-              circleId: circle.id,
-              OR: [...(d.email ? [{ email: d.email }] : []), ...(d.waHash ? [{ waHash: d.waHash }] : [])],
-            },
-          });
-          const circleAdmin =
-            !isAdmin && d.userId
-              ? await prisma.circleAdmin.findUnique({
-                  where: { circleId_authUserId: { circleId: circle.id, authUserId: d.userId } },
-                })
-              : null;
-          if (!isAdmin && !meMember && !circleAdmin) {
+          // Single source of truth for circle access (see lib/access).
+          if (!(await canAccessCircle(user, circle.id))) {
             socket.emit('chat:error', { message: 'You do not have access to this circle.' });
             return;
           }
+          const isAdmin = user?.role === 'admin';
+          // The acting member (for private-event ownership), if the user is one here.
+          const memberOr = [
+            ...(user?.email ? [{ email: user.email }] : []),
+            ...(user?.waHash ? [{ waHash: user.waHash }] : []),
+          ];
+          const meMember = memberOr.length
+            ? await prisma.member.findFirst({ where: { circleId: circle.id, OR: memberOr } })
+            : null;
 
           // Parse the active scope.
           const raw = data.scope;

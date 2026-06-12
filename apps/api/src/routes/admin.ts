@@ -350,6 +350,7 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
 
   app.delete('/admin/circles/:cid/cover', async (req, reply) => {
     const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
     const c = await prisma.circle.findUnique({ where: { id: cid } });
     if (!c) return reply.code(404).send({ error: 'circle not found' });
     await prisma.circle.update({ where: { id: cid }, data: { coverImageUrl: null } });

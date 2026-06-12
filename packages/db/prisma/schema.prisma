@@ -436,3 +436,57 @@ model OAuthToken {
 
   @@index([authUserId])
 }
+
+/// A self-service onboarding application for a brand-new circle. Captured before
+/// any AuthUser/Circle exists; an admin reviews and approves it, then the
+/// applicant returns (via a signed resume link) to connect WhatsApp + email,
+/// at which point the real Circle is provisioned. One row = one sign-up.
+model CircleSignup {
+  id          String @id @default(cuid())
+
+  /// Step 1 — applicant details.
+  name        String
+  email       String
+  /// What the circle should be called (defaults to "<name>'s circle").
+  circleName  String?
+  /// Encrypted WhatsApp-enabled phone (AES-256-GCM) + blind index + display mask.
+  phoneEnc    String @db.Text
+  phoneHash   String
+  phoneMask   String
+
+  /// Terms & conditions acceptance — stored for audit (version + timestamp + who).
+  termsVersion    String
+  termsAcceptedAt DateTime
+  termsIp         String?
+  termsUserAgent  String? @db.Text
+
+  /// State machine:
+  /// pending_review → approved → completed   (or → rejected at review time).
+  status      String @default("pending_review")
+
+  /// Opaque token in the admin review email's deep link.
+  reviewToken String @unique
+  /// Opaque token the applicant uses to resume after approval (emailed to them).
+  resumeToken String @unique
+
+  /// Step 4 — the dedicated WhatsApp number Jarvis will use for this circle.
+  waNumber     String?
+
+  /// Step 5 — the circle's dedicated mailbox (IMAP). Credential encrypted at rest.
+  emailAddress String?
+  emailHost    String?
+  emailPort    Int?
+  emailEncCred String? @db.Text
+
+  /// Outcome — set once provisioned.
+  circleId    String?
+  reviewedAt  DateTime?
+  reviewedBy  String?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([email])
+}

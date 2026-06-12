@@ -16,7 +16,7 @@ import {
   type ImportedEvent,
 } from '@jarvis/agent';
 import { createRedis } from '../plugins/redis';
-import { verifyImap } from '../email/verify';
+import { verifyImap, imapHostFor } from '../email/verify';
 
 const redis = createRedis();
 
@@ -28,17 +28,6 @@ const MAINTENANCE_SCHEDULE = [
   { job: 'email_poll', label: 'Email poll', cadence: 'Every 2 hours' },
   { job: 'health_check', label: 'Health check', cadence: 'Every 30 min' },
 ] as const;
-
-/** Best-effort IMAP host for an email address (so the user never types it). */
-function imapHostFor(address: string): string {
-  const domain = address.split('@')[1]?.toLowerCase().trim() ?? '';
-  if (/(^|\.)(gmail|googlemail)\.com$/.test(domain)) return 'imap.gmail.com';
-  if (/(^|\.)(outlook|hotmail|live|msn)\.[a-z.]+$/.test(domain)) return 'outlook.office365.com';
-  if (/(^|\.)yahoo\.[a-z.]+$/.test(domain)) return 'imap.mail.yahoo.com';
-  if (/(^|\.)(icloud|me|mac)\.com$/.test(domain)) return 'imap.mail.me.com';
-  if (/(^|\.)aol\.com$/.test(domain)) return 'imap.aol.com';
-  return domain ? `imap.${domain}` : 'imap.gmail.com';
-}
 
 /** Site admins manage everything; per-circle admins manage only their circle(s). */
 function isSiteAdmin(req: FastifyRequest): boolean {

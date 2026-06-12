@@ -230,6 +230,41 @@ export interface WhatsAppStatus {
   groups: WhatsAppGroup[];
 }
 
+// ---------- Onboarding / sign-up ----------
+
+export type SignupStep = 'whatsapp' | 'email' | 'finish';
+/** pending_review | approved | completed | rejected */
+export type SignupStatus = 'pending_review' | 'approved' | 'completed' | 'rejected';
+
+/** Applicant-facing view returned by the resume endpoint. */
+export interface SignupPublic {
+  status: SignupStatus;
+  name: string;
+  email: string;
+  circleName: string | null;
+  waNumber: string | null;
+  emailAddress: string | null;
+  circleId: string | null;
+  step: SignupStep;
+}
+
+/** Admin-facing view of a sign-up application. */
+export interface AdminSignup {
+  id: string;
+  name: string;
+  email: string;
+  circleName: string | null;
+  phoneMask: string;
+  status: SignupStatus;
+  termsVersion: string;
+  termsAcceptedAt: string;
+  waNumber: string | null;
+  emailAddress: string | null;
+  circleId: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
 export interface EventPayload {
   title: string;
   start: string;

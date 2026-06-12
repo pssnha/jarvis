@@ -1,6 +1,7 @@
 import type {
   AdminCircle,
   AdminCircleMember,
+  AdminSignup,
   AdminUser,
   BillingReport,
   CalendarOccurrence,
@@ -19,6 +20,7 @@ import type {
   MaintenanceJob,
   Me,
   MemberLite,
+  SignupPublic,
   VacationDetail,
   VacationItemPayload,
   VacationPayload,
@@ -54,6 +56,62 @@ export async function getMe(): Promise<Me | null> {
 
 export async function logout(): Promise<void> {
   await fetch('/api/auth/logout', { method: 'POST' });
+}
+
+// ---------- Sign-up / onboarding (public) ----------
+export interface SignupInput {
+  name: string;
+  email: string;
+  circleName?: string;
+  phone: string;
+  acceptTerms: boolean;
+}
+export async function submitSignup(input: SignupInput): Promise<void> {
+  await fetch('/api/signup', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(input),
+  }).then((r) => json(r));
+}
+export async function getSignupResume(token: string): Promise<SignupPublic> {
+  return fetch(`/api/signup/resume/${token}`).then((r) => json<SignupPublic>(r));
+}
+export async function signupSetWhatsApp(token: string, waNumber: string): Promise<SignupPublic> {
+  return fetch(`/api/signup/resume/${token}/whatsapp`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ waNumber }),
+  }).then((r) => json<SignupPublic>(r));
+}
+export async function signupSetEmail(
+  token: string,
+  cfg: { address: string; credential: string; host?: string; port?: number },
+): Promise<SignupPublic> {
+  return fetch(`/api/signup/resume/${token}/email`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(cfg),
+  }).then((r) => json<SignupPublic>(r));
+}
+export async function signupComplete(token: string): Promise<{ circleId: string; email: string }> {
+  return fetch(`/api/signup/resume/${token}/complete`, { method: 'POST' }).then((r) =>
+    json<{ circleId: string; email: string }>(r),
+  );
+}
+
+// ---------- Admin: sign-up review ----------
+export async function adminListSignups(): Promise<AdminSignup[]> {
+  return fetch('/api/admin/signups').then((r) => json<AdminSignup[]>(r));
+}
+export async function adminApproveSignup(id: string): Promise<AdminSignup> {
+  return fetch(`/api/admin/signups/${id}/approve`, { method: 'POST' }).then((r) =>
+    json<AdminSignup>(r),
+  );
+}
+export async function adminRejectSignup(id: string): Promise<AdminSignup> {
+  return fetch(`/api/admin/signups/${id}/reject`, { method: 'POST' }).then((r) =>
+    json<AdminSignup>(r),
+  );
 }
 
 // ---------- Admin: site users ----------

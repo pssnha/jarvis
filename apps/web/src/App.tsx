@@ -7,9 +7,22 @@ import { Chat } from './pages/Chat';
 import { Circles, Permissions } from './pages/Admin';
 import { Maintenance } from './pages/Maintenance';
 import { Billing } from './pages/Billing';
-import { Login } from './pages/Login';
+import { Signups } from './pages/Signups';
+import { Splash } from './pages/Splash';
+import { Signup } from './pages/Signup';
+import { SignupContinue } from './pages/SignupContinue';
 
-type View = 'calendar' | 'vacations' | 'circles' | 'permissions' | 'maintenance' | 'billing';
+type View =
+  | 'calendar'
+  | 'vacations'
+  | 'circles'
+  | 'permissions'
+  | 'maintenance'
+  | 'billing'
+  | 'signups'
+  // Public (signed-out) onboarding routes.
+  | 'signup'
+  | 'welcome';
 
 interface Route {
   view: View;
@@ -21,10 +34,17 @@ interface Route {
 function parseRoute(): Route {
   const parts = window.location.hash.replace(/^#\/?/, '').split('/');
   const v = parts[0];
-  const view: View =
-    v === 'vacations' || v === 'circles' || v === 'permissions' || v === 'maintenance' || v === 'billing'
-      ? v
-      : 'calendar';
+  const known: View[] = [
+    'vacations',
+    'circles',
+    'permissions',
+    'maintenance',
+    'billing',
+    'signups',
+    'signup',
+    'welcome',
+  ];
+  const view: View = (known as string[]).includes(v) ? (v as View) : 'calendar';
   return { view, id: parts[1] ? decodeURIComponent(parts[1]) : null };
 }
 
@@ -57,6 +77,11 @@ export function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  // Public onboarding routes render regardless of auth state (and before the
+  // loading gate) so the sign-up flow works for signed-out visitors.
+  if (route.view === 'signup') return <Signup />;
+  if (route.view === 'welcome') return <SignupContinue token={route.id ?? ''} />;
+
   if (me === undefined) {
     return (
       <div className="shell">
@@ -64,7 +89,7 @@ export function App() {
       </div>
     );
   }
-  if (me === null) return <Login />;
+  if (me === null) return <Splash />;
 
   const view = route.view;
   const siteAdmin = me.role === 'admin';
@@ -119,6 +144,7 @@ export function App() {
                 <div className="side-group">Admin</div>
                 {item('circles', 'Circles')}
                 {item('billing', 'Billing')}
+                {siteAdmin && item('signups', 'Sign-ups')}
                 {siteAdmin && item('permissions', 'Permissions')}
                 {siteAdmin && item('maintenance', 'Maintenance')}
               </>
@@ -140,13 +166,15 @@ export function App() {
                 ? 'circles'
                 : view === 'billing' && (siteAdmin || circleAdmin)
                   ? 'billing'
-                  : view === 'permissions' && siteAdmin
-                    ? 'permissions'
-                    : view === 'maintenance' && siteAdmin
-                      ? 'maintenance'
-                      : view === 'vacations'
-                        ? 'vacations'
-                        : 'calendar';
+                  : view === 'signups' && siteAdmin
+                    ? 'signups'
+                    : view === 'permissions' && siteAdmin
+                      ? 'permissions'
+                      : view === 'maintenance' && siteAdmin
+                        ? 'maintenance'
+                        : view === 'vacations'
+                          ? 'vacations'
+                          : 'calendar';
             const key = `${v}:${resetKey}`;
             if (v === 'vacations')
               return (
@@ -169,6 +197,7 @@ export function App() {
                 />
               );
             if (v === 'billing') return <Billing key={key} />;
+            if (v === 'signups') return <Signups key={key} itemId={route.id} />;
             if (v === 'permissions') return <Permissions key={key} />;
             if (v === 'maintenance') return <Maintenance key={key} />;
             return <Calendar key={key} onActive={setActive} />;

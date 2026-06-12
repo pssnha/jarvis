@@ -4,7 +4,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { prisma } from '@jarvis/db';
 import { setUserWhatsApp } from '@jarvis/agent';
 import { env } from '../config/env';
-import { SESSION_COOKIE, OAUTH_RETURN_COOKIE } from './constants';
+import { SESSION_COOKIE, OAUTH_RETURN_COOKIE, SIGNED_OUT_COOKIE } from './constants';
 
 const isProd = env.NODE_ENV === 'production';
 
@@ -42,7 +42,9 @@ export async function currentUser(app: FastifyInstance, req: FastifyRequest) {
 async function resolveUser(app: FastifyInstance, req: FastifyRequest) {
   const user = await currentUser(app, req);
   if (user) return user;
-  if (devBypass) {
+  // Dev convenience: auto-authenticate as the seeded admin — but never after an
+  // explicit sign-out, so the logout button works locally.
+  if (devBypass && !req.cookies?.[SIGNED_OUT_COOKIE]) {
     return prisma.authUser.findUnique({ where: { email: env.ADMIN_EMAIL.toLowerCase() } });
   }
   return null;
@@ -119,6 +121,8 @@ export async function registerAuthRoutes(api: FastifyInstance): Promise<void> {
         path: '/',
         maxAge: 60 * 60 * 24 * 30,
       });
+      // A real login clears any prior explicit sign-out marker.
+      reply.clearCookie(SIGNED_OUT_COOKIE, { path: '/' });
 
       // If login was triggered by an OAuth account-linking flow, return there.
       const ret = req.cookies?.[OAUTH_RETURN_COOKIE];
@@ -154,6 +158,14 @@ export async function registerAuthRoutes(api: FastifyInstance): Promise<void> {
 
   api.post('/auth/logout', async (_req, reply) => {
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
+    // Mark an explicit sign-out so the dev bypass doesn't immediately re-auth.
+    reply.setCookie(SIGNED_OUT_COOKIE, '1', {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: isProd,
+      path: '/',
+      maxAge: 60 * 60 * 24 * 30,
+    });
     return { ok: true };
   });
 }

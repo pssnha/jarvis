@@ -8,6 +8,7 @@ import { registerCalendar } from './routes/calendar';
 import { registerCircles } from './routes/circles';
 import { registerVacations } from './routes/vacations';
 import { registerAdmin } from './routes/admin';
+import { registerSignup, registerAdminSignups } from './routes/signup';
 import { registerOAuth, bearerAuth } from './routes/oauth';
 import { registerVoice } from './routes/voice';
 import { registerWhatsApp } from './whatsapp';
@@ -60,6 +61,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await registerWhatsApp(api); // /api/whatsapp/webhook (signature-verified)
       await registerAuthRoutes(api); // /api/auth/*
       await registerOAuth(api); // /api/oauth/{authorize,token} (account linking)
+      await registerSignup(api); // /api/signup + /api/signup/resume/* (self-service onboarding)
 
       // --- Voice API (Bearer access token from account linking) ---
       await api.register(async (scoped) => {
@@ -78,6 +80,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(async (scoped) => {
         scoped.addHook('preHandler', app.requireAuth);
         await registerAdmin(scoped);
+        await registerAdminSignups(scoped);
       });
     },
     { prefix: '/api' },

@@ -1,5 +1,16 @@
 import { ImapFlow } from 'imapflow';
 
+/** Best-effort IMAP host for an email address (so the user never types it). */
+export function imapHostFor(address: string): string {
+  const domain = address.split('@')[1]?.toLowerCase().trim() ?? '';
+  if (/(^|\.)(gmail|googlemail)\.com$/.test(domain)) return 'imap.gmail.com';
+  if (/(^|\.)(outlook|hotmail|live|msn)\.[a-z.]+$/.test(domain)) return 'outlook.office365.com';
+  if (/(^|\.)yahoo\.[a-z.]+$/.test(domain)) return 'imap.mail.yahoo.com';
+  if (/(^|\.)(icloud|me|mac)\.com$/.test(domain)) return 'imap.mail.me.com';
+  if (/(^|\.)aol\.com$/.test(domain)) return 'imap.aol.com';
+  return domain ? `imap.${domain}` : 'imap.gmail.com';
+}
+
 export interface ImapVerifyResult {
   ok: boolean;
   error?: string;

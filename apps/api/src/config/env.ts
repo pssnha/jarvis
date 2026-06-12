@@ -17,8 +17,23 @@ const schema = z.object({
   AUTH_SECRET: z.string().default('dev-insecure-secret-change-me'),
   /** Public base URL the browser uses (for the OAuth callback + post-login redirect). */
   AUTH_BASE_URL: z.string().default('http://localhost:5173'),
-  /** Seeded admin account. */
+  /** Seeded admin account (the identity that signs in via Google). */
   ADMIN_EMAIL: z.string().default('passanha@gmail.com'),
+  /** Where site notifications (e.g. new sign-ups) are sent + public contact address. */
+  ADMIN_NOTIFY_EMAIL: z.string().default('jarvis@passanha.com'),
+
+  // ---- Outbound email (SMTP) — used for sign-up notifications + approvals. ----
+  /** When unset, mail is logged to the console instead of being delivered. */
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_SECURE: z.coerce.boolean().default(false),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  /** From: header for outbound mail (defaults to ADMIN_NOTIFY_EMAIL). */
+  MAIL_FROM: z.string().optional(),
+
+  /** Current terms & conditions version applicants must accept. */
+  TERMS_VERSION: z.string().default('2026-06-12'),
 
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default('claude-opus-4-8'),

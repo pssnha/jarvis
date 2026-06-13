@@ -288,6 +288,16 @@ export async function registerAdminSignups(app: FastifyInstance): Promise<void> 
     if (!s) return reply.code(404).send({ error: 'sign-up not found' });
     if (s.status === 'completed') return reply.code(409).send({ error: 'this sign-up is already completed' });
 
+    // On approval, give the applicant a site login (member access) so they
+    // appear in the Users list and can sign in immediately. The per-circle
+    // admin grant is added later, once their circle is provisioned (complete).
+    // upsert: never downgrade an existing account (e.g. an admin re-applying).
+    await prisma.authUser.upsert({
+      where: { email: s.email },
+      update: {},
+      create: { email: s.email, name: s.name, role: 'member' },
+    });
+
     const updated = await prisma.circleSignup.update({
       where: { id },
       data: { status: 'approved', reviewedAt: new Date(), reviewedBy: req.authUser?.email ?? null },

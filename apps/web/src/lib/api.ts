@@ -3,12 +3,14 @@ import type {
   AdminCircleMember,
   AdminSignup,
   AdminUser,
+  BillingLimits,
   BillingReport,
   CalendarOccurrence,
   Circle,
   CircleAdminUser,
   CircleEmailConfig,
   CircleMemberRole,
+  CircleUsage,
   EmailActivity,
   EmailConfirmResult,
   MaintenanceCell,
@@ -281,6 +283,23 @@ export async function adminBilling(month: string): Promise<BillingReport> {
   const u = new URL('/api/admin/billing', window.location.origin);
   if (month) u.searchParams.set('month', month);
   return fetch(u).then((r) => json<BillingReport>(r));
+}
+export async function adminBillingLimits(): Promise<BillingLimits> {
+  return fetch('/api/admin/billing/limits').then((r) => json<BillingLimits>(r));
+}
+export async function adminSetCircleLimits(
+  cid: string,
+  dailyUsdLimit: number,
+  monthlyUsdLimit: number,
+): Promise<{ dailyUsdLimit: number; monthlyUsdLimit: number }> {
+  return fetch(`/api/admin/circles/${cid}/limits`, {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ dailyUsdLimit, monthlyUsdLimit }),
+  }).then((r) => json(r));
+}
+export async function getCircleUsage(cid: string): Promise<CircleUsage> {
+  return fetch(`/api/circles/${cid}/usage`).then((r) => json<CircleUsage>(r));
 }
 export async function adminMaintenanceCalendar(
   fromISO: string,

@@ -20,6 +20,36 @@ export interface BillingReport {
   totalCostUsd: number;
 }
 
+export interface BillingLimitRow {
+  circleId: string;
+  circleName: string;
+  dailyUsdLimit: number;
+  monthlyUsdLimit: number;
+  todayUsd: number;
+  monthUsd: number;
+}
+export interface UsageLimitRanges {
+  dailyMin: number;
+  dailyMax: number;
+  dailyDefault: number;
+  monthlyMin: number;
+  monthlyMax: number;
+  monthlyDefault: number;
+}
+export interface BillingLimits {
+  canEdit: boolean;
+  ranges: UsageLimitRanges;
+  circles: BillingLimitRow[];
+}
+
+export interface CircleUsage {
+  dailyUsd: number;
+  monthlyUsd: number;
+  dailyLimit: number;
+  monthlyLimit: number;
+  blocked: boolean;
+}
+
 export type RecurrenceFreq = 'daily' | 'weekly' | 'monthly' | 'yearly';
 export type Weekday = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU';
 export type EventKind = 'reminder' | 'event';

@@ -2,6 +2,20 @@ export * from './ical';
 
 export const APP_NAME = 'jarvis';
 
+/**
+ * Configurable per-circle LLM spend caps (USD). Min/max bound the values the
+ * Billing page accepts; defaults seed new circles. Will eventually be driven by
+ * paid plan tiers.
+ */
+export const USAGE_LIMITS = {
+  dailyMin: 0.25,
+  dailyMax: 2,
+  dailyDefault: 1,
+  monthlyMin: 10,
+  monthlyMax: 50,
+  monthlyDefault: 25,
+} as const;
+
 /** The interfaces a schedule item can arrive through. */
 export type Channel = 'web' | 'whatsapp' | 'email' | 'alexa';
 

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '@jarvis/db';
 import {
   cancelEvent,
+  circleUsageStatus,
   createEvent,
   dateKeyInZone,
   expandCalendar,
@@ -80,6 +81,15 @@ export async function registerCircles(app: FastifyInstance): Promise<void> {
       select: { id: true, name: true },
       orderBy: { createdAt: 'asc' },
     });
+  });
+
+  // Current LLM spend vs caps for the circle (powers the chat usage footer).
+  app.get('/circles/:cid/usage', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await canAccess(req, cid))) return reply.code(403).send({ error: 'forbidden' });
+    const circle = await prisma.circle.findUnique({ where: { id: cid }, select: { timezone: true } });
+    if (!circle) return reply.code(404).send({ error: 'circle not found' });
+    return circleUsageStatus(cid, circle.timezone);
   });
 
   // Calendar occurrences within [from, to] for a scope (group / individual / circle).

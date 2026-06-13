@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import ical from 'node-ical';
 import { prisma } from '@jarvis/db';
 import {
+  circleUsageStatus,
   confirmProposalById,
   createRawEvent,
   decryptValue,
@@ -15,6 +16,7 @@ import {
   setUserWhatsApp,
   type ImportedEvent,
 } from '@jarvis/agent';
+import { USAGE_LIMITS } from '@jarvis/shared';
 import { createRedis } from '../plugins/redis';
 import { verifyImap, imapHostFor } from '../email/verify';
 
@@ -676,6 +678,59 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     for (const c of circles) c.models.sort((a, b) => b.costUsd - a.costUsd);
     const totalCostUsd = circles.reduce((s, c) => s + c.costUsd, 0);
     return reply.send({ month: m, circles, totalCostUsd });
+  });
+
+  // ----- Per-circle spend limits (view: any admin; edit: site admins) -----
+  // Lists every accessible circle (incl. zero-usage) with its caps + live spend.
+  app.get('/admin/billing/limits', async (req, reply) => {
+    const scope = await adminCircleScope(req); // null = all circles; [] = none
+    if (Array.isArray(scope) && scope.length === 0) {
+      return reply.send({ canEdit: isSiteAdmin(req), ranges: USAGE_LIMITS, circles: [] });
+    }
+    const circles = await prisma.circle.findMany({
+      where: scope === null ? {} : { id: { in: scope } },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, timezone: true, dailyUsdLimit: true, monthlyUsdLimit: true },
+    });
+    const rows = await Promise.all(
+      circles.map(async (c) => {
+        const u = await circleUsageStatus(c.id, c.timezone);
+        return {
+          circleId: c.id,
+          circleName: c.name,
+          dailyUsdLimit: c.dailyUsdLimit,
+          monthlyUsdLimit: c.monthlyUsdLimit,
+          todayUsd: u.dailyUsd,
+          monthUsd: u.monthlyUsd,
+        };
+      }),
+    );
+    return reply.send({ canEdit: isSiteAdmin(req), ranges: USAGE_LIMITS, circles: rows });
+  });
+
+  // Update a circle's caps. Site admins only — eventually driven by paid tiers.
+  app.put('/admin/circles/:cid/limits', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
+    const { cid } = req.params as { cid: string };
+    const body = (req.body ?? {}) as { dailyUsdLimit?: number; monthlyUsdLimit?: number };
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
+    const clamp = (n: number | undefined, lo: number, hi: number, fallback: number): number =>
+      typeof n === 'number' && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
+    const dailyUsdLimit = clamp(
+      body.dailyUsdLimit,
+      USAGE_LIMITS.dailyMin,
+      USAGE_LIMITS.dailyMax,
+      c.dailyUsdLimit,
+    );
+    const monthlyUsdLimit = clamp(
+      body.monthlyUsdLimit,
+      USAGE_LIMITS.monthlyMin,
+      USAGE_LIMITS.monthlyMax,
+      c.monthlyUsdLimit,
+    );
+    await prisma.circle.update({ where: { id: cid }, data: { dailyUsdLimit, monthlyUsdLimit } });
+    return { dailyUsdLimit, monthlyUsdLimit };
   });
 
   // ----- Maintenance job-run calendar (site admins; cross-circle) -----

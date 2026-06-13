@@ -4,6 +4,7 @@ import { prisma, type Circle } from '@jarvis/db';
 import {
   adminWhatsAppNumber,
   analyzeEmail,
+  circleUsageStatus,
   createProposals,
   decryptValue,
   listPendingProposals,
@@ -63,6 +64,13 @@ async function runPollForCircle(circle: Circle): Promise<void> {
     let scanned = 0;
     let found = 0;
     let error: string | null = null;
+    // Email extraction is an LLM cost — skip while the circle is over its cap.
+    // Mail isn't lost: emailLastUid only advances after processing, so unread
+    // messages are picked up once the window resets.
+    if ((await circleUsageStatus(circle.id, circle.timezone)).blocked) {
+      await recordPoll(circle.id, 0, 0, 'skipped: usage limit reached');
+      return;
+    }
     try {
       const r = await pollCircleMailbox(circle);
       scanned = r.scanned;

@@ -2,7 +2,6 @@ import '../src/loadEnv';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@jarvis/db';
-import { buildApp } from '../src/app';
 import { SESSION_COOKIE } from '../src/auth/constants';
 
 /**
@@ -38,6 +37,9 @@ beforeAll(async () => {
   await prisma.member.create({ data: { id: id('mA'), circleId: id('A'), name: 'A', email } });
   const userA = await prisma.authUser.create({ data: { email, role: 'member' } });
 
+  // Deferred so bare CI (no DB, no DATABASE_URL) skips before loading the app,
+  // which parses required env (DATABASE_URL) at import and would otherwise throw.
+  const { buildApp } = await import('../src/app');
   app = await buildApp();
   await app.ready();
   cookieA = app.signCookie(userA.id);

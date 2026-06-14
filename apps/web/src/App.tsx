@@ -200,7 +200,7 @@ export function App() {
             if (v === 'signups') return <Signups key={key} itemId={route.id} />;
             if (v === 'permissions') return <Permissions key={key} />;
             if (v === 'maintenance') return <Maintenance key={key} />;
-            return <Calendar key={key} onActive={setActive} />;
+            return <Calendar key={key} onActive={setActive} me={me} />;
           })()}
         </main>
 

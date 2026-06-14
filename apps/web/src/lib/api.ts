@@ -163,8 +163,13 @@ export async function adminCreateCircle(name: string, timezone: string): Promise
     body: JSON.stringify({ name, timezone }),
   }).then((r) => json(r));
 }
-export async function adminDeleteCircle(cid: string): Promise<void> {
-  await fetch(`/api/admin/circles/${cid}`, { method: 'DELETE' }).then((r) => json(r));
+export async function adminDeleteCircle(cid: string): Promise<{ purgeAfter: string }> {
+  return fetch(`/api/admin/circles/${cid}`, { method: 'DELETE' }).then((r) =>
+    json<{ purgeAfter: string }>(r),
+  );
+}
+export async function adminReinstateCircle(cid: string): Promise<void> {
+  await fetch(`/api/admin/circles/${cid}/reinstate`, { method: 'POST' }).then((r) => json(r));
 }
 export async function adminListCircleAdmins(cid: string): Promise<CircleAdminUser[]> {
   return fetch(`/api/admin/circles/${cid}/admins`).then((r) => json<CircleAdminUser[]>(r));

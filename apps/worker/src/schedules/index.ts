@@ -3,6 +3,7 @@ import { pollCircleMailboxes } from '../email/circlePoll';
 import { sendDueReminders } from '../reminders';
 import { sendDailyBriefs } from '../dailyBrief';
 import { runHealthCheck } from '../maintenance';
+import { purgeExpiredCircles } from '../purgeExpiredCircles';
 
 /** Register cron-scheduled jobs (all maintenance jobs are mutable per circle). */
 export function startSchedules(): void {
@@ -29,7 +30,13 @@ export function startSchedules(): void {
     void runHealthCheck();
   });
 
+  // Purge circles whose soft-delete grace period has expired (daily).
+  const purgeCron = process.env.PURGE_CIRCLES_CRON ?? '0 3 * * *';
+  cron.schedule(purgeCron, () => {
+    void purgeExpiredCircles();
+  });
+
   console.log(
-    `[scheduler] email poll "${emailCron}", reminders "${reminderCron}", daily brief hourly, health "${healthCron}"`,
+    `[scheduler] email poll "${emailCron}", reminders "${reminderCron}", daily brief hourly, health "${healthCron}", purge "${purgeCron}"`,
   );
 }

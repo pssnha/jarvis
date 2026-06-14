@@ -41,6 +41,9 @@ const schema = z.object({
   /** Current terms & conditions version applicants must accept. */
   TERMS_VERSION: z.string().default('2026-06-12'),
 
+  /** Grace period (days) a soft-deleted circle is retained before the worker purges it. */
+  CIRCLE_PURGE_GRACE_DAYS: z.coerce.number().default(30),
+
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default('claude-opus-4-8'),
 

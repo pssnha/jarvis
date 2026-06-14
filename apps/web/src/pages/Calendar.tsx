@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getCalendar, listCircles } from '../lib/api';
-import type { CalendarOccurrence, Circle } from '../lib/types';
+import { adminReinstateCircle, getCalendar, listCircles } from '../lib/api';
+import type { CalendarOccurrence, Circle, Me } from '../lib/types';
 import { EventModal } from '../components/EventModal';
 import { CircleTitle } from '../components/CircleTitle';
 import {
@@ -43,6 +43,11 @@ const CAT_COLOR: Record<string, string> = {
 };
 function dotColor(o: CalendarOccurrence): string {
   return o.color || CAT_COLOR[o.category ?? 'other'] || '#7c3aed';
+}
+/** Readable date for the "scheduled for deletion" banner. */
+function fmtBannerDate(iso: string | null): string {
+  if (!iso) return 'the scheduled date';
+  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 type Block = LaidOutBlock<CalendarOccurrence>;
@@ -264,8 +269,10 @@ function scopeParam(s: Scope): string {
 
 export function Calendar({
   onActive,
+  me,
 }: {
   onActive?: (a: { circleId: string; scope?: string }) => void;
+  me?: Me | null;
 }) {
   const today = new Date();
   const todayAnchor: Anchor = { y: today.getFullYear(), m: today.getMonth(), d: today.getDate() };
@@ -315,7 +322,7 @@ export function Calendar({
     [range],
   );
 
-  useEffect(() => {
+  const loadCircles = useCallback(() => {
     listCircles()
       .then((cs) => {
         setCircles(cs);
@@ -323,6 +330,20 @@ export function Calendar({
       })
       .catch((e) => setError(String(e.message ?? e)));
   }, []);
+  useEffect(loadCircles, [loadCircles]);
+
+  // Whether the signed-in user may restore the active (soft-deleted) circle.
+  const canAdminCircle =
+    !!me && !!circle && (me.role === 'admin' || me.adminCircleIds.includes(circle.id));
+  async function restoreCircle() {
+    if (!circle) return;
+    try {
+      await adminReinstateCircle(circle.id);
+      loadCircles();
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    }
+  }
 
   // When the active circle changes, default the scope to its first group.
   useEffect(() => {
@@ -407,6 +428,18 @@ export function Calendar({
 
   return (
     <div className="calendar">
+      {circle?.deletedAt && (
+        <div className="delete-banner">
+          <span>
+            This circle is scheduled for deletion on <strong>{fmtBannerDate(circle.purgeAfter)}</strong>.
+          </span>
+          {canAdminCircle && (
+            <button className="btn-quiet" onClick={restoreCircle}>
+              Restore
+            </button>
+          )}
+        </div>
+      )}
       <div className="cal-titlebar">
         <CircleTitle
           label="Calendar"

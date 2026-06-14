@@ -13,6 +13,7 @@ import {
   adminDeleteCircleEmail,
   adminDeleteCircleMember,
   adminDeleteCircleCover,
+  adminReinstateCircle,
   adminDeleteUser,
   adminImportSchedule,
   adminListCircles,
@@ -235,6 +236,8 @@ export function Circles({
   const [name, setName] = useState('');
   const [tz, setTz] = useState('America/Los_Angeles');
   const [error, setError] = useState<string | null>(null);
+  // Set to a circle when its delete (type-to-confirm) modal is open.
+  const [deleteTarget, setDeleteTarget] = useState<AdminCircle | null>(null);
   const onError = (e: unknown) => setError(String((e as Error).message ?? e));
 
   const load = useCallback(() => {
@@ -256,6 +259,15 @@ export function Circles({
 
   const current = itemId ? (circles.find((c) => c.id === itemId) ?? null) : null;
 
+  async function reinstate(c: AdminCircle) {
+    try {
+      await adminReinstateCircle(c.id);
+      load();
+    } catch (e) {
+      onError(e);
+    }
+  }
+
   if (current) {
     return (
       <div className="admin">
@@ -263,6 +275,17 @@ export function Circles({
         <button className="link" onClick={onBack}>
           ← All circles
         </button>
+        {current.deletedAt && (
+          <div className="delete-banner">
+            <span>
+              Scheduled for deletion — data is removed on{' '}
+              <strong>{fmtPurgeDate(current.purgeAfter)}</strong>.
+            </span>
+            <button className="btn-quiet" onClick={() => reinstate(current)}>
+              Restore
+            </button>
+          </div>
+        )}
         <section className="admin-card">
           <h2>{current.name}</h2>
           <CircleDetail
@@ -270,24 +293,26 @@ export function Circles({
             siteAdmin={siteAdmin}
             onError={onError}
             onChanged={load}
-            onRemove={async () => {
-              if (
-                !confirm(
-                  `Delete circle "${current.name}"? This removes its ${current.groups.length} group(s), ` +
-                    `${current.members.length} member(s), ${current.counts.events} event(s) and ${current.counts.vacations} trip(s).`,
-                )
-              )
-                return;
+            onRemove={() => setDeleteTarget(current)}
+            onReinstate={() => reinstate(current)}
+          />
+        </section>
+        {deleteTarget && (
+          <DeleteCircleModal
+            circle={deleteTarget}
+            onCancel={() => setDeleteTarget(null)}
+            onConfirm={async () => {
               try {
-                await adminDeleteCircle(current.id);
-                onBack();
-                load();
+                await adminDeleteCircle(deleteTarget.id);
+                setDeleteTarget(null);
+                load(); // stay on the detail; it now shows the restore option
               } catch (e) {
                 onError(e);
+                setDeleteTarget(null);
               }
             }}
           />
-        </section>
+        )}
       </div>
     );
   }
@@ -452,18 +477,73 @@ function CircleWhatsApp({ circle, onError }: { circle: AdminCircle; onError: (e:
   );
 }
 
+/**
+ * Type-to-confirm delete dialog. The destructive button stays disabled until
+ * the admin types the circle's exact name — a deliberate double-confirmation.
+ */
+function DeleteCircleModal({
+  circle,
+  onCancel,
+  onConfirm,
+}: {
+  circle: AdminCircle;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const matches = typed.trim() === circle.name;
+
+  async function confirm() {
+    if (!matches || busy) return;
+    setBusy(true);
+    await onConfirm();
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Delete “{circle.name}”?</h2>
+        <p className="muted">
+          This schedules the circle for deletion. Its {circle.groups.length} group(s),{' '}
+          {circle.members.length} member(s), {circle.counts.events} event(s) and{' '}
+          {circle.counts.vacations} trip(s) are kept for 30 days so you can restore it, then
+          permanently removed.
+        </p>
+        <label>
+          Type the circle name to confirm
+          <input
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder={circle.name}
+            autoFocus
+          />
+        </label>
+        <div className="modal-actions">
+          <button onClick={onCancel}>Cancel</button>
+          <button className="btn-danger" disabled={!matches || busy} onClick={confirm}>
+            {busy ? 'Scheduling…' : 'Schedule deletion'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CircleDetail({
   circle,
   siteAdmin,
   onError,
   onChanged,
   onRemove,
+  onReinstate,
 }: {
   circle: AdminCircle;
   siteAdmin: boolean;
   onError: (e: unknown) => void;
   onChanged: () => void;
   onRemove: () => void;
+  onReinstate: () => void;
 }) {
   const [tab, setTab] = useState<'connections' | 'members' | 'settings'>('connections');
   const tabs: { id: typeof tab; label: string }[] = [
@@ -501,6 +581,7 @@ function CircleDetail({
           onError={onError}
           onChanged={onChanged}
           onRemove={onRemove}
+          onReinstate={onReinstate}
         />
       )}
     </div>
@@ -675,32 +756,59 @@ function MembersPane({
 /** Pane 3 — circle settings: maintenance jobs, background image, delete. */
 function SettingsPane({
   circle,
-  siteAdmin,
   onError,
   onChanged,
   onRemove,
+  onReinstate,
 }: {
   circle: AdminCircle;
   siteAdmin: boolean;
   onError: (e: unknown) => void;
   onChanged: () => void;
   onRemove: () => void;
+  onReinstate: () => void;
 }) {
+  const scheduled = Boolean(circle.deletedAt);
   return (
     <div className="pane">
       <JobsSection circle={circle} onError={onError} onChanged={onChanged} />
       <CoverImageSection circle={circle} onError={onError} onChanged={onChanged} />
-      {siteAdmin && (
-        <div className="subsec danger-zone">
-          <h4>Danger zone</h4>
-          <p className="muted">Permanently delete this circle and everything in it.</p>
-          <button className="btn-danger" onClick={onRemove}>
-            Delete circle
-          </button>
-        </div>
-      )}
+      <div className="subsec danger-zone">
+        <h4>Danger zone</h4>
+        {scheduled ? (
+          <>
+            <p className="muted">
+              Scheduled for deletion — all data is permanently removed on{' '}
+              <strong>{fmtPurgeDate(circle.purgeAfter)}</strong>. Restore it before then to cancel.
+            </p>
+            <button className="btn-quiet" onClick={onReinstate}>
+              Restore circle
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="muted">
+              Schedule this circle for deletion. Its data is kept for 30 days so it can be restored,
+              then permanently removed.
+            </p>
+            <button className="btn-danger" onClick={onRemove}>
+              Delete circle
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
+}
+
+/** Format a purge timestamp as a readable date, e.g. "Jul 14, 2026". */
+function fmtPurgeDate(iso: string | null): string {
+  if (!iso) return 'the scheduled date';
+  return new Date(iso).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 function CoverImageSection({

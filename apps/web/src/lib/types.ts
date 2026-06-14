@@ -57,6 +57,10 @@ export interface Circle {
   id: string;
   name: string;
   timezone: string;
+  /** Set when the circle is scheduled for deletion (null = active). */
+  deletedAt: string | null;
+  /** When the circle will be permanently purged (null = active). */
+  purgeAfter: string | null;
   groups: CircleGroup[];
   members: MemberLite[];
 }
@@ -211,6 +215,8 @@ export interface AdminCircle {
   timezone: string;
   waSelf: string | null;
   coverImageUrl: string | null;
+  deletedAt: string | null;
+  purgeAfter: string | null;
   email: CircleEmailConfig;
   mutedJobs: MaintenanceJob[];
   counts: { events: number; vacations: number };

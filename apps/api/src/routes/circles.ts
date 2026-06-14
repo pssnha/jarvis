@@ -63,6 +63,8 @@ export async function registerCircles(app: FastifyInstance): Promise<void> {
         id: true,
         name: true,
         timezone: true,
+        deletedAt: true,
+        purgeAfter: true,
         groups: {
           select: { id: true, name: true, icalToken: true, whatsappGroupId: true },
           orderBy: { createdAt: 'asc' },

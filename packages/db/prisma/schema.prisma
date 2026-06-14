@@ -67,6 +67,11 @@ model Circle {
   emailLastUid       Int?
   emailLastPolledAt  DateTime?
 
+  /// Soft-delete: when set, the circle is scheduled for deletion (data retained).
+  deletedAt  DateTime?
+  /// When the worker will hard-delete the circle and all its data.
+  purgeAfter DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -81,6 +86,8 @@ model Circle {
   emailPolls    EmailPollLog[]
   maintRuns     MaintenanceRun[]
   llmUsage      LlmUsage[]
+
+  @@index([purgeAfter])
 }
 
 /// A WhatsApp group the circle's Jarvis number is in. Has a shared calendar.

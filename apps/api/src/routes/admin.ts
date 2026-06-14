@@ -17,16 +17,18 @@ import {
 } from '@jarvis/agent';
 import { createRedis } from '../plugins/redis';
 import { verifyImap, imapHostFor } from '../email/verify';
+import { env } from '../config/env';
 
 const redis = createRedis();
 
-const MAINTENANCE_JOBS = ['email_poll', 'daily_brief', 'health_check'] as const;
+const MAINTENANCE_JOBS = ['email_poll', 'daily_brief', 'health_check', 'purge_circle'] as const;
 
 /** The recurring maintenance jobs and how often they run (for the calendar). */
 const MAINTENANCE_SCHEDULE = [
   { job: 'daily_brief', label: 'Daily brief', cadence: 'Daily · 7:00' },
   { job: 'email_poll', label: 'Email poll', cadence: 'Every 2 hours' },
   { job: 'health_check', label: 'Health check', cadence: 'Every 30 min' },
+  { job: 'purge_circle', label: 'Purge deleted circles', cadence: 'Daily · 3:00 UTC' },
 ] as const;
 
 /** Site admins manage everything; per-circle admins manage only their circle(s). */
@@ -223,6 +225,8 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
       timezone: c.timezone,
       waSelf: c.waSelf,
       coverImageUrl: c.coverImageUrl,
+      deletedAt: c.deletedAt,
+      purgeAfter: c.purgeAfter,
       email: {
         address: c.emailAddress,
         host: c.emailHost,
@@ -268,13 +272,28 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     return circle;
   });
 
+  // Schedule a circle for deletion: keep all data, but mark it so the worker
+  // hard-deletes it after a grace period. Reversible via /reinstate until then.
   app.delete('/admin/circles/:cid', async (req, reply) => {
-    if (!requireSite(req, reply)) return; // only site admins delete circles
     const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return; // site admins or this circle's admins
     const c = await prisma.circle.findUnique({ where: { id: cid } });
     if (!c) return reply.code(404).send({ error: 'circle not found' });
-    await prisma.circle.delete({ where: { id: cid } });
-    await redis.publish('wa:control', JSON.stringify({ action: 'stop', circleId: cid }));
+    // Idempotent: if already scheduled, keep the original purge date.
+    if (c.deletedAt && c.purgeAfter) return { ok: true, purgeAfter: c.purgeAfter };
+    const now = new Date();
+    const purgeAfter = new Date(now.getTime() + env.CIRCLE_PURGE_GRACE_DAYS * 86_400_000);
+    await prisma.circle.update({ where: { id: cid }, data: { deletedAt: now, purgeAfter } });
+    return { ok: true, purgeAfter };
+  });
+
+  // Cancel a scheduled deletion (restore a circle within its grace period).
+  app.post('/admin/circles/:cid/reinstate', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
+    await prisma.circle.update({ where: { id: cid }, data: { deletedAt: null, purgeAfter: null } });
     return { ok: true };
   });
 

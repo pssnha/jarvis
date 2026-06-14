@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from '../lib/socket';
+import { getCircleUsage } from '../lib/api';
+import type { CircleUsage } from '../lib/types';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
+}
+
+function fmtCost(n: number): string {
+  return '$' + (n >= 1 ? n.toFixed(2) : n.toFixed(4));
 }
 
 type ChatSurface = 'calendar' | 'vacations' | 'general';
@@ -24,7 +30,23 @@ export function Chat({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(socket.connected);
+  const [usage, setUsage] = useState<CircleUsage | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+
+  // Current spend vs caps; refreshed on circle switch and after each reply
+  // (the assistant fires jarvis:refresh, by which point spend has risen).
+  const refreshUsage = useCallback(() => {
+    if (!circleId) return setUsage(null);
+    getCircleUsage(circleId)
+      .then(setUsage)
+      .catch(() => {});
+  }, [circleId]);
+
+  useEffect(() => {
+    refreshUsage();
+    window.addEventListener('jarvis:refresh', refreshUsage);
+    return () => window.removeEventListener('jarvis:refresh', refreshUsage);
+  }, [refreshUsage]);
 
   useEffect(() => {
     const onConnect = () => setConnected(true);
@@ -105,6 +127,12 @@ export function Chat({
           Send
         </button>
       </div>
+      {circleId && usage && (
+        <div className={`chat-usage${usage.blocked ? ' over' : ''}`}>
+          Today {fmtCost(usage.dailyUsd)} / {fmtCost(usage.dailyLimit)} · Month{' '}
+          {fmtCost(usage.monthlyUsd)} / {fmtCost(usage.monthlyLimit)}
+        </div>
+      )}
     </div>
   );
 }

@@ -3,12 +3,14 @@ import type {
   AdminCircleMember,
   AdminSignup,
   AdminUser,
+  BillingLimits,
   BillingReport,
   CalendarOccurrence,
   Circle,
   CircleAdminUser,
   CircleEmailConfig,
   CircleMemberRole,
+  CircleUsage,
   EmailActivity,
   EmailConfirmResult,
   MaintenanceCell,
@@ -21,6 +23,8 @@ import type {
   Me,
   MemberLite,
   SignupPublic,
+  TelegramLink,
+  TelegramStatus,
   VacationDetail,
   VacationItemPayload,
   VacationPayload,
@@ -150,6 +154,21 @@ export async function adminStartCircleWhatsApp(cid: string): Promise<void> {
 }
 export async function adminLogoutCircleWhatsApp(cid: string): Promise<void> {
   await fetch(`/api/admin/circles/${cid}/whatsapp/logout`, { method: 'POST' }).then((r) => json(r));
+}
+
+export async function adminCircleTelegram(cid: string): Promise<TelegramStatus> {
+  return fetch(`/api/admin/circles/${cid}/telegram`).then((r) => json<TelegramStatus>(r));
+}
+export async function adminLinkCircleTelegram(cid: string): Promise<TelegramLink> {
+  return fetch(`/api/admin/circles/${cid}/telegram/link`, { method: 'POST' }).then((r) =>
+    json<TelegramLink>(r),
+  );
+}
+export async function adminUnlinkCircleTelegram(cid: string): Promise<void> {
+  await fetch(`/api/admin/circles/${cid}/telegram`, { method: 'DELETE' }).then((r) => json(r));
+}
+export async function adminLinkMyTelegram(): Promise<TelegramLink> {
+  return fetch('/api/admin/telegram/link-me', { method: 'POST' }).then((r) => json<TelegramLink>(r));
 }
 
 // ---------- Admin: circles ----------
@@ -286,6 +305,23 @@ export async function adminBilling(month: string): Promise<BillingReport> {
   const u = new URL('/api/admin/billing', window.location.origin);
   if (month) u.searchParams.set('month', month);
   return fetch(u).then((r) => json<BillingReport>(r));
+}
+export async function adminBillingLimits(): Promise<BillingLimits> {
+  return fetch('/api/admin/billing/limits').then((r) => json<BillingLimits>(r));
+}
+export async function adminSetCircleLimits(
+  cid: string,
+  dailyUsdLimit: number,
+  monthlyUsdLimit: number,
+): Promise<{ dailyUsdLimit: number; monthlyUsdLimit: number }> {
+  return fetch(`/api/admin/circles/${cid}/limits`, {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ dailyUsdLimit, monthlyUsdLimit }),
+  }).then((r) => json(r));
+}
+export async function getCircleUsage(cid: string): Promise<CircleUsage> {
+  return fetch(`/api/circles/${cid}/usage`).then((r) => json<CircleUsage>(r));
 }
 export async function adminMaintenanceCalendar(
   fromISO: string,

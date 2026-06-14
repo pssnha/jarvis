@@ -64,6 +64,21 @@ In the Meta app dashboard, set the callback URL to `https://YOUR_DOMAIN/api/what
 your `WHATSAPP_VERIFY_TOKEN`, and subscribe to the **messages** field. Meta will call the `GET`
 endpoint once to verify, then deliver inbound messages to the `POST` endpoint.
 
+## 6. Telegram (alternative to WhatsApp groups)
+
+A single shared bot serves every circle — no phone number, no per-circle session.
+
+1. Create a bot with **@BotFather** → copy the token.
+2. **Disable privacy mode**: BotFather → `/setprivacy` → select the bot → **Disable**. Otherwise the
+   bot only receives `/commands`, @mentions, and replies — not the natural group messages the agent
+   needs. (Making the bot a group admin also works.)
+3. Set env: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` (any random string), and
+   `TELEGRAM_BOT_USERNAME` (for the deep links shown in the dashboard).
+4. The API registers the webhook automatically on boot
+   (`https://YOUR_DOMAIN/api/telegram/webhook`, guarded by the secret-token header).
+5. In the app: a circle admin opens **Connections → Telegram**, clicks Connect to get a code, adds
+   the bot to a Telegram group, and sends `/link <code>` there to bind the group.
+
 ## Updating
 
 ```bash

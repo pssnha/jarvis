@@ -1,6 +1,6 @@
 import { prisma } from '@jarvis/db';
 import { dateKeyInZone, expandCalendar, nowIsoInZone, timeLabel } from '@jarvis/agent';
-import { isConnected, sendGroupText } from './whatsapp/client';
+import { groupConnected, sendToGroup } from './send';
 import { recordRun } from './maintenance';
 
 /**
@@ -20,14 +20,15 @@ export async function sendDailyBriefs(): Promise<void> {
   const now = new Date();
   const circles = await prisma.circle.findMany({
     include: {
-      groups: { where: { whatsappGroupId: { not: null } } },
+      groups: {
+        where: { OR: [{ whatsappGroupId: { not: null } }, { telegramChatId: { not: null } }] },
+      },
       mutedJobs: { select: { job: true } },
     },
   });
 
   for (const circle of circles) {
     if (circle.mutedJobs.some((m) => m.job === 'daily_brief')) continue;
-    if (!isConnected(circle.id)) continue;
     const localHour = Number(nowIsoInZone(circle.timezone).slice(11, 13));
     if (localHour !== BRIEF_HOUR) continue;
     const todayKey = dateKeyInZone(now, circle.timezone);
@@ -35,7 +36,7 @@ export async function sendDailyBriefs(): Promise<void> {
     let posted = 0;
     let failed = 0;
     for (const group of circle.groups) {
-      if (!group.whatsappGroupId) continue;
+      if (!groupConnected(group)) continue;
       if (sent.get(group.id) === todayKey) continue;
       try {
         const occ = await expandCalendar(
@@ -48,7 +49,7 @@ export async function sendDailyBriefs(): Promise<void> {
           .filter((o) => dateKeyInZone(o.start, circle.timezone) === todayKey)
           .sort((a, b) => a.start.getTime() - b.start.getTime());
         const text = buildBrief(group.name, circle.timezone, todayKey, today);
-        await sendGroupText(circle.id, group.whatsappGroupId, text);
+        await sendToGroup(group, text);
         sent.set(group.id, todayKey);
         posted++;
         console.log(`[daily-brief] ${circle.name} / ${group.name}`);

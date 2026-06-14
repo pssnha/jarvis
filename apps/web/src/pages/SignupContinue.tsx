@@ -134,7 +134,8 @@ function WhatsAppStep({
         <a href="https://moremins.com" target="_blank" rel="noreferrer">
           Get a VOIP number at moremins.com
         </a>{' '}
-        that works with WhatsApp.
+        that works with WhatsApp. Prefer Telegram? Skip this and connect a Telegram group from
+        your dashboard after setup — no phone number needed.
       </p>
 
       <label className="onboard-field">

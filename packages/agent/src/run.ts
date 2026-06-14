@@ -1,7 +1,12 @@
 import { getProvider } from './llm';
+import { circleUsageStatus } from './llm/limits';
 import type { LlmMessage } from './llm/types';
 import { buildSystemPrompt } from './systemPrompt';
 import { toolsForSurface, type ToolContext, type ToolSurface } from './tools';
+
+/** Reply returned in place of an LLM call when a circle is over its spend cap. */
+const LIMIT_REACHED_REPLY =
+  "I've reached this circle's LLM usage limit for now — an admin can raise it on the Billing page.";
 
 export interface RunOptions {
   ctx: ToolContext;
@@ -26,6 +31,10 @@ export interface RunResult {
 
 /** Run one user turn through the configured LLM with the schedule tools available. */
 export async function runAgent(opts: RunOptions): Promise<RunResult> {
+  // Cap per-circle spend: refuse before incurring any LLM cost when over limit.
+  const usage = await circleUsageStatus(opts.ctx.circleId, opts.ctx.timezone);
+  if (usage.blocked) return { reply: LIMIT_REACHED_REPLY };
+
   const userText = opts.authorName ? `${opts.authorName}: ${opts.userText}` : opts.userText;
 
   // Only expose the tools for the active page so the assistant can't, say,

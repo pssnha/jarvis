@@ -53,6 +53,13 @@ const schema = z.object({
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
   WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().optional(),
   WHATSAPP_GRAPH_API_VERSION: z.string().default('v21.0'),
+
+  // ---- Telegram (single shared bot via BotFather; privacy mode disabled) ----
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  /** Verifies inbound webhooks (X-Telegram-Bot-Api-Secret-Token header). */
+  TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
+  /** Bot @username, for t.me deep links shown in the UI. */
+  TELEGRAM_BOT_USERNAME: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;

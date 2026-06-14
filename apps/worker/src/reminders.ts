@@ -1,6 +1,6 @@
 import { prisma } from '@jarvis/db';
 import { decryptValue, formatEventTime, occurrencesBetween } from '@jarvis/agent';
-import { isConnected, sendDirectText, sendGroupText } from './whatsapp/client';
+import { groupConnected, sendDirect, sendToGroup } from './send';
 
 type ReminderEvent = {
   id: string;
@@ -10,8 +10,8 @@ type ReminderEvent = {
   rrule: string | null;
   remindedAt: Date | null;
   reminderLeadMinutes: number | null;
-  group: { whatsappGroupId: string | null; name: string } | null;
-  owner: { waEnc: string | null; name: string | null } | null;
+  group: { whatsappGroupId: string | null; telegramChatId: string | null; name: string } | null;
+  owner: { waEnc: string | null; tgId: string | null; name: string | null } | null;
   circle: { timezone: string; name: string };
 };
 
@@ -31,8 +31,8 @@ export async function sendDueReminders(): Promise<void> {
       ],
     },
     include: {
-      group: { select: { whatsappGroupId: true, name: true } },
-      owner: { select: { waEnc: true, name: true } },
+      group: { select: { whatsappGroupId: true, telegramChatId: true, name: true } },
+      owner: { select: { waEnc: true, tgId: true, name: true } },
       circle: { select: { timezone: true, name: true } },
     },
   })) as unknown as ReminderEvent[];
@@ -68,23 +68,21 @@ async function announce(ev: ReminderEvent, when: Date): Promise<void> {
       : '';
   const text = `⏰ Reminder: ${ev.title} — ${formatEventTime(when, null, false, ev.circle.timezone)}${lead}`;
 
-  if (!isConnected(ev.circleId)) {
-    console.log(`[reminder] ${ev.circle.name}: ${text}`);
-    return;
-  }
   try {
-    if (ev.group?.whatsappGroupId) {
-      await sendGroupText(ev.circleId, ev.group.whatsappGroupId, text);
-      return;
-    }
-    // Private event → DM the owner.
-    const num = ev.owner?.waEnc ? decryptValue(ev.owner.waEnc) : null;
-    if (num) {
-      await sendDirectText(ev.circleId, num, text);
-      return;
+    // Group event → post to the group's transport (Telegram or WhatsApp).
+    if (ev.group && (ev.group.telegramChatId || ev.group.whatsappGroupId)) {
+      if (groupConnected({ circleId: ev.circleId, ...ev.group })) {
+        await sendToGroup({ circleId: ev.circleId, ...ev.group }, text);
+        return;
+      }
+    } else {
+      // Private event → DM the owner via Telegram or WhatsApp.
+      const waNumber = ev.owner?.waEnc ? decryptValue(ev.owner.waEnc) : null;
+      const sent = await sendDirect(ev.circleId, { tgId: ev.owner?.tgId, waNumber }, text);
+      if (sent) return;
     }
   } catch (err) {
-    console.error(`[reminder] WhatsApp send failed for ${ev.circle.name}:`, err);
+    console.error(`[reminder] send failed for ${ev.circle.name}:`, err);
   }
   console.log(`[reminder] ${ev.circle.name}: ${text}`);
 }

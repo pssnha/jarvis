@@ -2,7 +2,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import ical from 'node-ical';
 import { prisma } from '@jarvis/db';
 import {
+  circleUsageStatus,
   confirmProposalById,
+  createAdminTgLinkCode,
+  createCircleTgLinkCode,
   createRawEvent,
   decryptValue,
   encryptPhone,
@@ -15,9 +18,10 @@ import {
   setUserWhatsApp,
   type ImportedEvent,
 } from '@jarvis/agent';
+import { USAGE_LIMITS } from '@jarvis/shared';
+import { env } from '../config/env';
 import { createRedis } from '../plugins/redis';
 import { verifyImap, imapHostFor } from '../email/verify';
-import { env } from '../config/env';
 
 const redis = createRedis();
 
@@ -697,6 +701,59 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     return reply.send({ month: m, circles, totalCostUsd });
   });
 
+  // ----- Per-circle spend limits (view: any admin; edit: site admins) -----
+  // Lists every accessible circle (incl. zero-usage) with its caps + live spend.
+  app.get('/admin/billing/limits', async (req, reply) => {
+    const scope = await adminCircleScope(req); // null = all circles; [] = none
+    if (Array.isArray(scope) && scope.length === 0) {
+      return reply.send({ canEdit: isSiteAdmin(req), ranges: USAGE_LIMITS, circles: [] });
+    }
+    const circles = await prisma.circle.findMany({
+      where: scope === null ? {} : { id: { in: scope } },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, timezone: true, dailyUsdLimit: true, monthlyUsdLimit: true },
+    });
+    const rows = await Promise.all(
+      circles.map(async (c) => {
+        const u = await circleUsageStatus(c.id, c.timezone);
+        return {
+          circleId: c.id,
+          circleName: c.name,
+          dailyUsdLimit: c.dailyUsdLimit,
+          monthlyUsdLimit: c.monthlyUsdLimit,
+          todayUsd: u.dailyUsd,
+          monthUsd: u.monthlyUsd,
+        };
+      }),
+    );
+    return reply.send({ canEdit: isSiteAdmin(req), ranges: USAGE_LIMITS, circles: rows });
+  });
+
+  // Update a circle's caps. Site admins only — eventually driven by paid tiers.
+  app.put('/admin/circles/:cid/limits', async (req, reply) => {
+    if (!requireSite(req, reply)) return;
+    const { cid } = req.params as { cid: string };
+    const body = (req.body ?? {}) as { dailyUsdLimit?: number; monthlyUsdLimit?: number };
+    const c = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!c) return reply.code(404).send({ error: 'circle not found' });
+    const clamp = (n: number | undefined, lo: number, hi: number, fallback: number): number =>
+      typeof n === 'number' && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback;
+    const dailyUsdLimit = clamp(
+      body.dailyUsdLimit,
+      USAGE_LIMITS.dailyMin,
+      USAGE_LIMITS.dailyMax,
+      c.dailyUsdLimit,
+    );
+    const monthlyUsdLimit = clamp(
+      body.monthlyUsdLimit,
+      USAGE_LIMITS.monthlyMin,
+      USAGE_LIMITS.monthlyMax,
+      c.monthlyUsdLimit,
+    );
+    await prisma.circle.update({ where: { id: cid }, data: { dailyUsdLimit, monthlyUsdLimit } });
+    return { dailyUsdLimit, monthlyUsdLimit };
+  });
+
   // ----- Maintenance job-run calendar (site admins; cross-circle) -----
   // Per-day, per-job aggregates over [from, to). Email polls come from
   // EmailPollLog; daily_brief / health_check from MaintenanceRun.
@@ -824,6 +881,52 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     if (!c) return reply.code(404).send({ error: 'circle not found' });
     await redis.publish('wa:control', JSON.stringify({ action: 'logout', circleId: cid }));
     return { ok: true };
+  });
+
+  // ----- Telegram (single shared bot; link a group via deep link + /link code) -----
+  app.get('/admin/circles/:cid/telegram', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const group = await prisma.group.findFirst({
+      where: { circleId: cid, telegramChatId: { not: null } },
+      select: { name: true, telegramChatId: true },
+    });
+    return {
+      botUsername: env.TELEGRAM_BOT_USERNAME ?? null,
+      configured: Boolean(env.TELEGRAM_BOT_TOKEN),
+      linked: group ? { name: group.name } : null,
+    };
+  });
+
+  // Issue a one-time code; the admin adds the bot to a group and sends /link <code>.
+  app.post('/admin/circles/:cid/telegram/link', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const code = await createCircleTgLinkCode(cid);
+    const bot = env.TELEGRAM_BOT_USERNAME;
+    return {
+      code,
+      command: `/link ${code}`,
+      deepLink: bot ? `https://t.me/${bot}?startgroup=${code}` : null,
+    };
+  });
+
+  // Unlink the circle's Telegram group.
+  app.delete('/admin/circles/:cid/telegram', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    await prisma.group.updateMany({
+      where: { circleId: cid, telegramChatId: { not: null } },
+      data: { telegramChatId: null },
+    });
+    return { ok: true };
+  });
+
+  // Link the calling admin's personal Telegram account (for DM management).
+  app.post('/admin/telegram/link-me', async (req) => {
+    const code = await createAdminTgLinkCode(req.authUser!.id);
+    const bot = env.TELEGRAM_BOT_USERNAME;
+    return { code, deepLink: bot ? `https://t.me/${bot}?start=${code}` : null };
   });
 
   // Import a schedule into a circle's group: .ics calendar OR an openclaw JSON export.

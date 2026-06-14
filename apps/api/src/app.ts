@@ -12,6 +12,7 @@ import { registerSignup, registerAdminSignups } from './routes/signup';
 import { registerOAuth, bearerAuth } from './routes/oauth';
 import { registerVoice } from './routes/voice';
 import { registerWhatsApp } from './whatsapp';
+import { registerTelegram } from './telegram';
 import { requireCircleParam } from './lib/circleGuard';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -60,6 +61,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await registerHealth(api); // /api/healthz
       await registerCalendar(api); // /api/calendar/:token.ics (secret token)
       await registerWhatsApp(api); // /api/whatsapp/webhook (signature-verified)
+      await registerTelegram(api); // /api/telegram/webhook (secret-token verified)
       await registerAuthRoutes(api); // /api/auth/*
       await registerOAuth(api); // /api/oauth/{authorize,token} (account linking)
       await registerSignup(api); // /api/signup + /api/signup/resume/* (self-service onboarding)

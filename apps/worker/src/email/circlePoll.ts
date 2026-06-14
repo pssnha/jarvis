@@ -2,6 +2,7 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { prisma, type Circle } from '@jarvis/db';
 import {
+  adminTelegramId,
   adminWhatsAppNumber,
   analyzeEmail,
   circleUsageStatus,
@@ -11,7 +12,8 @@ import {
   markNotified,
 } from '@jarvis/agent';
 import { createRedis } from '../lib/redis';
-import { isConnected, sendDirectText } from '../whatsapp/client';
+import { isConnected } from '../whatsapp/client';
+import { sendDirect } from '../send';
 
 let polling = false;
 const inFlight = new Set<string>();
@@ -190,9 +192,13 @@ const CHUNK = 12;
 
 /** DM any not-yet-notified pending proposals to the circle's owner (admin). */
 async function notifyPending(circle: Circle): Promise<void> {
-  if (!isConnected(circle.id)) return;
-  const owner = await adminWhatsAppNumber();
-  if (!owner) return;
+  // Prefer Telegram if the admin linked it, else fall back to WhatsApp.
+  const tgId = await adminTelegramId();
+  const waNumber = tgId ? null : await adminWhatsAppNumber();
+  if (!tgId && !waNumber) return;
+  if (waNumber && !isConnected(circle.id)) return;
+  const send = (text: string) => sendDirect(circle.id, { tgId, waNumber }, text);
+
   const pending = (await listPendingProposals(circle.id)).filter((p) => p.notifiedAt === null);
   if (pending.length === 0) return;
 
@@ -200,14 +206,14 @@ async function notifyPending(circle: Circle): Promise<void> {
     pending.length === 1
       ? `📥 [${circle.name}] I found 1 item in the inbox. Reply to add it or skip it:`
       : `📥 [${circle.name}] I found ${pending.length} items in the inbox. Reply with which to add (e.g. "add 1 and 3", "add all", or "no"):`;
-  await sendDirectText(circle.id, owner, header);
+  await send(header);
 
   for (let i = 0; i < pending.length; i += CHUNK) {
     const lines = pending
       .slice(i, i + CHUNK)
       .map((p) => `[${p.code}] ${kindEmoji(p.kind)} ${p.summary}`)
       .join('\n');
-    await sendDirectText(circle.id, owner, lines);
+    await send(lines);
     if (i + CHUNK < pending.length) await sleep(800);
   }
 

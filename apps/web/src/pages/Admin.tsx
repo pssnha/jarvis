@@ -4,8 +4,11 @@ import {
   adminAddGroupMember,
   adminAddUser,
   adminCircleEmailActivity,
+  adminCircleTelegram,
   adminCircleWhatsAppStatus,
   adminConfirmEmailItem,
+  adminLinkCircleTelegram,
+  adminUnlinkCircleTelegram,
   adminPollCircleEmail,
   adminRejectEmailItem,
   adminCreateCircle,
@@ -34,6 +37,8 @@ import type {
   EmailActivity,
   EmailConfirmResult,
   MaintenanceJob,
+  TelegramLink,
+  TelegramStatus,
   WhatsAppStatus,
 } from '../lib/types';
 
@@ -452,6 +457,98 @@ function CircleWhatsApp({ circle, onError }: { circle: AdminCircle; onError: (e:
   );
 }
 
+function CircleTelegram({ circle, onError }: { circle: AdminCircle; onError: (e: unknown) => void }) {
+  const [tg, setTg] = useState<TelegramStatus | null>(null);
+  const [link, setLink] = useState<TelegramLink | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    adminCircleTelegram(circle.id).then(setTg).catch(() => {});
+  }, [circle.id]);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  async function generate() {
+    setBusy(true);
+    try {
+      setLink(await adminLinkCircleTelegram(circle.id));
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function disconnect() {
+    if (!confirm('Unlink this Telegram group?')) return;
+    setBusy(true);
+    try {
+      await adminUnlinkCircleTelegram(circle.id);
+      setLink(null);
+      load();
+    } catch (e) {
+      onError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (tg && !tg.configured) {
+    return (
+      <div className="conn-card">
+        <div className="conn-sub">Telegram bot not configured.</div>
+      </div>
+    );
+  }
+
+  if (tg?.linked) {
+    return (
+      <div className="conn-card">
+        <div className="conn-row">
+          <span className="conn-dot ok" />
+          <div className="conn-main">
+            <div className="conn-title">{tg.linked.name}</div>
+            <div className="conn-sub">Linked</div>
+          </div>
+          <button className="btn-quiet danger" onClick={disconnect} disabled={busy}>
+            Unlink
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="conn-card">
+      {link ? (
+        <div className="conn-main">
+          {link.deepLink && (
+            <a className="btn-quiet" href={link.deepLink} target="_blank" rel="noreferrer">
+              Add Jarvis to a group
+            </a>
+          )}
+          <div className="conn-sub">
+            Then send <code>{link.command}</code> in the group.
+          </div>
+        </div>
+      ) : (
+        <div className="conn-row">
+          <span className="conn-dot" />
+          <div className="conn-main">
+            <div className="conn-title">No group linked</div>
+            <div className="conn-sub">Connect a Telegram group</div>
+          </div>
+          <button className="btn-quiet" onClick={generate} disabled={busy}>
+            Connect
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CircleDetail({
   circle,
   siteAdmin,
@@ -517,9 +614,10 @@ function ConnectionsPane({
   onError: (e: unknown) => void;
   onChanged: () => void;
 }) {
-  const [sub, setSub] = useState<'whatsapp' | 'groups' | 'email'>('whatsapp');
+  const [sub, setSub] = useState<'whatsapp' | 'telegram' | 'groups' | 'email'>('whatsapp');
   const pills: { id: typeof sub; label: string }[] = [
     { id: 'whatsapp', label: 'WhatsApp' },
+    { id: 'telegram', label: 'Telegram' },
     { id: 'groups', label: 'Groups' },
     { id: 'email', label: 'Email' },
   ];
@@ -538,6 +636,7 @@ function ConnectionsPane({
       </div>
 
       {sub === 'whatsapp' && <CircleWhatsApp circle={circle} onError={onError} />}
+      {sub === 'telegram' && <CircleTelegram circle={circle} onError={onError} />}
       {sub === 'groups' && <GroupsList circle={circle} onError={onError} onChanged={onChanged} />}
       {sub === 'email' && (
         <EmailPollingSection circle={circle} onError={onError} onChanged={onChanged} />

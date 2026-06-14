@@ -248,6 +248,17 @@ export interface AdminCircle {
   members: AdminCircleMember[];
 }
 
+export interface TelegramStatus {
+  botUsername: string | null;
+  configured: boolean;
+  linked: { name: string } | null;
+}
+export interface TelegramLink {
+  code: string;
+  command?: string;
+  deepLink: string | null;
+}
+
 export interface WhatsAppGroup {
   id: string;
   subject: string;

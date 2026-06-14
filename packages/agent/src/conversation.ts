@@ -71,10 +71,28 @@ export async function getGroupByWhatsappId(whatsappGroupId: string) {
   return prisma.group.findUnique({ where: { whatsappGroupId } });
 }
 
-/** Find or create a member of a circle by WhatsApp number, email, or name. */
+export async function getGroupByTelegramChatId(telegramChatId: string) {
+  return prisma.group.findUnique({ where: { telegramChatId } });
+}
+
+/** Find an existing circle member by Telegram user id (no create). */
+export async function findMemberByTelegram(circleId: string, tgId: string) {
+  return prisma.member.findFirst({ where: { circleId, tgId } });
+}
+
+/** Circles where this Telegram user is a member, most recently active first. */
+export async function circlesForTelegramMember(tgId: string) {
+  return prisma.member.findMany({
+    where: { tgId },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true, circleId: true, name: true },
+  });
+}
+
+/** Find or create a member of a circle by WhatsApp number, Telegram id, email, or name. */
 export async function resolveMember(
   circleId: string,
-  opts: { waId?: string; email?: string; name?: string },
+  opts: { waId?: string; tgId?: string; email?: string; name?: string },
 ) {
   if (opts.waId) {
     const hash = phoneHash(opts.waId);
@@ -82,6 +100,17 @@ export async function resolveMember(
     if (existing) return existing;
     const { enc } = encryptPhone(opts.waId);
     return prisma.member.create({ data: { circleId, waEnc: enc, waHash: hash, name: opts.name } });
+  }
+  if (opts.tgId) {
+    const existing = await prisma.member.findFirst({ where: { circleId, tgId: opts.tgId } });
+    if (existing) {
+      // Backfill a name once we learn it from Telegram.
+      if (opts.name && !existing.name) {
+        return prisma.member.update({ where: { id: existing.id }, data: { name: opts.name } });
+      }
+      return existing;
+    }
+    return prisma.member.create({ data: { circleId, tgId: opts.tgId, name: opts.name } });
   }
   if (opts.email) {
     const existing = await prisma.member.findFirst({ where: { circleId, email: opts.email } });
@@ -124,6 +153,73 @@ export async function ensureGroupMember(groupId: string, memberId: string): Prom
   });
 }
 
+// --- Telegram linking ---
+
+/** A short, URL-safe code for t.me deep links. */
+function newLinkCode(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+const LINK_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+/** Issue a code to link a Telegram group to this circle (used in /link <code>). */
+export async function createCircleTgLinkCode(circleId: string): Promise<string> {
+  const tgLinkCode = newLinkCode();
+  await prisma.circle.update({
+    where: { id: circleId },
+    data: { tgLinkCode, tgLinkExpires: new Date(Date.now() + LINK_TTL_MS) },
+  });
+  return tgLinkCode;
+}
+
+/** Issue a code to link an admin's Telegram account (used in /start <code>). */
+export async function createAdminTgLinkCode(authUserId: string): Promise<string> {
+  const tgLinkCode = newLinkCode();
+  await prisma.authUser.update({
+    where: { id: authUserId },
+    data: { tgLinkCode, tgLinkExpires: new Date(Date.now() + LINK_TTL_MS) },
+  });
+  return tgLinkCode;
+}
+
+/** Bind a Telegram group chat to the circle that issued `code` (if unexpired). */
+export async function bindTelegramGroup(code: string, telegramChatId: string, name: string) {
+  const circle = await prisma.circle.findFirst({
+    where: { tgLinkCode: code, tgLinkExpires: { gt: new Date() } },
+  });
+  if (!circle) return null;
+  // Reuse an existing group row for this chat, else create one.
+  const existing = await prisma.group.findUnique({ where: { telegramChatId } });
+  const group = existing
+    ? await prisma.group.update({ where: { id: existing.id }, data: { circleId: circle.id, name } })
+    : await prisma.group.create({ data: { circleId: circle.id, telegramChatId, name } });
+  await prisma.circle.update({
+    where: { id: circle.id },
+    data: { tgLinkCode: null, tgLinkExpires: null },
+  });
+  return { circle, group };
+}
+
+/** Bind an admin's Telegram id from a /start <code> deep link (if unexpired). */
+export async function bindAdminTelegram(code: string, tgId: string) {
+  const user = await prisma.authUser.findFirst({
+    where: { tgLinkCode: code, tgLinkExpires: { gt: new Date() } },
+  });
+  if (!user) return null;
+  return prisma.authUser.update({
+    where: { id: user.id },
+    data: { tgId, tgLinkCode: null, tgLinkExpires: null },
+  });
+}
+
+/** The AuthUser linked to a Telegram id (with their per-circle admin grants). */
+export async function authUserByTelegramId(tgId: string) {
+  return prisma.authUser.findUnique({
+    where: { tgId },
+    include: { circleAdminOf: { select: { circleId: true } } },
+  });
+}
+
 /** Is this WhatsApp number a registered admin (encrypted blind-index match)? */
 export async function isAdminWhatsApp(number: string): Promise<boolean> {
   const user = await prisma.authUser.findFirst({
@@ -139,6 +235,15 @@ export async function adminWhatsAppNumber(): Promise<string | null> {
     orderBy: { createdAt: 'asc' },
   });
   return admin?.waEnc ? decryptValue(admin.waEnc) : null;
+}
+
+/** The global admin's linked Telegram id, for owner-DM notifications. */
+export async function adminTelegramId(): Promise<string | null> {
+  const admin = await prisma.authUser.findFirst({
+    where: { role: 'admin', NOT: { tgId: null } },
+    orderBy: { createdAt: 'asc' },
+  });
+  return admin?.tgId ?? null;
 }
 
 /** Set (or clear) an auth user's WhatsApp number, stored encrypted. */

@@ -23,6 +23,8 @@ import type {
   Me,
   MemberLite,
   SignupPublic,
+  TelegramLink,
+  TelegramStatus,
   VacationDetail,
   VacationItemPayload,
   VacationPayload,
@@ -152,6 +154,21 @@ export async function adminStartCircleWhatsApp(cid: string): Promise<void> {
 }
 export async function adminLogoutCircleWhatsApp(cid: string): Promise<void> {
   await fetch(`/api/admin/circles/${cid}/whatsapp/logout`, { method: 'POST' }).then((r) => json(r));
+}
+
+export async function adminCircleTelegram(cid: string): Promise<TelegramStatus> {
+  return fetch(`/api/admin/circles/${cid}/telegram`).then((r) => json<TelegramStatus>(r));
+}
+export async function adminLinkCircleTelegram(cid: string): Promise<TelegramLink> {
+  return fetch(`/api/admin/circles/${cid}/telegram/link`, { method: 'POST' }).then((r) =>
+    json<TelegramLink>(r),
+  );
+}
+export async function adminUnlinkCircleTelegram(cid: string): Promise<void> {
+  await fetch(`/api/admin/circles/${cid}/telegram`, { method: 'DELETE' }).then((r) => json(r));
+}
+export async function adminLinkMyTelegram(): Promise<TelegramLink> {
+  return fetch('/api/admin/telegram/link-me', { method: 'POST' }).then((r) => json<TelegramLink>(r));
 }
 
 // ---------- Admin: circles ----------

@@ -22,6 +22,11 @@ model AuthUser {
   /// Encrypted WhatsApp number (for admin direct chat) + blind index.
   waEnc     String?
   waHash    String?  @unique
+  /// Telegram user id (set when the admin links their Telegram via deep link).
+  tgId          String?   @unique
+  /// Short-lived code to link this admin's Telegram account (t.me ?start=).
+  tgLinkCode    String?   @unique
+  tgLinkExpires DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -71,6 +76,10 @@ model Circle {
   dailyUsdLimit   Float @default(1)
   monthlyUsdLimit Float @default(25)
 
+  /// Short-lived code to link a Telegram group to this circle (/link <code>).
+  tgLinkCode    String?   @unique
+  tgLinkExpires DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -95,6 +104,8 @@ model Group {
   name            String
   /// The WhatsApp group id (jid).
   whatsappGroupId String? @unique
+  /// The Telegram group chat id (alternative transport to WhatsApp).
+  telegramChatId  String? @unique
   inviteLink      String?
   /// Secret token for the read-only iCal subscription feed.
   icalToken       String  @unique @default(cuid())
@@ -121,6 +132,8 @@ model Member {
   waEnc  String? @db.Text
   /// Blind index (HMAC) of the WhatsApp number, for equality lookups.
   waHash String?
+  /// Telegram user id (numeric, stored as string). Not a phone — stored plain.
+  tgId   String?
   /// Personal email; links a Google web login to this member.
   email String?
 
@@ -138,6 +151,7 @@ model Member {
 
   @@index([circleId])
   @@index([waHash])
+  @@index([circleId, tgId])
   @@index([email])
 }
 

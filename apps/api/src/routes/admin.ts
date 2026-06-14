@@ -4,6 +4,8 @@ import { prisma } from '@jarvis/db';
 import {
   circleUsageStatus,
   confirmProposalById,
+  createAdminTgLinkCode,
+  createCircleTgLinkCode,
   createRawEvent,
   decryptValue,
   encryptPhone,
@@ -17,6 +19,7 @@ import {
   type ImportedEvent,
 } from '@jarvis/agent';
 import { USAGE_LIMITS } from '@jarvis/shared';
+import { env } from '../config/env';
 import { createRedis } from '../plugins/redis';
 import { verifyImap, imapHostFor } from '../email/verify';
 
@@ -860,6 +863,52 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     if (!c) return reply.code(404).send({ error: 'circle not found' });
     await redis.publish('wa:control', JSON.stringify({ action: 'logout', circleId: cid }));
     return { ok: true };
+  });
+
+  // ----- Telegram (single shared bot; link a group via deep link + /link code) -----
+  app.get('/admin/circles/:cid/telegram', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const group = await prisma.group.findFirst({
+      where: { circleId: cid, telegramChatId: { not: null } },
+      select: { name: true, telegramChatId: true },
+    });
+    return {
+      botUsername: env.TELEGRAM_BOT_USERNAME ?? null,
+      configured: Boolean(env.TELEGRAM_BOT_TOKEN),
+      linked: group ? { name: group.name } : null,
+    };
+  });
+
+  // Issue a one-time code; the admin adds the bot to a group and sends /link <code>.
+  app.post('/admin/circles/:cid/telegram/link', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    const code = await createCircleTgLinkCode(cid);
+    const bot = env.TELEGRAM_BOT_USERNAME;
+    return {
+      code,
+      command: `/link ${code}`,
+      deepLink: bot ? `https://t.me/${bot}?startgroup=${code}` : null,
+    };
+  });
+
+  // Unlink the circle's Telegram group.
+  app.delete('/admin/circles/:cid/telegram', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    if (!(await requireCircle(req, reply, cid))) return;
+    await prisma.group.updateMany({
+      where: { circleId: cid, telegramChatId: { not: null } },
+      data: { telegramChatId: null },
+    });
+    return { ok: true };
+  });
+
+  // Link the calling admin's personal Telegram account (for DM management).
+  app.post('/admin/telegram/link-me', async (req) => {
+    const code = await createAdminTgLinkCode(req.authUser!.id);
+    const bot = env.TELEGRAM_BOT_USERNAME;
+    return { code, deepLink: bot ? `https://t.me/${bot}?start=${code}` : null };
   });
 
   // Import a schedule into a circle's group: .ics calendar OR an openclaw JSON export.

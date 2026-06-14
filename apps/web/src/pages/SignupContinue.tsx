@@ -3,9 +3,9 @@ import {
   getSignupResume,
   signupComplete,
   signupSetEmail,
-  signupSetWhatsApp,
+  signupSetMessaging,
 } from '../lib/api';
-import type { SignupPublic } from '../lib/types';
+import type { SignupChannel, SignupPublic } from '../lib/types';
 
 /**
  * Post-approval onboarding (steps 4–6), reached via the resume link emailed to
@@ -77,7 +77,7 @@ export function SignupContinue({ token }: { token: string }) {
     <div className="onboard">
       <div className="onboard-card wide">
         <WizardHeader step={view.step} />
-        {view.step === 'whatsapp' && <WhatsAppStep token={token} onNext={setView} />}
+        {view.step === 'messaging' && <MessagingStep token={token} onNext={setView} />}
         {view.step === 'email' && <EmailStep token={token} onNext={setView} />}
         {view.step === 'finish' && <FinishStep token={token} view={view} />}
       </div>
@@ -86,8 +86,8 @@ export function SignupContinue({ token }: { token: string }) {
 }
 
 function WizardHeader({ step }: { step: SignupPublic['step'] }) {
-  const idx = step === 'whatsapp' ? 0 : step === 'email' ? 1 : 2;
-  const labels = ['Connect WhatsApp', 'Connect email', 'Finish'];
+  const idx = step === 'messaging' ? 0 : step === 'email' ? 1 : 2;
+  const labels = ['Choose a channel', 'Connect email', 'Finish'];
   return (
     <div className="onboard-steps">
       {[0, 1, 2].map((i) => (
@@ -100,13 +100,19 @@ function WizardHeader({ step }: { step: SignupPublic['step'] }) {
   );
 }
 
-function WhatsAppStep({
+/**
+ * Step 4 — choose how Jarvis chats with the circle: WhatsApp (needs a dedicated
+ * number now) or Telegram (linked from the dashboard later, no number). The
+ * other channel can always be added afterwards from the dashboard.
+ */
+function MessagingStep({
   token,
   onNext,
 }: {
   token: string;
   onNext: (v: SignupPublic) => void;
 }) {
+  const [channel, setChannel] = useState<SignupChannel>('whatsapp');
   const [waNumber, setWaNumber] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +122,12 @@ function WhatsAppStep({
     setError(null);
     setBusy(true);
     try {
-      onNext(await signupSetWhatsApp(token, waNumber.trim()));
+      onNext(
+        await signupSetMessaging(token, {
+          channel,
+          waNumber: channel === 'whatsapp' ? waNumber.trim() : undefined,
+        }),
+      );
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -126,39 +137,68 @@ function WhatsAppStep({
 
   return (
     <form onSubmit={submit}>
-      <h1>Give Jarvis a WhatsApp number</h1>
+      <h1>How should Jarvis chat with your circle?</h1>
       <p className="muted">
-        This is the dedicated number Jarvis uses to talk to your circle. It should be a number you
-        can link as a WhatsApp account (a spare SIM or a WhatsApp Business number works well). No
-        spare number?{' '}
-        <a href="https://moremins.com" target="_blank" rel="noreferrer">
-          Get a VOIP number at moremins.com
-        </a>{' '}
-        that works with WhatsApp. Prefer Telegram? Skip this and connect a Telegram group from
-        your dashboard after setup — no phone number needed.
+        Pick one to start — you can add the other later from your dashboard.
       </p>
 
-      <label className="onboard-field">
-        Jarvis's WhatsApp number
-        <input
-          type="tel"
-          value={waNumber}
-          onChange={(e) => setWaNumber(e.target.value)}
-          placeholder="+1 415 555 0123"
-          required
-        />
-        <span className="onboard-hint">Include the country code.</span>
-      </label>
-
-      <div className="onboard-callout">
-        <strong>How your circle will use it</strong>
-        <ol>
-          <li>After your circle is created, you'll link this number from your dashboard (scan a QR code — just like WhatsApp Web).</li>
-          <li>Create <em>one</em> WhatsApp group for your circle and add this Jarvis number to it.</li>
-          <li>Everyone in the group can then just chat naturally — “Soccer practice moved to 6pm” — and Jarvis keeps the calendar.</li>
-        </ol>
-        <p className="onboard-hint">Note: each circle can have exactly one WhatsApp group.</p>
+      <div className="kind-toggle">
+        <button
+          type="button"
+          className={channel === 'whatsapp' ? 'kt on' : 'kt'}
+          onClick={() => setChannel('whatsapp')}
+        >
+          💬 WhatsApp
+        </button>
+        <button
+          type="button"
+          className={channel === 'telegram' ? 'kt on' : 'kt'}
+          onClick={() => setChannel('telegram')}
+        >
+          ✈️ Telegram
+        </button>
       </div>
+
+      {channel === 'whatsapp' ? (
+        <>
+          <label className="onboard-field">
+            Jarvis's WhatsApp number
+            <input
+              type="tel"
+              value={waNumber}
+              onChange={(e) => setWaNumber(e.target.value)}
+              placeholder="+1 415 555 0123"
+              required
+            />
+            <span className="onboard-hint">
+              A dedicated number you can link as a WhatsApp account (spare SIM or WhatsApp Business).
+              No spare number?{' '}
+              <a href="https://moremins.com" target="_blank" rel="noreferrer">
+                Get a VOIP number at moremins.com
+              </a>
+              . Include the country code.
+            </span>
+          </label>
+          <div className="onboard-callout">
+            <strong>How your circle will use it</strong>
+            <ol>
+              <li>After your circle is created, link this number from your dashboard (scan a QR code — just like WhatsApp Web).</li>
+              <li>Create <em>one</em> WhatsApp group and add this Jarvis number to it.</li>
+              <li>Everyone in the group just chats naturally and Jarvis keeps the calendar.</li>
+            </ol>
+            <p className="onboard-hint">Each circle can have exactly one WhatsApp group.</p>
+          </div>
+        </>
+      ) : (
+        <div className="onboard-callout">
+          <strong>No phone number needed</strong>
+          <ol>
+            <li>We'll create your circle, then you connect a Telegram group from your dashboard.</li>
+            <li>You'll get a link to add the Jarvis bot to your group and a one-time code to pair it.</li>
+            <li>Everyone in the group just chats naturally and Jarvis keeps the calendar.</li>
+          </ol>
+        </div>
+      )}
 
       {error && <p className="onboard-error">{error}</p>}
       <button className="onboard-btn primary" type="submit" disabled={busy}>
@@ -298,8 +338,12 @@ function FinishStep({ token, view }: { token: string; view: SignupPublic }) {
           </strong>
         </li>
         <li>
-          <span>WhatsApp</span>
-          <strong>{view.waNumber}</strong>
+          <span>Channel</span>
+          <strong>
+            {view.channel === 'telegram'
+              ? 'Telegram (link from dashboard)'
+              : `WhatsApp · ${view.waNumber}`}
+          </strong>
         </li>
         <li>
           <span>Mailbox</span>
@@ -322,8 +366,8 @@ function Completed({ inline }: { inline?: boolean }) {
       <div className="onboard-ico" aria-hidden>🎉</div>
       <h1>Your circle is live!</h1>
       <p className="muted">
-        Sign in with the email you used to open your dashboard, link your WhatsApp number, and
-        start adding events.
+        Sign in with the email you used to open your dashboard, connect your WhatsApp or Telegram
+        group, and start adding events.
       </p>
       <a className="onboard-btn primary" href="/api/auth/google/login">
         Sign in to your dashboard

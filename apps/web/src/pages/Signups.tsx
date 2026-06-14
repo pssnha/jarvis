@@ -96,10 +96,14 @@ export function Signups({ itemId }: { itemId: string | null }) {
               <span>Requested</span>
               <strong>{fmtDate(s.createdAt)}</strong>
             </li>
-            {s.waNumber && (
+            {s.channel && (
               <li>
-                <span>Jarvis number</span>
-                <strong>{s.waNumber}</strong>
+                <span>Channel</span>
+                <strong>
+                  {s.channel === 'telegram'
+                    ? 'Telegram'
+                    : `WhatsApp${s.waNumber ? ` · ${s.waNumber}` : ''}`}
+                </strong>
               </li>
             )}
             {s.emailAddress && (

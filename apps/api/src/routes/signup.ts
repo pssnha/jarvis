@@ -15,9 +15,20 @@ function token(): string {
   return crypto.randomBytes(24).toString('hex');
 }
 
+/** True once the applicant has chosen a messaging channel (and a WA number if needed). */
+function messagingDone(s: { channel: string | null; waNumber: string | null }): boolean {
+  if (s.channel === 'telegram') return true; // linked later via the bot, no number
+  if (s.channel === 'whatsapp') return Boolean(s.waNumber);
+  return false;
+}
+
 /** Which step the applicant should be on, given what's collected so far. */
-function nextStep(s: { waNumber: string | null; emailAddress: string | null }): 'whatsapp' | 'email' | 'finish' {
-  if (!s.waNumber) return 'whatsapp';
+function nextStep(s: {
+  channel: string | null;
+  waNumber: string | null;
+  emailAddress: string | null;
+}): 'messaging' | 'email' | 'finish' {
+  if (!messagingDone(s)) return 'messaging';
   if (!s.emailAddress) return 'email';
   return 'finish';
 }
@@ -28,6 +39,7 @@ function publicView(s: {
   name: string;
   email: string;
   circleName: string | null;
+  channel: string | null;
   waNumber: string | null;
   emailAddress: string | null;
   circleId: string | null;
@@ -37,6 +49,7 @@ function publicView(s: {
     name: s.name,
     email: s.email,
     circleName: s.circleName,
+    channel: s.channel,
     waNumber: s.waNumber,
     emailAddress: s.emailAddress,
     circleId: s.circleId,
@@ -104,7 +117,7 @@ export async function registerSignup(api: FastifyInstance): Promise<void> {
           <tr><td><strong>Terms</strong></td><td>Accepted v${env.TERMS_VERSION} at ${new Date().toISOString()}</td></tr>
         </table>
         <p><a href="${reviewUrl}">Review &amp; approve this sign-up →</a></p>
-        <p style="color:#888;font-size:12px">Sign in as an admin to approve. Once approved, the applicant is emailed a link to finish connecting WhatsApp and email.</p>
+        <p style="color:#888;font-size:12px">Sign in as an admin to approve. Once approved, the applicant is emailed a link to finish connecting a messaging channel (WhatsApp or Telegram) and email.</p>
       `,
     });
 
@@ -119,20 +132,32 @@ export async function registerSignup(api: FastifyInstance): Promise<void> {
     return reply.send(publicView(s));
   });
 
-  // Step 4 — the dedicated WhatsApp number Jarvis will use for this circle.
-  api.post('/signup/resume/:resumeToken/whatsapp', async (req, reply) => {
+  // Step 4 — pick the messaging channel. WhatsApp needs a dedicated number now;
+  // Telegram needs nothing here (the group is linked from the dashboard later).
+  // The other channel can always be added afterwards from the admin Connections panel.
+  api.post('/signup/resume/:resumeToken/messaging', async (req, reply) => {
     const { resumeToken } = req.params as { resumeToken: string };
-    const body = (req.body ?? {}) as { waNumber?: string };
+    const body = (req.body ?? {}) as { channel?: string; waNumber?: string };
     const s = await prisma.circleSignup.findUnique({ where: { resumeToken } });
     if (!s) return reply.code(404).send({ error: 'This sign-up link is invalid or has expired.' });
     if (s.status !== 'approved') return reply.code(409).send({ error: 'This sign-up is not ready for setup yet.' });
-    const num = body.waNumber?.trim();
-    if (!num || num.replace(/\D/g, '').length < 7) {
-      return reply.code(400).send({ error: 'Enter the WhatsApp number Jarvis will use (with country code).' });
+
+    const channel = body.channel;
+    if (channel !== 'whatsapp' && channel !== 'telegram') {
+      return reply.code(400).send({ error: 'Choose WhatsApp or Telegram.' });
     }
+    let waNumber: string | null = null;
+    if (channel === 'whatsapp') {
+      const num = body.waNumber?.trim();
+      if (!num || num.replace(/\D/g, '').length < 7) {
+        return reply.code(400).send({ error: 'Enter the WhatsApp number Jarvis will use (with country code).' });
+      }
+      waNumber = num;
+    }
+    // Switching to Telegram clears any previously entered WhatsApp number.
     const updated = await prisma.circleSignup.update({
       where: { id: s.id },
-      data: { waNumber: num },
+      data: { channel, waNumber },
     });
     return reply.send(publicView(updated));
   });
@@ -174,7 +199,7 @@ export async function registerSignup(api: FastifyInstance): Promise<void> {
     if (!s) return reply.code(404).send({ error: 'This sign-up link is invalid or has expired.' });
     if (s.status === 'completed' && s.circleId) return reply.send({ circleId: s.circleId, email: s.email });
     if (s.status !== 'approved') return reply.code(409).send({ error: 'This sign-up is not ready for setup yet.' });
-    if (!s.waNumber) return reply.code(400).send({ error: 'Add the WhatsApp number first.' });
+    if (!messagingDone(s)) return reply.code(400).send({ error: 'Choose a messaging channel first.' });
     if (!s.emailAddress || !s.emailEncCred) return reply.code(400).send({ error: 'Connect the mailbox first.' });
 
     const timezone = process.env.DEFAULT_TIMEZONE || 'UTC';
@@ -216,9 +241,12 @@ export async function registerSignup(api: FastifyInstance): Promise<void> {
       data: { status: 'completed', circleId: circle.id, completedAt: new Date() },
     });
 
-    // Boot the circle's WhatsApp session (so a QR is ready to link the number)
-    // and scan the mailbox now rather than waiting for the scheduled poll.
-    await redis.publish('wa:control', JSON.stringify({ action: 'start', circleId: circle.id }));
+    // For WhatsApp circles, boot the session so a QR is ready to link the number.
+    // (Telegram circles link a group from the dashboard via a code — no session.)
+    if (s.channel === 'whatsapp') {
+      await redis.publish('wa:control', JSON.stringify({ action: 'start', circleId: circle.id }));
+    }
+    // Scan the mailbox now rather than waiting for the scheduled poll.
     await redis.publish('email:control', JSON.stringify({ action: 'poll', circleId: circle.id }));
 
     return reply.send({ circleId: circle.id, email: s.email });
@@ -243,6 +271,7 @@ function adminView(s: {
   status: string;
   termsVersion: string;
   termsAcceptedAt: Date;
+  channel: string | null;
   waNumber: string | null;
   emailAddress: string | null;
   circleId: string | null;
@@ -258,6 +287,7 @@ function adminView(s: {
     status: s.status,
     termsVersion: s.termsVersion,
     termsAcceptedAt: s.termsAcceptedAt,
+    channel: s.channel,
     waNumber: s.waNumber,
     emailAddress: s.emailAddress,
     circleId: s.circleId,

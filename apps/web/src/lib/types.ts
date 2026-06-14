@@ -279,9 +279,11 @@ export interface WhatsAppStatus {
 
 // ---------- Onboarding / sign-up ----------
 
-export type SignupStep = 'whatsapp' | 'email' | 'finish';
+export type SignupStep = 'messaging' | 'email' | 'finish';
 /** pending_review | approved | completed | rejected */
 export type SignupStatus = 'pending_review' | 'approved' | 'completed' | 'rejected';
+/** The messaging channel a circle uses. */
+export type SignupChannel = 'whatsapp' | 'telegram';
 
 /** Applicant-facing view returned by the resume endpoint. */
 export interface SignupPublic {
@@ -289,6 +291,7 @@ export interface SignupPublic {
   name: string;
   email: string;
   circleName: string | null;
+  channel: SignupChannel | null;
   waNumber: string | null;
   emailAddress: string | null;
   circleId: string | null;
@@ -305,6 +308,7 @@ export interface AdminSignup {
   status: SignupStatus;
   termsVersion: string;
   termsAcceptedAt: string;
+  channel: SignupChannel | null;
   waNumber: string | null;
   emailAddress: string | null;
   circleId: string | null;

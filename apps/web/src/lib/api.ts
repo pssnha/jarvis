@@ -80,11 +80,14 @@ export async function submitSignup(input: SignupInput): Promise<void> {
 export async function getSignupResume(token: string): Promise<SignupPublic> {
   return fetch(`/api/signup/resume/${token}`).then((r) => json<SignupPublic>(r));
 }
-export async function signupSetWhatsApp(token: string, waNumber: string): Promise<SignupPublic> {
-  return fetch(`/api/signup/resume/${token}/whatsapp`, {
+export async function signupSetMessaging(
+  token: string,
+  body: { channel: 'whatsapp' | 'telegram'; waNumber?: string },
+): Promise<SignupPublic> {
+  return fetch(`/api/signup/resume/${token}/messaging`, {
     method: 'POST',
     headers: jsonHeaders,
-    body: JSON.stringify({ waNumber }),
+    body: JSON.stringify(body),
   }).then((r) => json<SignupPublic>(r));
 }
 export async function signupSetEmail(

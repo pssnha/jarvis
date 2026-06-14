@@ -494,7 +494,11 @@ model CircleSignup {
   /// Opaque token the applicant uses to resume after approval (emailed to them).
   resumeToken String @unique
 
-  /// Step 4 — the dedicated WhatsApp number Jarvis will use for this circle.
+  /// Step 4 — the messaging channel the circle will use: 'whatsapp' | 'telegram'.
+  /// The other channel can be added later from the admin Connections panel.
+  channel      String?
+  /// The dedicated WhatsApp number (only when channel = 'whatsapp'). Telegram
+  /// links a group via a code after the circle is created, so needs no number.
   waNumber     String?
 
   /// Step 5 — the circle's dedicated mailbox (IMAP). Credential encrypted at rest.

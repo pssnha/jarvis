@@ -876,7 +876,7 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     return {
       botUsername: env.TELEGRAM_BOT_USERNAME ?? null,
       configured: Boolean(env.TELEGRAM_BOT_TOKEN),
-      linked: group ? { name: group.name } : null,
+      linked: group ? { name: group.name, chatId: group.telegramChatId } : null,
     };
   });
 

@@ -495,26 +495,19 @@ function CircleTelegram({ circle, onError }: { circle: AdminCircle; onError: (e:
     }
   }
 
-  if (tg && !tg.configured) {
-    return (
-      <div className="conn-card">
-        <div className="conn-sub">Telegram bot not configured.</div>
-      </div>
-    );
-  }
+  if (!tg) return <div className="conn-card"><div className="conn-sub">Loading…</div></div>;
 
-  if (tg?.linked) {
+  const bot = tg.botUsername ? `@${tg.botUsername}` : '—';
+
+  if (!tg.configured) {
     return (
       <div className="conn-card">
         <div className="conn-row">
-          <span className="conn-dot ok" />
+          <span className="conn-dot" />
           <div className="conn-main">
-            <div className="conn-title">{tg.linked.name}</div>
-            <div className="conn-sub">Linked</div>
+            <div className="conn-title">Not configured</div>
+            <div className="conn-sub">Set TELEGRAM_BOT_TOKEN to enable Telegram.</div>
           </div>
-          <button className="btn-quiet danger" onClick={disconnect} disabled={busy}>
-            Unlink
-          </button>
         </div>
       </div>
     );
@@ -522,7 +515,36 @@ function CircleTelegram({ circle, onError }: { circle: AdminCircle; onError: (e:
 
   return (
     <div className="conn-card">
-      {link ? (
+      <dl className="conn-details">
+        <div className="conn-detail">
+          <dt>Bot</dt>
+          <dd>{bot}</dd>
+        </div>
+        <div className="conn-detail">
+          <dt>Status</dt>
+          <dd>
+            <span className={`conn-dot ${tg.linked ? 'ok' : ''}`} /> {tg.linked ? 'Linked' : 'Not linked'}
+          </dd>
+        </div>
+        {tg.linked && (
+          <>
+            <div className="conn-detail">
+              <dt>Group</dt>
+              <dd>{tg.linked.name}</dd>
+            </div>
+            <div className="conn-detail">
+              <dt>Chat ID</dt>
+              <dd><code>{tg.linked.chatId}</code></dd>
+            </div>
+          </>
+        )}
+      </dl>
+
+      {tg.linked ? (
+        <button className="btn-quiet danger" onClick={disconnect} disabled={busy}>
+          Unlink
+        </button>
+      ) : link ? (
         <div className="conn-main">
           {link.deepLink && (
             <a className="btn-quiet" href={link.deepLink} target="_blank" rel="noreferrer">
@@ -534,16 +556,9 @@ function CircleTelegram({ circle, onError }: { circle: AdminCircle; onError: (e:
           </div>
         </div>
       ) : (
-        <div className="conn-row">
-          <span className="conn-dot" />
-          <div className="conn-main">
-            <div className="conn-title">No group linked</div>
-            <div className="conn-sub">Connect a Telegram group</div>
-          </div>
-          <button className="btn-quiet" onClick={generate} disabled={busy}>
-            Connect
-          </button>
-        </div>
+        <button className="btn-quiet" onClick={generate} disabled={busy}>
+          Connect
+        </button>
       )}
     </div>
   );

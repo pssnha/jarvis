@@ -251,7 +251,7 @@ export interface AdminCircle {
 export interface TelegramStatus {
   botUsername: string | null;
   configured: boolean;
-  linked: { name: string } | null;
+  linked: { name: string; chatId: string | null } | null;
 }
 export interface TelegramLink {
   code: string;

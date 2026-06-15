@@ -1,8 +1,10 @@
 import type {
   AdminCircle,
+  AdminCircleEntry,
   AdminCircleMember,
   AdminSignup,
   AdminUser,
+  SupportAccess,
   BillingLimits,
   BillingReport,
   CalendarOccurrence,
@@ -175,8 +177,38 @@ export async function adminLinkMyTelegram(): Promise<TelegramLink> {
 }
 
 // ---------- Admin: circles ----------
-export async function adminListCircles(): Promise<AdminCircle[]> {
-  return fetch('/api/admin/circles').then((r) => json<AdminCircle[]>(r));
+export async function adminListCircles(): Promise<AdminCircleEntry[]> {
+  return fetch('/api/admin/circles').then((r) => json<AdminCircleEntry[]>(r));
+}
+
+// ---------- Admin: support access (members-only data + break-glass) ----------
+export async function adminSetSupportPassphrase(cid: string, passphrase: string): Promise<void> {
+  await fetch(`/api/admin/circles/${cid}/support-passphrase`, {
+    method: 'PUT',
+    headers: jsonHeaders,
+    body: JSON.stringify({ passphrase }),
+  }).then((r) => json(r));
+}
+export async function adminClearSupportPassphrase(cid: string): Promise<void> {
+  await fetch(`/api/admin/circles/${cid}/support-passphrase`, { method: 'DELETE' }).then((r) =>
+    json(r),
+  );
+}
+export async function adminGetSupportAccess(cid: string): Promise<SupportAccess> {
+  return fetch(`/api/admin/circles/${cid}/support-access`).then((r) => json<SupportAccess>(r));
+}
+export async function adminUnlockSupportAccess(
+  cid: string,
+  passphrase: string,
+): Promise<{ expiresAt: string }> {
+  return fetch(`/api/admin/circles/${cid}/support-access`, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ passphrase }),
+  }).then((r) => json<{ expiresAt: string }>(r));
+}
+export async function adminLockSupportAccess(cid: string): Promise<void> {
+  await fetch(`/api/admin/circles/${cid}/support-access`, { method: 'DELETE' }).then((r) => json(r));
 }
 export async function adminCreateCircle(name: string, timezone: string): Promise<void> {
   await fetch('/api/admin/circles', {

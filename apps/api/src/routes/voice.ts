@@ -9,24 +9,19 @@ import {
   type ScheduleScope,
 } from '@jarvis/agent';
 import { prisma, type AuthUser } from '@jarvis/db';
-import { accessibleCircleIds } from '../lib/access';
+import { accessibleScheduleCircleIds } from '../lib/access';
 
 /** The circle a voice request acts on: the one named (if accessible) else the
- *  user's first circle. Site admins fall back to the oldest circle. */
+ *  user's first accessible circle. (Schedule access is members-only.) */
 async function resolveCircle(user: AuthUser, requestedId?: string) {
-  const ids = await accessibleCircleIds(user);
-  if (ids === 'all') {
-    if (requestedId) return prisma.circle.findUnique({ where: { id: requestedId } });
-    return prisma.circle.findFirst({ orderBy: { createdAt: 'asc' } });
-  }
+  const ids = await accessibleScheduleCircleIds(user);
   if (ids.length === 0) return null;
   const id = requestedId && ids.includes(requestedId) ? requestedId : ids[0]!;
   return prisma.circle.findUnique({ where: { id } });
 }
 
 async function circleCount(user: AuthUser): Promise<number> {
-  const ids = await accessibleCircleIds(user);
-  return ids === 'all' ? prisma.circle.count() : ids.length;
+  return (await accessibleScheduleCircleIds(user)).length;
 }
 
 /** Voice API (Bearer-authenticated) — the contract the Alexa Lambda calls. */

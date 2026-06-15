@@ -13,7 +13,11 @@ import { registerOAuth, bearerAuth } from './routes/oauth';
 import { registerVoice } from './routes/voice';
 import { registerWhatsApp } from './whatsapp';
 import { registerTelegram } from './telegram';
-import { requireCircleParam, rejectDeletedCircleParam } from './lib/circleGuard';
+import {
+  requireScheduleParam,
+  requireManageCircleParam,
+  rejectDeletedCircleParam,
+} from './lib/circleGuard';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -75,8 +79,8 @@ export async function buildApp(): Promise<FastifyInstance> {
       // --- Authenticated users ---
       await api.register(async (scoped) => {
         scoped.addHook('preHandler', app.requireAuth);
-        scoped.addHook('preHandler', requireCircleParam); // fail-safe: any :cid route is circle-scoped
-        scoped.addHook('preHandler', rejectDeletedCircleParam); // soft-deleted circles are off-limits to members
+        scoped.addHook('preHandler', requireScheduleParam); // members-only: schedule data access
+        scoped.addHook('preHandler', rejectDeletedCircleParam); // soft-deleted circles are off-limits
         await registerCircles(scoped);
         await registerVacations(scoped);
       });
@@ -84,7 +88,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       // --- Admin area (site admins + per-circle admins; enforced per route) ---
       await api.register(async (scoped) => {
         scoped.addHook('preHandler', app.requireAuth);
-        scoped.addHook('preHandler', requireCircleParam); // baseline; routes add requireSite/requireCircle
+        scoped.addHook('preHandler', requireManageCircleParam); // manage rights; data routes also check schedule access
         await registerAdmin(scoped);
         await registerAdminSignups(scoped);
       });

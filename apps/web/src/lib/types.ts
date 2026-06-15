@@ -239,6 +239,28 @@ export interface MaintenanceRunRow {
   summary: string;
 }
 
+/** Connection/billing "health" a manager sees for a locked circle. */
+export interface CircleHealth {
+  whatsapp: boolean;
+  telegram: boolean;
+  email: { enabled: boolean; hasCredential: boolean; lastPolledAt: string | null };
+}
+
+/** A circle the requester can manage but NOT see the data of (no access grant). */
+export interface LockedCircle {
+  id: string;
+  name: string;
+  timezone: string;
+  deletedAt: string | null;
+  purgeAfter: string | null;
+  locked: true;
+  isInsider: false;
+  hasSupportPassphrase: boolean;
+  accessExpiresAt: null;
+  health: CircleHealth;
+}
+
+/** A circle the requester has full (member / granted) access to. */
 export interface AdminCircle {
   id: string;
   name: string;
@@ -247,6 +269,11 @@ export interface AdminCircle {
   coverImageUrl: string | null;
   deletedAt: string | null;
   purgeAfter: string | null;
+  locked: false;
+  isInsider: boolean;
+  hasSupportPassphrase: boolean;
+  /** When the requester's break-glass grant expires (null if they're a member). */
+  accessExpiresAt: string | null;
   email: CircleEmailConfig;
   mutedJobs: MaintenanceJob[];
   counts: { events: number; vacations: number };
@@ -254,10 +281,18 @@ export interface AdminCircle {
   members: AdminCircleMember[];
 }
 
+/** What `GET /admin/circles` returns per circle: full or health-only. */
+export type AdminCircleEntry = AdminCircle | LockedCircle;
+
+export interface SupportAccess {
+  hasPassphrase: boolean;
+  expiresAt: string | null;
+}
+
 export interface TelegramStatus {
   botUsername: string | null;
   configured: boolean;
-  linked: { name: string; chatId: string | null } | null;
+  linked: { name: string | null; chatId: string | null } | null;
 }
 export interface TelegramLink {
   code: string;

@@ -18,7 +18,10 @@ import {
   type UpdateEventInput,
 } from '@jarvis/agent';
 import type { EventDraft, Recurrence } from '@jarvis/shared';
-import { accessibleCircleIds as accessibleCircleIdsForUser, canAccessCircle } from '../lib/access';
+import {
+  accessibleScheduleCircleIds as accessibleScheduleCircleIdsForUser,
+  canAccessSchedule,
+} from '../lib/access';
 
 interface EventBody {
   title?: string;
@@ -37,13 +40,13 @@ interface EventBody {
   ownerMemberId?: string | null;
 }
 
-/** Circles the user may access (see lib/access). */
-function accessibleCircleIds(req: FastifyRequest): Promise<string[] | 'all'> {
-  return accessibleCircleIdsForUser(req.authUser);
+/** Circles whose schedule the user may access (see lib/access). */
+function accessibleCircleIds(req: FastifyRequest): Promise<string[]> {
+  return accessibleScheduleCircleIdsForUser(req.authUser);
 }
 
 function canAccess(req: FastifyRequest, circleId: string): Promise<boolean> {
-  return canAccessCircle(req.authUser, circleId);
+  return canAccessSchedule(req.authUser, circleId);
 }
 
 function parseScope(circleId: string, raw?: string): ScheduleScope {
@@ -58,8 +61,8 @@ export async function registerCircles(app: FastifyInstance): Promise<void> {
   app.get('/circles', async (req) => {
     const ids = await accessibleCircleIds(req);
     return prisma.circle.findMany({
-      // Soft-deleted circles are dormant — hidden from members until restored.
-      where: ids === 'all' ? { deletedAt: null } : { id: { in: ids }, deletedAt: null },
+      // Members-only + soft-deleted circles hidden until restored.
+      where: { id: { in: ids }, deletedAt: null },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,

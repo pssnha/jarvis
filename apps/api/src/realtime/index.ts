@@ -14,7 +14,7 @@ import { prisma, type AuthUser } from '@jarvis/db';
 import { env } from '../config/env';
 import { createRedis } from '../plugins/redis';
 import { devBypass } from '../auth';
-import { canAccessCircle } from '../lib/access';
+import { canAccessSchedule } from '../lib/access';
 import { SESSION_COOKIE } from '../auth/constants';
 
 /** Attach the Socket.IO realtime gateway (web chat) to the Fastify HTTP server. */
@@ -72,8 +72,8 @@ export function attachRealtime(app: FastifyInstance): IOServer {
             socket.emit('chat:error', { message: 'Circle not found.' });
             return;
           }
-          // Single source of truth for circle access (see lib/access).
-          if (!(await canAccessCircle(user, circle.id))) {
+          // Schedule access is members-only (see lib/access); admins need a grant.
+          if (!(await canAccessSchedule(user, circle.id))) {
             socket.emit('chat:error', { message: 'You do not have access to this circle.' });
             return;
           }

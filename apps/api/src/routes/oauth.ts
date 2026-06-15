@@ -4,7 +4,7 @@ import { prisma } from '@jarvis/db';
 import { env } from '../config/env';
 import { currentUser } from '../auth';
 import { OAUTH_RETURN_COOKIE } from '../auth/constants';
-import { accessibleCircleIds } from '../lib/access';
+import { accessibleScheduleCircleIds } from '../lib/access';
 
 const CODE_TTL_MS = 5 * 60 * 1000; // authorization code: 5 minutes
 const ACCESS_TTL_S = 60 * 60; // access token: 1 hour
@@ -107,9 +107,9 @@ export async function registerOAuth(api: FastifyInstance): Promise<void> {
       return reply.redirect(`${env.AUTH_BASE_URL}/api/auth/google/login`);
     }
 
-    // Access gate: the user must belong to (or admin) at least one circle.
-    const circles = await accessibleCircleIds(user);
-    if (circles !== 'all' && circles.length === 0) {
+    // Access gate: the user must belong to at least one circle to have anything to link.
+    const circles = await accessibleScheduleCircleIds(user);
+    if (circles.length === 0) {
       return reply
         .code(403)
         .type('text/html')

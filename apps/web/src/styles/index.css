@@ -1903,6 +1903,17 @@ button.primary:active {
   color: var(--warn-text);
   border: 1px solid var(--warn-border);
 }
+.card-status.locked {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  border: 1px solid var(--separator);
+}
+/* Active support-access banner (neutral/info, vs the warn delete banner). */
+.delete-banner.support {
+  background: var(--accent-fill);
+  border-color: transparent;
+  color: var(--accent);
+}
 
 /* "Scheduled for deletion" banner — admin circle detail + member calendar. */
 .delete-banner {

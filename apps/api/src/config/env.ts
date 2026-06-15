@@ -43,6 +43,8 @@ const schema = z.object({
 
   /** Grace period (days) a soft-deleted circle is retained before the worker purges it. */
   CIRCLE_PURGE_GRACE_DAYS: z.coerce.number().default(30),
+  /** Minutes a site-admin break-glass support grant stays valid after unlocking. */
+  SUPPORT_ACCESS_MINUTES: z.coerce.number().default(30),
 
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default('claude-opus-4-8'),

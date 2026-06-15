@@ -35,6 +35,8 @@ model AuthUser {
   /// OAuth account-linking (e.g. Alexa) issued to this user.
   oauthAuthCodes OAuthAuthCode[]
   oauthTokens    OAuthToken[]
+  /// Active break-glass grants this user holds over circles.
+  supportGrants  CircleSupportGrant[]
 }
 
 /// Grants an AuthUser admin rights over a single circle (manage its members,
@@ -85,6 +87,10 @@ model Circle {
   tgLinkCode    String?   @unique
   tgLinkExpires DateTime?
 
+  /// Scrypt hash (salt:hash) of the support passphrase a circle insider sets so a
+  /// site admin can unlock time-limited access to this circle's data. Null = unset.
+  supportPassphraseHash String? @db.Text
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -99,8 +105,24 @@ model Circle {
   emailPolls    EmailPollLog[]
   maintRuns     MaintenanceRun[]
   llmUsage      LlmUsage[]
+  supportGrants CircleSupportGrant[]
 
   @@index([purgeAfter])
+}
+
+/// A time-limited "break-glass" grant letting a site admin (authUser) access a
+/// circle's data after entering its support passphrase. Auto-expires.
+model CircleSupportGrant {
+  id         String   @id @default(cuid())
+  circleId   String
+  circle     Circle   @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  authUserId String
+  authUser   AuthUser @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@unique([circleId, authUserId])
+  @@index([authUserId, expiresAt])
 }
 
 /// A WhatsApp group the circle's Jarvis number is in. Has a shared calendar.

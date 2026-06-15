@@ -17,6 +17,10 @@ import {
   adminDeleteCircleMember,
   adminDeleteCircleCover,
   adminReinstateCircle,
+  adminSetSupportPassphrase,
+  adminClearSupportPassphrase,
+  adminUnlockSupportAccess,
+  adminLockSupportAccess,
   adminDeleteUser,
   adminImportSchedule,
   adminListCircles,
@@ -32,11 +36,13 @@ import {
 } from '../lib/api';
 import type {
   AdminCircle,
+  AdminCircleEntry,
   AdminCircleGroup,
   AdminUser,
   CircleMemberRole,
   EmailActivity,
   EmailConfirmResult,
+  LockedCircle,
   MaintenanceJob,
   TelegramLink,
   TelegramStatus,
@@ -236,13 +242,13 @@ export function Circles({
   onOpen: (id: string) => void;
   onBack: () => void;
 }) {
-  const [circles, setCircles] = useState<AdminCircle[]>([]);
+  const [circles, setCircles] = useState<AdminCircleEntry[]>([]);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [tz, setTz] = useState('America/Los_Angeles');
   const [error, setError] = useState<string | null>(null);
   // Set to a circle when its delete (type-to-confirm) modal is open.
-  const [deleteTarget, setDeleteTarget] = useState<AdminCircle | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AdminCircleEntry | null>(null);
   const onError = (e: unknown) => setError(String((e as Error).message ?? e));
 
   const load = useCallback(() => {
@@ -264,7 +270,7 @@ export function Circles({
 
   const current = itemId ? (circles.find((c) => c.id === itemId) ?? null) : null;
 
-  async function reinstate(c: AdminCircle) {
+  async function reinstate(c: AdminCircleEntry) {
     try {
       await adminReinstateCircle(c.id);
       load();
@@ -293,14 +299,41 @@ export function Circles({
         )}
         <section className="admin-card">
           <h2>{current.name}</h2>
-          <CircleDetail
-            circle={current}
-            siteAdmin={siteAdmin}
-            onError={onError}
-            onChanged={load}
-            onRemove={() => setDeleteTarget(current)}
-            onReinstate={() => reinstate(current)}
-          />
+          {current.locked ? (
+            <LockedCircleDetail
+              circle={current}
+              onError={onError}
+              onUnlocked={load}
+              onRemove={() => setDeleteTarget(current)}
+            />
+          ) : (
+            <>
+              {current.accessExpiresAt && (
+                <div className="delete-banner support">
+                  <span>
+                    Support access until <strong>{fmtTime(current.accessExpiresAt)}</strong>.
+                  </span>
+                  <button
+                    className="btn-quiet"
+                    onClick={async () => {
+                      await adminLockSupportAccess(current.id).catch(onError);
+                      load();
+                    }}
+                  >
+                    Lock now
+                  </button>
+                </div>
+              )}
+              <CircleDetail
+                circle={current}
+                siteAdmin={siteAdmin}
+                onError={onError}
+                onChanged={load}
+                onRemove={() => setDeleteTarget(current)}
+                onReinstate={() => reinstate(current)}
+              />
+            </>
+          )}
         </section>
         {deleteTarget && (
           <DeleteCircleModal
@@ -348,10 +381,10 @@ export function Circles({
           {circles.map((c) => (
             <button
               key={c.id}
-              className={`vac-card${c.coverImageUrl ? ' has-image' : ''}${c.deletedAt ? ' deleting' : ''}`}
+              className={`vac-card${!c.locked && c.coverImageUrl ? ' has-image' : ''}${c.deletedAt ? ' deleting' : ''}`}
               onClick={() => onOpen(c.id)}
               style={
-                c.coverImageUrl
+                !c.locked && c.coverImageUrl
                   ? {
                       backgroundImage: `linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.72) 100%), url("${c.coverImageUrl}")`,
                     }
@@ -364,12 +397,21 @@ export function Circles({
                     Scheduled for deletion · purges {fmtPurgeDate(c.purgeAfter)}
                   </span>
                 )}
+                {c.locked && <span className="card-status locked">🔒 Locked</span>}
                 <div className="vac-card-title">{c.name}</div>
                 <div className="vac-card-dates">{c.timezone}</div>
                 <div className="vac-card-foot">
-                  {c.members.length} member{c.members.length === 1 ? '' : 's'} · {c.groups.length} group
-                  {c.groups.length === 1 ? '' : 's'} · {c.counts.events} event
-                  {c.counts.events === 1 ? '' : 's'}
+                  {c.locked ? (
+                    <>
+                      {healthLabel(c.health)} · members-only
+                    </>
+                  ) : (
+                    <>
+                      {c.members.length} member{c.members.length === 1 ? '' : 's'} · {c.groups.length}{' '}
+                      group{c.groups.length === 1 ? '' : 's'} · {c.counts.events} event
+                      {c.counts.events === 1 ? '' : 's'}
+                    </>
+                  )}
                 </div>
               </div>
             </button>
@@ -496,7 +538,7 @@ function DeleteCircleModal({
   onCancel,
   onConfirm,
 }: {
-  circle: AdminCircle;
+  circle: AdminCircleEntry;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -515,10 +557,19 @@ function DeleteCircleModal({
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>Delete “{circle.name}”?</h2>
         <p className="muted">
-          This schedules the circle for deletion. Its {circle.groups.length} group(s),{' '}
-          {circle.members.length} member(s), {circle.counts.events} event(s) and{' '}
-          {circle.counts.vacations} trip(s) are kept for 30 days so you can restore it, then
-          permanently removed.
+          {circle.locked ? (
+            <>
+              This schedules the circle for deletion. All its data is kept for 30 days so you can
+              restore it, then permanently removed.
+            </>
+          ) : (
+            <>
+              This schedules the circle for deletion. Its {circle.groups.length} group(s),{' '}
+              {circle.members.length} member(s), {circle.counts.events} event(s) and{' '}
+              {circle.counts.vacations} trip(s) are kept for 30 days so you can restore it, then
+              permanently removed.
+            </>
+          )}
         </p>
         <label>
           Type the circle name to confirm
@@ -911,6 +962,9 @@ function SettingsPane({
     <div className="pane">
       <JobsSection circle={circle} onError={onError} onChanged={onChanged} />
       <CoverImageSection circle={circle} onError={onError} onChanged={onChanged} />
+      {circle.isInsider && (
+        <SupportPassphraseSection circle={circle} onError={onError} onChanged={onChanged} />
+      )}
       <div className="subsec danger-zone">
         <h4>Danger zone</h4>
         {scheduled ? (
@@ -939,6 +993,77 @@ function SettingsPane({
   );
 }
 
+/** Insider-only: set/clear the passphrase a site admin uses for break-glass access. */
+function SupportPassphraseSection({
+  circle,
+  onError,
+  onChanged,
+}: {
+  circle: AdminCircle;
+  onError: (e: unknown) => void;
+  onChanged: () => void;
+}) {
+  const [pass, setPass] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (pass.trim().length < 6) return;
+    setBusy(true);
+    try {
+      await adminSetSupportPassphrase(circle.id, pass.trim());
+      setPass('');
+      onChanged();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function clear() {
+    if (!confirm('Remove the support passphrase? Any active support access is revoked.')) return;
+    setBusy(true);
+    try {
+      await adminClearSupportPassphrase(circle.id);
+      onChanged();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="subsec">
+      <h4>Support access</h4>
+      <p className="muted">
+        Your schedule is private — even site admins can't see it. Set a passphrase to share with
+        support if you need help; it grants them time-limited access you can revoke anytime.
+      </p>
+      <form onSubmit={save} className="email-add">
+        <input
+          type="password"
+          value={pass}
+          onChange={(e) => setPass(e.target.value)}
+          placeholder={circle.hasSupportPassphrase ? 'Set a new passphrase' : 'Set a passphrase (min 6 chars)'}
+          autoComplete="off"
+        />
+        <button className="btn-quiet" type="submit" disabled={busy || pass.trim().length < 6}>
+          {circle.hasSupportPassphrase ? 'Update' : 'Set'}
+        </button>
+        {circle.hasSupportPassphrase && (
+          <button type="button" className="btn-quiet danger" onClick={clear} disabled={busy}>
+            Remove
+          </button>
+        )}
+      </form>
+      {circle.hasSupportPassphrase && (
+        <p className="onboard-hint">A support passphrase is set.</p>
+      )}
+    </div>
+  );
+}
+
 /** Format a purge timestamp as a readable date, e.g. "Jul 14, 2026". */
 function fmtPurgeDate(iso: string | null): string {
   if (!iso) return 'the scheduled date';
@@ -947,6 +1072,124 @@ function fmtPurgeDate(iso: string | null): string {
     month: 'short',
     day: 'numeric',
   });
+}
+
+/** Short clock time, e.g. "3:45 PM". */
+function fmtTime(iso: string | null): string {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+/** One-line connection summary for a locked circle's card. */
+function healthLabel(h: LockedCircle['health']): string {
+  const on: string[] = [];
+  if (h.whatsapp) on.push('WhatsApp');
+  if (h.telegram) on.push('Telegram');
+  if (h.email.enabled) on.push('Email');
+  return on.length ? on.join(' + ') : 'No connections';
+}
+
+/**
+ * Detail view for a circle the site admin manages but can't see the data of.
+ * Shows connection health and a passphrase unlock for time-limited access.
+ */
+function LockedCircleDetail({
+  circle,
+  onError,
+  onUnlocked,
+  onRemove,
+}: {
+  circle: LockedCircle;
+  onError: (e: unknown) => void;
+  onUnlocked: () => void;
+  onRemove: () => void;
+}) {
+  const [pass, setPass] = useState('');
+  const [busy, setBusy] = useState(false);
+  const h = circle.health;
+
+  async function unlock(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await adminUnlockSupportAccess(circle.id, pass);
+      setPass('');
+      onUnlocked();
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="circle-detail">
+      <div className="conn-card pad">
+        <div className="conn-title">🔒 Member-only circle</div>
+        <p className="muted">
+          You can manage this circle, but its members' schedule and data are private. Connection
+          health only:
+        </p>
+        <ul className="signup-facts">
+          <li>
+            <span>WhatsApp</span>
+            <strong>{h.whatsapp ? 'Linked' : '—'}</strong>
+          </li>
+          <li>
+            <span>Telegram</span>
+            <strong>{h.telegram ? 'Linked' : '—'}</strong>
+          </li>
+          <li>
+            <span>Email</span>
+            <strong>{h.email.enabled ? (h.email.hasCredential ? 'Active' : 'No credential') : '—'}</strong>
+          </li>
+        </ul>
+      </div>
+
+      <div className="conn-card pad" style={{ marginTop: '1rem' }}>
+        <div className="conn-title">Unlock support access</div>
+        {circle.hasSupportPassphrase ? (
+          <form onSubmit={unlock} className="email-add" style={{ marginTop: '0.5rem' }}>
+            <input
+              type="password"
+              value={pass}
+              onChange={(e) => setPass(e.target.value)}
+              placeholder="Support passphrase"
+              autoComplete="off"
+            />
+            <button className="btn-quiet" type="submit" disabled={busy || !pass.trim()}>
+              {busy ? 'Unlocking…' : 'Unlock'}
+            </button>
+            <p className="onboard-hint" style={{ width: '100%' }}>
+              Enter the passphrase a circle member gave you for time-limited access to help resolve
+              an issue.
+            </p>
+          </form>
+        ) : (
+          <p className="muted">
+            This circle hasn't set a support passphrase, so its data can't be unlocked. Ask a circle
+            member to set one from their dashboard.
+          </p>
+        )}
+      </div>
+
+      <div className="subsec danger-zone" style={{ marginTop: '1rem' }}>
+        <h4>Danger zone</h4>
+        {circle.deletedAt ? (
+          <p className="muted">Scheduled for deletion · purges {fmtPurgeDate(circle.purgeAfter)}.</p>
+        ) : (
+          <>
+            <p className="muted">
+              Schedule this circle for deletion. Data is kept 30 days so it can be restored.
+            </p>
+            <button className="btn-danger" onClick={onRemove}>
+              Delete circle
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function CoverImageSection({

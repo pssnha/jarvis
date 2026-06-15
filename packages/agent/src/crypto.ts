@@ -50,3 +50,24 @@ export function maskPhone(value: string | null | undefined): string | null {
   const d = normalizePhone(value);
   return d.length >= 4 ? `•••• ${d.slice(-4)}` : '••••';
 }
+
+/** Hash a passphrase with a random salt (scrypt) → "salt:hash" (both hex). */
+export function hashPassphrase(plain: string): string {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(plain, salt, 64);
+  return `${salt.toString('hex')}:${hash.toString('hex')}`;
+}
+
+/** Verify a passphrase against a stored "salt:hash" value, in constant time. */
+export function verifyPassphrase(plain: string, stored: string | null | undefined): boolean {
+  if (!stored) return false;
+  const [saltHex, hashHex] = stored.split(':');
+  if (!saltHex || !hashHex) return false;
+  try {
+    const expected = Buffer.from(hashHex, 'hex');
+    const actual = crypto.scryptSync(plain, Buffer.from(saltHex, 'hex'), expected.length);
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  } catch {
+    return false;
+  }
+}

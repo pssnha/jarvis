@@ -1221,6 +1221,23 @@ button.primary:active {
   font-size: 0.92rem;
   word-break: break-all;
 }
+/* Numbered Telegram link instructions */
+.conn-steps {
+  margin: 0.2rem 0 0.6rem;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+.conn-steps code {
+  background: var(--surface-2);
+  border-radius: var(--r-xs);
+  padding: 0.05rem 0.35rem;
+  font-size: 0.85em;
+}
 .conn-empty {
   color: var(--text-secondary);
   font-size: 0.9rem;

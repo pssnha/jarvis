@@ -624,13 +624,32 @@ function CircleTelegram({ circle, onError }: { circle: AdminCircle; onError: (e:
         </button>
       ) : link ? (
         <div className="conn-main">
-          {link.deepLink && (
-            <a className="btn-quiet" href={link.deepLink} target="_blank" rel="noreferrer">
-              Add Jarvis to a group
-            </a>
-          )}
+          <ol className="conn-steps">
+            <li>
+              In Telegram, open the group you want Jarvis in, tap <strong>Add members</strong>,
+              search <code>{bot}</code> and add it.
+              {link.deepLink && (
+                <>
+                  {' '}
+                  Shortcut:{' '}
+                  <a href={link.deepLink} target="_blank" rel="noreferrer">
+                    add to a group
+                  </a>
+                  . If that just opens a chat with the bot, add it manually as above.
+                </>
+              )}
+            </li>
+            <li>
+              In that group, send <code>{link.command}</code>. Jarvis replies to confirm it's
+              linked (works even before privacy mode is changed).
+            </li>
+          </ol>
           <div className="conn-sub">
-            Then send <code>{link.command}</code> in the group.
+            One Telegram group per circle. The code expires soon —{' '}
+            <button className="link" onClick={generate} disabled={busy}>
+              get a new code
+            </button>
+            .
           </div>
         </div>
       ) : (

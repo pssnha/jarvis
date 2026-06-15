@@ -13,7 +13,7 @@ import { registerOAuth, bearerAuth } from './routes/oauth';
 import { registerVoice } from './routes/voice';
 import { registerWhatsApp } from './whatsapp';
 import { registerTelegram } from './telegram';
-import { requireCircleParam } from './lib/circleGuard';
+import { requireCircleParam, rejectDeletedCircleParam } from './lib/circleGuard';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -76,6 +76,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(async (scoped) => {
         scoped.addHook('preHandler', app.requireAuth);
         scoped.addHook('preHandler', requireCircleParam); // fail-safe: any :cid route is circle-scoped
+        scoped.addHook('preHandler', rejectDeletedCircleParam); // soft-deleted circles are off-limits to members
         await registerCircles(scoped);
         await registerVacations(scoped);
       });

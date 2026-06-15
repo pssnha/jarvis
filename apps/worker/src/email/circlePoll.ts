@@ -25,7 +25,12 @@ export async function pollCircleMailboxes(): Promise<void> {
   polling = true;
   try {
     const circles = await prisma.circle.findMany({
-      where: { emailEnabled: true, emailAddress: { not: null }, emailEncCred: { not: null } },
+      where: {
+        deletedAt: null, // skip soft-deleted (dormant) circles
+        emailEnabled: true,
+        emailAddress: { not: null },
+        emailEncCred: { not: null },
+      },
       include: { mutedJobs: { select: { job: true } } },
     });
     for (const circle of circles) {

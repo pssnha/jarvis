@@ -66,6 +66,7 @@ export async function handleInboundMessage(
 
   const circle = await getCircle(circleId);
   if (!circle) return;
+  if (circle.deletedAt) return; // circle scheduled for deletion — don't service it
 
   const isGroup = jid.endsWith('@g.us');
   const senderJid = isGroup ? (msg.key.participant ?? '') : jid;

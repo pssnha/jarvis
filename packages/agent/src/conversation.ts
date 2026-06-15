@@ -127,7 +127,12 @@ export async function findMemberByWhatsApp(circleId: string, number: string) {
 
 /** All circle ids (for booting one WhatsApp session per circle). */
 export async function allCircleIds(): Promise<string[]> {
-  const rows = await prisma.circle.findMany({ select: { id: true }, orderBy: { createdAt: 'asc' } });
+  // Soft-deleted circles are dormant — no WhatsApp session, no servicing.
+  const rows = await prisma.circle.findMany({
+    where: { deletedAt: null },
+    select: { id: true },
+    orderBy: { createdAt: 'asc' },
+  });
   return rows.map((r) => r.id);
 }
 

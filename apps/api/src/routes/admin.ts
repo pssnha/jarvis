@@ -288,6 +288,9 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     const now = new Date();
     const purgeAfter = new Date(now.getTime() + env.CIRCLE_PURGE_GRACE_DAYS * 86_400_000);
     await prisma.circle.update({ where: { id: cid }, data: { deletedAt: now, purgeAfter } });
+    // Tear down the WhatsApp session so the circle stops being serviced. Email +
+    // Telegram go dormant via deletedAt filters; restore reactivates everything.
+    await redis.publish('wa:control', JSON.stringify({ action: 'stop', circleId: cid }));
     return { ok: true, purgeAfter };
   });
 
@@ -298,6 +301,9 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     const c = await prisma.circle.findUnique({ where: { id: cid } });
     if (!c) return reply.code(404).send({ error: 'circle not found' });
     await prisma.circle.update({ where: { id: cid }, data: { deletedAt: null, purgeAfter: null } });
+    // Reactivate: bring the WhatsApp session back up (may surface a QR to re-link
+    // if the device was logged out during the grace period).
+    await redis.publish('wa:control', JSON.stringify({ action: 'start', circleId: cid }));
     return { ok: true };
   });
 

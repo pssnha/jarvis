@@ -19,6 +19,7 @@ const sent = new Map<string, string>(); // groupId -> dateKey
 export async function sendDailyBriefs(): Promise<void> {
   const now = new Date();
   const circles = await prisma.circle.findMany({
+    where: { deletedAt: null }, // skip soft-deleted (dormant) circles
     include: {
       groups: {
         where: { OR: [{ whatsappGroupId: { not: null } }, { telegramChatId: { not: null } }] },

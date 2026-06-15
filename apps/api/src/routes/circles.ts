@@ -58,7 +58,8 @@ export async function registerCircles(app: FastifyInstance): Promise<void> {
   app.get('/circles', async (req) => {
     const ids = await accessibleCircleIds(req);
     return prisma.circle.findMany({
-      where: ids === 'all' ? {} : { id: { in: ids } },
+      // Soft-deleted circles are dormant — hidden from members until restored.
+      where: ids === 'all' ? { deletedAt: null } : { id: { in: ids }, deletedAt: null },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,

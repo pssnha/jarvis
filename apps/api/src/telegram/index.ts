@@ -151,6 +151,7 @@ async function handleUpdate(update: TgUpdate): Promise<void> {
     if (!group) return; // unlinked group — ignore
     const circle = await getCircle(group.circleId);
     if (!circle) return;
+    if (circle.deletedAt) return; // circle scheduled for deletion — don't service it
     const member = await resolveMember(circle.id, { tgId, name });
     if (member) await ensureGroupMember(group.id, member.id);
     const authUser = await authUserByTelegramId(tgId);
@@ -181,7 +182,7 @@ async function handleUpdate(update: TgUpdate): Promise<void> {
     if (!circleId && authUser.role === 'admin') circleId = (await firstCircle())?.id ?? null;
     if (circleId) {
       const circle = await getCircle(circleId);
-      if (circle) {
+      if (circle && !circle.deletedAt) {
         const convo = await getOrCreateConversation(circle.id, 'telegram', {});
         const reply = await runScoped({
           circleId: circle.id,
@@ -203,7 +204,7 @@ async function handleUpdate(update: TgUpdate): Promise<void> {
   if (memberships.length > 0) {
     const m = memberships[0]!; // ordered most-recently-active first
     const circle = await getCircle(m.circleId);
-    if (circle) {
+    if (circle && !circle.deletedAt) {
       const convo = await getOrCreateConversation(circle.id, 'telegram', { memberId: m.id });
       let reply = await runScoped({
         circleId: circle.id,

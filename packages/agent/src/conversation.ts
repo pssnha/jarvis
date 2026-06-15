@@ -188,11 +188,27 @@ export async function bindTelegramGroup(code: string, telegramChatId: string, na
     where: { tgLinkCode: code, tgLinkExpires: { gt: new Date() } },
   });
   if (!circle) return null;
-  // Reuse an existing group row for this chat, else create one.
+
+  // If this Telegram chat is already a group row, reuse it (re-point to circle).
   const existing = await prisma.group.findUnique({ where: { telegramChatId } });
-  const group = existing
-    ? await prisma.group.update({ where: { id: existing.id }, data: { circleId: circle.id, name } })
-    : await prisma.group.create({ data: { circleId: circle.id, telegramChatId, name } });
+  let group;
+  if (existing) {
+    group = await prisma.group.update({
+      where: { id: existing.id },
+      data: { circleId: circle.id },
+    });
+  } else {
+    // Attach Telegram to the circle's existing shared group (oldest one not yet
+    // bound to a Telegram chat) so it shares ONE calendar with WhatsApp/web.
+    // Only create a new group if the circle has none to attach to.
+    const primary = await prisma.group.findFirst({
+      where: { circleId: circle.id, telegramChatId: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    group = primary
+      ? await prisma.group.update({ where: { id: primary.id }, data: { telegramChatId } })
+      : await prisma.group.create({ data: { circleId: circle.id, telegramChatId, name } });
+  }
   await prisma.circle.update({
     where: { id: circle.id },
     data: { tgLinkCode: null, tgLinkExpires: null },

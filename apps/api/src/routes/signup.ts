@@ -22,15 +22,12 @@ function messagingDone(s: { channel: string | null; waNumber: string | null }): 
   return false;
 }
 
-/** Which step the applicant should be on, given what's collected so far. */
-function nextStep(s: {
-  channel: string | null;
-  waNumber: string | null;
-  emailAddress: string | null;
-}): 'messaging' | 'email' | 'finish' {
-  if (!messagingDone(s)) return 'messaging';
-  if (!s.emailAddress) return 'email';
-  return 'finish';
+/**
+ * Which step the applicant should be on. A messaging channel is required; the
+ * mailbox is optional and offered on the finish step, so it never gates.
+ */
+function nextStep(s: { channel: string | null; waNumber: string | null }): 'messaging' | 'finish' {
+  return messagingDone(s) ? 'finish' : 'messaging';
 }
 
 /** The applicant-facing view of a sign-up (no secrets). */
@@ -200,23 +197,23 @@ export async function registerSignup(api: FastifyInstance): Promise<void> {
     if (s.status === 'completed' && s.circleId) return reply.send({ circleId: s.circleId, email: s.email });
     if (s.status !== 'approved') return reply.code(409).send({ error: 'This sign-up is not ready for setup yet.' });
     if (!messagingDone(s)) return reply.code(400).send({ error: 'Choose a messaging channel first.' });
-    if (!s.emailAddress || !s.emailEncCred) return reply.code(400).send({ error: 'Connect the mailbox first.' });
 
     const timezone = process.env.DEFAULT_TIMEZONE || 'UTC';
     const circleName = s.circleName || `${s.name}'s circle`;
+    // The mailbox is optional — only wire it up if one was connected & verified.
+    const hasEmail = Boolean(s.emailAddress && s.emailEncCred);
 
-    // Create the tenant + its first WhatsApp group + the applicant as a member,
-    // and wire up the mailbox we verified earlier.
+    // Create the tenant + its first group + the applicant as a member.
     const circle = await prisma.circle.create({
       data: {
         name: circleName,
         timezone,
         waSelf: s.waNumber,
-        emailAddress: s.emailAddress,
-        emailHost: s.emailHost,
-        emailPort: s.emailPort,
-        emailEncCred: s.emailEncCred,
-        emailEnabled: true,
+        emailAddress: hasEmail ? s.emailAddress : null,
+        emailHost: hasEmail ? s.emailHost : null,
+        emailPort: hasEmail ? s.emailPort : null,
+        emailEncCred: hasEmail ? s.emailEncCred : null,
+        emailEnabled: hasEmail,
         groups: { create: { name: circleName } },
         members: {
           create: { name: s.name, email: s.email, waEnc: s.phoneEnc, waHash: s.phoneHash },
@@ -246,8 +243,10 @@ export async function registerSignup(api: FastifyInstance): Promise<void> {
     if (s.channel === 'whatsapp') {
       await redis.publish('wa:control', JSON.stringify({ action: 'start', circleId: circle.id }));
     }
-    // Scan the mailbox now rather than waiting for the scheduled poll.
-    await redis.publish('email:control', JSON.stringify({ action: 'poll', circleId: circle.id }));
+    // Scan the mailbox now (if one was connected) rather than waiting for the poll.
+    if (hasEmail) {
+      await redis.publish('email:control', JSON.stringify({ action: 'poll', circleId: circle.id }));
+    }
 
     return reply.send({ circleId: circle.id, email: s.email });
   });

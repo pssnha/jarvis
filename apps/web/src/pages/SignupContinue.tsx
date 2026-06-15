@@ -78,23 +78,22 @@ export function SignupContinue({ token }: { token: string }) {
       <div className="onboard-card wide">
         <WizardHeader step={view.step} />
         {view.step === 'messaging' && <MessagingStep token={token} onNext={setView} />}
-        {view.step === 'email' && <EmailStep token={token} onNext={setView} />}
-        {view.step === 'finish' && <FinishStep token={token} view={view} />}
+        {view.step === 'finish' && <FinishStep token={token} view={view} onUpdate={setView} />}
       </div>
     </div>
   );
 }
 
 function WizardHeader({ step }: { step: SignupPublic['step'] }) {
-  const idx = step === 'messaging' ? 0 : step === 'email' ? 1 : 2;
-  const labels = ['Choose a channel', 'Connect email', 'Finish'];
+  const idx = step === 'messaging' ? 0 : 1;
+  const labels = ['Choose a channel', 'Finish'];
   return (
     <div className="onboard-steps">
-      {[0, 1, 2].map((i) => (
+      {[0, 1].map((i) => (
         <span key={i} className={i <= idx ? 'dot on' : 'dot'} />
       ))}
       <span className="onboard-steplabel">
-        Step {idx + 2} of 3 · {labels[idx]}
+        Step {idx + 1} of 2 · {labels[idx]}
       </span>
     </div>
   );
@@ -208,7 +207,8 @@ function MessagingStep({
   );
 }
 
-function EmailStep({ token, onNext }: { token: string; onNext: (v: SignupPublic) => void }) {
+/** Optional mailbox connect form, embedded in the finish step. */
+function MailboxForm({ token, onSaved }: { token: string; onSaved: (v: SignupPublic) => void }) {
   const [address, setAddress] = useState('');
   const [credential, setCredential] = useState('');
   const [advanced, setAdvanced] = useState(false);
@@ -222,7 +222,7 @@ function EmailStep({ token, onNext }: { token: string; onNext: (v: SignupPublic)
     setError(null);
     setBusy(true);
     try {
-      onNext(
+      onSaved(
         await signupSetEmail(token, {
           address: address.trim(),
           credential: credential.trim(),
@@ -239,13 +239,6 @@ function EmailStep({ token, onNext }: { token: string; onNext: (v: SignupPublic)
 
   return (
     <form onSubmit={submit}>
-      <h1>Connect a mailbox</h1>
-      <p className="muted">
-        Your circle gets a dedicated mailbox. Forward appointment confirmations and itineraries to
-        it, and Jarvis turns them into events. We support Gmail, Outlook, Yahoo, iCloud, AOL, and
-        most IMAP providers.
-      </p>
-
       <label className="onboard-field">
         Email address
         <input
@@ -268,16 +261,12 @@ function EmailStep({ token, onNext }: { token: string; onNext: (v: SignupPublic)
           required
         />
         <span className="onboard-hint">
-          Most providers (Gmail, Yahoo, iCloud) require an <strong>app-password</strong> with
-          2-step verification + IMAP enabled. We verify the login before saving.
+          Most providers (Gmail, Yahoo, iCloud) need an <strong>app-password</strong> with 2-step
+          verification + IMAP enabled. We verify the login before saving.
         </span>
       </label>
 
-      <button
-        type="button"
-        className="onboard-toggle"
-        onClick={() => setAdvanced((a) => !a)}
-      >
+      <button type="button" className="onboard-toggle" onClick={() => setAdvanced((a) => !a)}>
         {advanced ? 'Hide' : 'Advanced'} IMAP settings
       </button>
       {advanced && (
@@ -294,17 +283,26 @@ function EmailStep({ token, onNext }: { token: string; onNext: (v: SignupPublic)
       )}
 
       {error && <p className="onboard-error">{error}</p>}
-      <button className="onboard-btn primary" type="submit" disabled={busy}>
-        {busy ? 'Verifying…' : 'Verify & continue'}
+      <button className="onboard-btn ghost" type="submit" disabled={busy}>
+        {busy ? 'Verifying…' : 'Verify & save mailbox'}
       </button>
     </form>
   );
 }
 
-function FinishStep({ token, view }: { token: string; view: SignupPublic }) {
+function FinishStep({
+  token,
+  view,
+  onUpdate,
+}: {
+  token: string;
+  view: SignupPublic;
+  onUpdate: (v: SignupPublic) => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState(false);
+  const [addMailbox, setAddMailbox] = useState(false);
 
   async function finish() {
     setError(null);
@@ -347,9 +345,25 @@ function FinishStep({ token, view }: { token: string; view: SignupPublic }) {
         </li>
         <li>
           <span>Mailbox</span>
-          <strong>{view.emailAddress}</strong>
+          <strong>{view.emailAddress ?? 'Not connected · optional'}</strong>
         </li>
       </ul>
+
+      {/* Optional: a mailbox so forwarded emails become events. Skippable. */}
+      {view.emailAddress ? null : addMailbox ? (
+        <div className="onboard-callout">
+          <strong>Connect a mailbox (optional)</strong>
+          <p className="onboard-hint">
+            Forward appointment confirmations and itineraries to it and Jarvis turns them into
+            events. You can also add one later from your dashboard.
+          </p>
+          <MailboxForm token={token} onSaved={onUpdate} />
+        </div>
+      ) : (
+        <button type="button" className="onboard-toggle" onClick={() => setAddMailbox(true)}>
+          + Add a mailbox (optional)
+        </button>
+      )}
 
       {error && <p className="onboard-error">{error}</p>}
       <button className="onboard-btn primary" onClick={finish} disabled={busy}>

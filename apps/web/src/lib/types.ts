@@ -279,7 +279,7 @@ export interface WhatsAppStatus {
 
 // ---------- Onboarding / sign-up ----------
 
-export type SignupStep = 'messaging' | 'email' | 'finish';
+export type SignupStep = 'messaging' | 'finish';
 /** pending_review | approved | completed | rejected */
 export type SignupStatus = 'pending_review' | 'approved' | 'completed' | 'rejected';
 /** The messaging channel a circle uses. */

@@ -1885,6 +1885,25 @@ button.primary:active {
   transform: scale(0.98);
 }
 
+/* Circle card scheduled for deletion: dim it + a warning status pill. */
+.vac-card.deleting {
+  opacity: 0.6;
+}
+.card-status {
+  align-self: flex-start;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  margin-bottom: 0.5rem;
+}
+.card-status.deleting {
+  background: var(--warn-fill);
+  color: var(--warn-text);
+  border: 1px solid var(--warn-border);
+}
+
 /* "Scheduled for deletion" banner — admin circle detail + member calendar. */
 .delete-banner {
   display: flex;

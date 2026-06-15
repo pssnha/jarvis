@@ -348,7 +348,7 @@ export function Circles({
           {circles.map((c) => (
             <button
               key={c.id}
-              className={c.coverImageUrl ? 'vac-card has-image' : 'vac-card'}
+              className={`vac-card${c.coverImageUrl ? ' has-image' : ''}${c.deletedAt ? ' deleting' : ''}`}
               onClick={() => onOpen(c.id)}
               style={
                 c.coverImageUrl
@@ -359,6 +359,11 @@ export function Circles({
               }
             >
               <div className="vac-card-body">
+                {c.deletedAt && (
+                  <span className="card-status deleting">
+                    Scheduled for deletion · purges {fmtPurgeDate(c.purgeAfter)}
+                  </span>
+                )}
                 <div className="vac-card-title">{c.name}</div>
                 <div className="vac-card-dates">{c.timezone}</div>
                 <div className="vac-card-foot">

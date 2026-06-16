@@ -9,7 +9,7 @@ export const APP_NAME = 'jarvis';
  */
 export const USAGE_LIMITS = {
   dailyMin: 0.25,
-  dailyMax: 2,
+  dailyMax: 10,
   dailyDefault: 1,
   monthlyMin: 10,
   monthlyMax: 50,

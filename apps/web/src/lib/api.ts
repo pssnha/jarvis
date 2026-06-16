@@ -358,6 +358,14 @@ export async function adminSetCircleLimits(
 export async function getCircleUsage(cid: string): Promise<CircleUsage> {
   return fetch(`/api/circles/${cid}/usage`).then((r) => json<CircleUsage>(r));
 }
+export async function getCircleChat(
+  cid: string,
+  scope?: string,
+): Promise<{ role: 'user' | 'assistant'; text: string }[]> {
+  const u = new URL(`/api/circles/${cid}/chat`, window.location.origin);
+  if (scope) u.searchParams.set('scope', scope);
+  return fetch(u).then((r) => json<{ role: 'user' | 'assistant'; text: string }[]>(r));
+}
 export async function adminMaintenanceCalendar(
   fromISO: string,
   toISO: string,

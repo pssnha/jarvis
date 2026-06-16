@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from '../lib/socket';
-import { getCircleUsage } from '../lib/api';
+import { getCircleUsage, getCircleChat } from '../lib/api';
 import type { CircleUsage } from '../lib/types';
 
 interface ChatMessage {
@@ -32,6 +32,25 @@ export function Chat({
   const [connected, setConnected] = useState(socket.connected);
   const [usage, setUsage] = useState<CircleUsage | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load the stored conversation for the active circle + scope so history
+  // survives reloads and reopening the pane, and resets when you switch circles.
+  useEffect(() => {
+    if (!circleId) {
+      setMessages([]);
+      return;
+    }
+    let cancelled = false;
+    getCircleChat(circleId, scope)
+      .then((rows) => {
+        if (!cancelled) setMessages(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [circleId, scope]);
 
   // Current spend vs caps; refreshed on circle switch and after each reply
   // (the assistant fires jarvis:refresh, by which point spend has risen).
@@ -84,12 +103,21 @@ export function Chat({
   const modeLabel =
     surface === 'vacations' ? '✈️ Trips' : surface === 'calendar' ? '📅 Calendar' : '🗓️ Schedule';
 
+  // Grow the textarea with its content, up to a cap (then it scrolls).
+  function autoresize() {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }
+
   function send() {
     const text = input.trim();
     if (!text || !circleId) return;
     setMessages((m) => [...m, { role: 'user', text }]);
     socket.emit('chat:message', { text, circleId, scope, surface });
     setInput('');
+    requestAnimationFrame(autoresize); // shrink back to one line
   }
 
   return (
@@ -119,13 +147,22 @@ export function Chat({
         <div ref={endRef} />
       </div>
       <div className="composer">
-        <input
+        <textarea
+          ref={inputRef}
+          rows={1}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') send();
+          onChange={(e) => {
+            setInput(e.target.value);
+            autoresize();
           }}
-          placeholder={!circleId ? 'No circle selected' : connected ? 'Message Jarvis…' : 'connecting…'}
+          onKeyDown={(e) => {
+            // Enter sends; Shift+Enter inserts a newline.
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              send();
+            }
+          }}
+          placeholder={!circleId ? 'No circle selected' : connected ? 'Message Jarvis… (Shift+Enter for a new line)' : 'connecting…'}
           disabled={!circleId}
         />
         <button onClick={send} disabled={!circleId}>

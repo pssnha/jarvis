@@ -5,6 +5,7 @@ import {
   circleUsageStatus,
   createEvent,
   dateKeyInZone,
+  getOrCreateConversation,
   expandCalendar,
   findConflicts,
   getEvent,
@@ -87,6 +88,25 @@ export async function registerCircles(app: FastifyInstance): Promise<void> {
       select: { id: true, name: true },
       orderBy: { createdAt: 'asc' },
     });
+  });
+
+  // Stored web-chat history for a circle + scope (so the UI survives reloads).
+  app.get('/circles/:cid/chat', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    const { scope } = req.query as { scope?: string };
+    if (!(await canAccess(req, cid))) return reply.code(403).send({ error: 'forbidden' });
+    const sc = parseScope(cid, scope);
+    const convo = await getOrCreateConversation(cid, 'web', {
+      groupId: sc.kind === 'group' ? sc.groupId : null,
+      memberId: sc.kind === 'individual' ? sc.memberId : null,
+    });
+    const rows = await prisma.message.findMany({
+      where: { conversationId: convo.id },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+      select: { role: true, content: true },
+    });
+    return rows.map((r) => ({ role: r.role === 'assistant' ? 'assistant' : 'user', text: r.content }));
   });
 
   // Current LLM spend vs caps for the circle (powers the chat usage footer).

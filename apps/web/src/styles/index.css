@@ -438,13 +438,15 @@ button.primary:active {
 .composer {
   display: flex;
   gap: 0.6rem;
+  align-items: flex-end;
   padding: 1rem 1.25rem;
   background: var(--material-bg);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
   border-top: 1px solid var(--separator);
 }
-.composer input {
+.composer input,
+.composer textarea {
   flex: 1;
   min-width: 0;
   padding: 0.7rem 0.95rem;
@@ -453,6 +455,13 @@ button.primary:active {
   font-size: 1rem;
   background: var(--surface-2);
   color: var(--text);
+}
+.composer textarea {
+  resize: none;
+  line-height: 1.4;
+  max-height: 160px;
+  font-family: inherit;
+  overflow-y: auto;
 }
 .composer button {
   padding: 0.7rem 1.3rem;
@@ -746,6 +755,13 @@ button.primary:active {
   overflow: auto;
   max-height: calc(100dvh - 210px);
   position: relative;
+}
+/* On the trips page the day grid sits low in an already-scrolling page, so the
+   calendar-sized inner scroll cut the day off (~2pm). Let it render full height
+   and let the page scroll instead. */
+.vac-detail .tg-scroll {
+  overflow: visible;
+  max-height: none;
 }
 .tg-topstick {
   position: sticky;

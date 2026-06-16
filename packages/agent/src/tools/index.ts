@@ -394,19 +394,16 @@ export const tools: AgentTool[] = [
 export const toolSpecs: ToolSpec[] = tools.map((t) => t.spec);
 export const toolHandlers = new Map(tools.map((t) => [t.spec.name, t.handler]));
 
-/** Which surface (page) the assistant is acting on, to avoid cross-editing. */
+/** Which page the assistant is acting on. A prompt bias only — NOT a hard gate. */
 export type ToolSurface = 'calendar' | 'vacations' | 'general';
 
-const SURFACE_TOOLS: Record<'calendar' | 'vacations', string[]> = {
-  // Calendar page: events only — never trips.
-  calendar: ['create_event', 'list_events', 'find_event', 'cancel_event', 'confirm_proposal', 'reject_proposal'],
-  // Vacations page: trip itineraries only — never calendar events.
-  vacations: ['list_trips', 'add_trip_item', 'cancel_trip_item', 'confirm_proposal', 'reject_proposal'],
-};
-
-/** The tools available on a given surface (all of them for "general"). */
-export function toolsForSurface(surface?: ToolSurface): AgentTool[] {
-  if (!surface || surface === 'general') return tools;
-  const allow = SURFACE_TOOLS[surface];
-  return tools.filter((t) => allow.includes(t.spec.name));
+/**
+ * All tools are available on every surface; `surface` only biases the system
+ * prompt toward the active page. Hard-gating tools by surface previously caused
+ * silent drops — e.g. pasting a trip itinerary while on the Calendar page left
+ * the agent without `add_trip_item`, so it acknowledged the request but did
+ * nothing. The agent now always has the full toolset and the prompt steers it.
+ */
+export function toolsForSurface(_surface?: ToolSurface): AgentTool[] {
+  return tools;
 }

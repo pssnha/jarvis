@@ -103,16 +103,14 @@ export function attachRealtime(app: FastifyInstance): IOServer {
           const authorName = data.authorName?.trim() || undefined;
 
           const surface = data.surface ?? 'general';
-          const tripList =
-            surface === 'calendar'
-              ? []
-              : (await listVacations(circle.id, { includePast: false })).map((v) => ({
-                  id: v.id,
-                  title: v.title,
-                  destinations: v.destinations,
-                  start: toLocalInput(v.startDate, v.timezone ?? circle.timezone, true),
-                  end: toLocalInput(v.endDate, v.timezone ?? circle.timezone, true),
-                }));
+          // Always provide trips so itinerary items route correctly from any page.
+          const tripList = (await listVacations(circle.id, { includePast: false })).map((v) => ({
+            id: v.id,
+            title: v.title,
+            destinations: v.destinations,
+            start: toLocalInput(v.startDate, v.timezone ?? circle.timezone, true),
+            end: toLocalInput(v.endDate, v.timezone ?? circle.timezone, true),
+          }));
 
           const { reply } = await runAgent({
             ctx: {

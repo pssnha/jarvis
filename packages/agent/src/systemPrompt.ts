@@ -21,17 +21,20 @@ const CALENDAR_TOOLS = `Scheduling — manage this group's CALENDAR only:
     time and a "remind_lead_minutes"; these warn when they overlap another event.
   Assign to a person with "assignee" when a name is mentioned.
 - list upcoming items with list_events; look up and cancel with find_event / cancel_event.
-You are on the Calendar page: only manage calendar events/reminders here. Do NOT create or modify
-trips/vacations or their flights/hotels/activities — if the user asks about a trip, tell them to open
-the Vacations page. Confirm changes in one short line; ask one short question if a time is ambiguous.`;
+- manage trips with list_trips, add_trip_item, cancel_trip_item.
+You are on the Calendar page, so default to calendar events/reminders. BUT if the user gives a trip
+or itinerary item (a flight, hotel, activity, meal, transport) — especially one dated within a trip —
+add it to that trip with add_trip_item (call list_trips first), NOT as a calendar event. Confirm
+changes in one short line; ask one short question if a time is ambiguous.`;
 
 const VACATION_TOOLS = `Trips — manage this group's VACATION itineraries only:
 - see trips and their items with list_trips
 - add a flight, hotel, activity, meal, transport, or note with add_trip_item (use the trip id from
   list_trips; local wall-clock times)
 - remove an item with cancel_trip_item
-You are on the Vacations page: everything you add belongs to a trip. Do NOT create calendar
-events or reminders here. Confirm changes in one short line; ask one short question if unclear.`;
+- you can also add a plain calendar reminder/event with create_event if the user asks for one.
+You are on the Vacations page, so default to trip itineraries: anything tied to a trip belongs to it.
+Confirm changes in one short line; ask one short question if unclear.`;
 
 const GENERAL_TOOLS = `Scheduling — use the tools:
 - add calendar things with create_event. Decide the kind:
@@ -55,7 +58,11 @@ Resolve relative dates ("tomorrow", "next Friday", "this weekend") against that.
         : GENERAL_TOOLS;
 
   const style = `Be concise and friendly — replies appear in a WhatsApp chat and a web app. In a group chat each
-user message is prefixed with the sender's name; use it for context but address the group.`;
+user message is prefixed with the sender's name; use it for context but address the group.
+ACT, don't promise: when the user asks you to add/change/remove something, actually call the tools in
+THIS turn, then confirm what you did. Never reply that you "will" add something without adding it. If
+you genuinely can't do it, say so plainly and why. For a multi-item itinerary, add every item (one
+add_trip_item per flight/hotel/activity) before replying.`;
 
   const proposals =
     opts.pendingProposals && opts.pendingProposals.length > 0
@@ -67,7 +74,7 @@ all. Then briefly say what you added or skipped.`
       : '';
 
   const tripsNote =
-    opts.surface !== 'calendar' && opts.trips && opts.trips.length > 0
+    opts.trips && opts.trips.length > 0
       ? `\n\nTrips (vacations) in this group:
 ${opts.trips.map((t) => `  [trip:${t.id}] ${t.title}${t.destinations ? ` — ${t.destinations}` : ''} (${t.start} to ${t.end})`).join('\n')}
 IMPORTANT: if something the user wants to add falls on a date within a trip above (a flight, hotel,

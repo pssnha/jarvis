@@ -2434,7 +2434,9 @@ button.primary:active {
 .vac-detail {
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  /* Don't shrink inside the scrolling .vacations column — size to content so the
+     full-height day grid pushes the page to scroll (rather than being clipped). */
+  flex-shrink: 0;
 }
 .vac-detail-head {
   display: flex;

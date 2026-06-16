@@ -37,7 +37,10 @@ export const claudeProvider: LlmProvider = {
     for (let turn = 0; turn < maxTurns; turn++) {
       const response = await anthropic.messages.create({
         model: MODEL,
-        max_tokens: 2048,
+        // Generous cap: adaptive thinking + many tool calls (e.g. adding a 25-item
+        // itinerary) need room. Too small and the response is truncated mid tool
+        // call, the tool calls are dropped, and the agent silently does nothing.
+        max_tokens: 8192,
         system: opts.system,
         thinking: { type: 'adaptive' },
         tools,
@@ -46,7 +49,13 @@ export const claudeProvider: LlmProvider = {
       record(opts, response.usage);
       messages.push({ role: 'assistant', content: response.content });
 
-      if (response.stop_reason !== 'tool_use') {
+      // Execute every tool call the model emitted — even if the turn stopped on
+      // `max_tokens` (a truncated turn still carries complete tool_use blocks).
+      // Only finish (return the text) when there were no tool calls at all.
+      const toolUses = response.content.filter(
+        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+      );
+      if (toolUses.length === 0) {
         return response.content
           .filter((b): b is Anthropic.TextBlock => b.type === 'text')
           .map((b) => b.text)
@@ -55,8 +64,7 @@ export const claudeProvider: LlmProvider = {
       }
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const block of response.content) {
-        if (block.type !== 'tool_use') continue;
+      for (const block of toolUses) {
         const content = await opts.runTool(block.name, block.input as Record<string, unknown>);
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
       }

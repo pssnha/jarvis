@@ -79,6 +79,10 @@ export function Chat({
 
   const where =
     surface === 'vacations' ? 'this trip' : surface === 'calendar' ? 'the calendar' : 'the schedule';
+  // Shown in the header so it's clear which page the chat is bound to — it
+  // follows the active page, and only that page's tools are available here.
+  const modeLabel =
+    surface === 'vacations' ? '✈️ Trips' : surface === 'calendar' ? '📅 Calendar' : '🗓️ Schedule';
 
   function send() {
     const text = input.trim();
@@ -92,6 +96,7 @@ export function Chat({
     <div className="chatview">
       <div className="chat-head">
         <span className="chat-title">Ask Jarvis</span>
+        {circleId && <span className="chat-mode" title="The chat follows the page you're on">{modeLabel}</span>}
         {onClose && (
           <button className="chat-close" onClick={onClose} aria-label="Close assistant">
             ✕

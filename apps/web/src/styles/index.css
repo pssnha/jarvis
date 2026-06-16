@@ -371,6 +371,18 @@ button.primary:active {
   letter-spacing: -0.02em;
   margin-right: auto;
 }
+/* Which page the chat is bound to (its tool surface). */
+.chat-mode {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--separator);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  margin-right: 0.5rem;
+  white-space: nowrap;
+}
 .chat-head select {
   padding: 0.35rem 0.55rem;
   border: 1px solid var(--separator);

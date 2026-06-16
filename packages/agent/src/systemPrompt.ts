@@ -21,20 +21,19 @@ const CALENDAR_TOOLS = `Scheduling — manage this group's CALENDAR only:
     time and a "remind_lead_minutes"; these warn when they overlap another event.
   Assign to a person with "assignee" when a name is mentioned.
 - list upcoming items with list_events; look up and cancel with find_event / cancel_event.
-- manage trips with list_trips, add_trip_item, cancel_trip_item.
-You are on the Calendar page, so default to calendar events/reminders. BUT if the user gives a trip
-or itinerary item (a flight, hotel, activity, meal, transport) — especially one dated within a trip —
-add it to that trip with add_trip_item (call list_trips first), NOT as a calendar event. Confirm
-changes in one short line; ask one short question if a time is ambiguous.`;
+You are on the Calendar page: only manage calendar events/reminders here. You CANNOT add trips or
+itinerary items (flights/hotels/activities) from here — if the user asks to, tell them to switch to
+the Vacations page and ask again there. Confirm changes in one short line; ask one short question if
+a time is ambiguous.`;
 
 const VACATION_TOOLS = `Trips — manage this group's VACATION itineraries only:
 - see trips and their items with list_trips
 - add a flight, hotel, activity, meal, transport, or note with add_trip_item (use the trip id from
   list_trips; local wall-clock times)
 - remove an item with cancel_trip_item
-- you can also add a plain calendar reminder/event with create_event if the user asks for one.
-You are on the Vacations page, so default to trip itineraries: anything tied to a trip belongs to it.
-Confirm changes in one short line; ask one short question if unclear.`;
+You are on the Vacations page: everything you add belongs to a trip. You CANNOT create calendar
+events or reminders here — if the user asks to, tell them to switch to the Calendar page and ask
+again there. Confirm changes in one short line; ask one short question if unclear.`;
 
 const GENERAL_TOOLS = `Scheduling — use the tools:
 - add calendar things with create_event. Decide the kind:
@@ -74,7 +73,7 @@ all. Then briefly say what you added or skipped.`
       : '';
 
   const tripsNote =
-    opts.trips && opts.trips.length > 0
+    opts.surface !== 'calendar' && opts.trips && opts.trips.length > 0
       ? `\n\nTrips (vacations) in this group:
 ${opts.trips.map((t) => `  [trip:${t.id}] ${t.title}${t.destinations ? ` — ${t.destinations}` : ''} (${t.start} to ${t.end})`).join('\n')}
 IMPORTANT: if something the user wants to add falls on a date within a trip above (a flight, hotel,

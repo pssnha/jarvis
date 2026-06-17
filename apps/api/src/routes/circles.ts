@@ -5,7 +5,6 @@ import {
   circleUsageStatus,
   createEvent,
   dateKeyInZone,
-  getOrCreateConversation,
   expandCalendar,
   findConflicts,
   getEvent,
@@ -90,23 +89,38 @@ export async function registerCircles(app: FastifyInstance): Promise<void> {
     });
   });
 
-  // Stored web-chat history for a circle + scope (so the UI survives reloads).
+  // Stored chat history for a circle + scope, merged across channels (web /
+  // WhatsApp / Telegram) so the pane shows who said what, when, and from where.
   app.get('/circles/:cid/chat', async (req, reply) => {
     const { cid } = req.params as { cid: string };
     const { scope } = req.query as { scope?: string };
     if (!(await canAccess(req, cid))) return reply.code(403).send({ error: 'forbidden' });
     const sc = parseScope(cid, scope);
-    const convo = await getOrCreateConversation(cid, 'web', {
-      groupId: sc.kind === 'group' ? sc.groupId : null,
-      memberId: sc.kind === 'individual' ? sc.memberId : null,
-    });
+    const convoWhere =
+      sc.kind === 'group'
+        ? { circleId: cid, groupId: sc.groupId }
+        : sc.kind === 'individual'
+          ? { circleId: cid, memberId: sc.memberId }
+          : { circleId: cid, groupId: null, memberId: null };
     const rows = await prisma.message.findMany({
-      where: { conversationId: convo.id },
+      where: { conversation: convoWhere },
       orderBy: { createdAt: 'asc' },
       take: 100,
-      select: { role: true, content: true },
+      select: {
+        role: true,
+        content: true,
+        authorName: true,
+        createdAt: true,
+        conversation: { select: { channel: true } },
+      },
     });
-    return rows.map((r) => ({ role: r.role === 'assistant' ? 'assistant' : 'user', text: r.content }));
+    return rows.map((r) => ({
+      role: r.role === 'assistant' ? ('assistant' as const) : ('user' as const),
+      text: r.content,
+      author: r.role === 'assistant' ? 'Jarvis' : r.authorName,
+      at: r.createdAt,
+      via: r.conversation.channel,
+    }));
   });
 
   // Current LLM spend vs caps for the circle (powers the chat usage footer).

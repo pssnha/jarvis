@@ -1,15 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from '../lib/socket';
 import { getCircleUsage, getCircleChat } from '../lib/api';
-import type { CircleUsage } from '../lib/types';
+import type { CircleUsage, Me } from '../lib/types';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
+  author?: string | null;
+  at?: string;
+  via?: string; // web | whatsapp | telegram
 }
 
 function fmtCost(n: number): string {
   return '$' + (n >= 1 ? n.toFixed(2) : n.toFixed(4));
+}
+
+const VIA_LABEL: Record<string, string> = { web: 'Web', whatsapp: 'WhatsApp', telegram: 'Telegram' };
+
+/** Footnote shown under a message: who · when · from where. */
+function footnote(m: ChatMessage): string {
+  const who = m.role === 'assistant' ? 'Jarvis' : m.author || 'You';
+  const parts = [who];
+  if (m.at) {
+    const d = new Date(m.at);
+    const today = new Date().toDateString() === d.toDateString();
+    parts.push(
+      today
+        ? d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+        : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }),
+    );
+  }
+  if (m.role !== 'assistant' && m.via) parts.push(VIA_LABEL[m.via] ?? m.via);
+  return parts.join(' · ');
 }
 
 type ChatSurface = 'calendar' | 'vacations' | 'general';
@@ -20,11 +42,13 @@ export function Chat({
   circleId,
   scope,
   surface,
+  me,
   onClose,
 }: {
   circleId?: string | null;
   scope?: string;
   surface?: ChatSurface;
+  me?: Me | null;
   onClose?: () => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -71,12 +95,15 @@ export function Chat({
     const onConnect = () => setConnected(true);
     const onDisconnect = () => setConnected(false);
     const onReply = (data: { text: string }) => {
-      setMessages((m) => [...m, { role: 'assistant', text: data.text }]);
+      setMessages((m) => [...m, { role: 'assistant', text: data.text, at: new Date().toISOString() }]);
       // The assistant may have changed events/trip items — nudge the open pane.
       window.dispatchEvent(new Event('jarvis:refresh'));
     };
     const onError = (data: { message: string }) =>
-      setMessages((m) => [...m, { role: 'assistant', text: `⚠️ ${data.message}` }]);
+      setMessages((m) => [
+        ...m,
+        { role: 'assistant', text: `⚠️ ${data.message}`, at: new Date().toISOString() },
+      ]);
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
@@ -111,11 +138,16 @@ export function Chat({
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }
 
+  const myName = me?.name || me?.email || undefined;
+
   function send() {
     const text = input.trim();
     if (!text || !circleId) return;
-    setMessages((m) => [...m, { role: 'user', text }]);
-    socket.emit('chat:message', { text, circleId, scope, surface });
+    setMessages((m) => [
+      ...m,
+      { role: 'user', text, author: myName ?? 'You', at: new Date().toISOString(), via: 'web' },
+    ]);
+    socket.emit('chat:message', { text, circleId, scope, surface, authorName: myName });
     setInput('');
     requestAnimationFrame(autoresize); // shrink back to one line
   }
@@ -140,8 +172,9 @@ export function Chat({
           </p>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
-            {m.text}
+          <div key={i} className={`msg-wrap ${m.role}`}>
+            <div className={`msg ${m.role}`}>{m.text}</div>
+            <span className="msg-foot">{footnote(m)}</span>
           </div>
         ))}
         <div ref={endRef} />

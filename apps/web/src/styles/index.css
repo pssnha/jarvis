@@ -413,8 +413,27 @@ button.primary:active {
   flex-direction: column;
   gap: 0.4rem;
 }
-.msg {
+/* Each message: bubble + a who·when·where footnote, aligned by sender side. */
+.msg-wrap {
+  display: flex;
+  flex-direction: column;
   max-width: 78%;
+}
+.msg-wrap.user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.msg-wrap.assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+.msg-foot {
+  font-size: 0.68rem;
+  color: var(--text-tertiary);
+  margin: 0.15rem 0.35rem 0;
+}
+.msg {
+  max-width: 100%;
   padding: 0.6rem 0.9rem;
   border-radius: var(--r-lg);
   white-space: pre-wrap;
@@ -2281,6 +2300,27 @@ button.primary:active {
   margin: 0.15rem 0 0.5rem;
   font-size: 0.78rem;
   color: var(--text-secondary);
+}
+/* Read-only event view (shown before switching to edit). */
+.event-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0.25rem 0 0.75rem;
+}
+.event-view .badge {
+  align-self: flex-start;
+}
+.ev-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  font-size: 0.95rem;
+}
+.ev-k {
+  flex: 0 0 5.5rem;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
 }
 .conflict-warn {
   background: var(--warn-fill);

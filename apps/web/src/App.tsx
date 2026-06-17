@@ -210,6 +210,7 @@ export function App() {
             circleId={active?.circleId ?? null}
             scope={active?.scope}
             surface={view === 'vacations' ? 'vacations' : view === 'calendar' ? 'calendar' : 'general'}
+            me={me}
             onClose={() => setChatOpen(false)}
           />
         </aside>

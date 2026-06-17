@@ -74,6 +74,8 @@ export function EventModal({
   const [loading, setLoading] = useState(editing);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Existing events open read-only; new events go straight to the form.
+  const [mode, setMode] = useState<'view' | 'edit'>(editing ? 'view' : 'edit');
 
   const [title, setTitle] = useState('');
   const [kind, setKind] = useState<EventKind>('reminder');
@@ -172,6 +174,42 @@ export function EventModal({
     });
   }
 
+  // --- Read-only display helpers ---
+  function fmtWhen(): string {
+    if (!start) return '';
+    const dateOpts: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric' };
+    const timeOpts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
+    const startD = new Date(start.length === 10 ? `${start}T00:00` : start);
+    if (allDay) {
+      const sd = startD.toLocaleDateString(undefined, dateOpts);
+      if (end && end.slice(0, 10) !== start.slice(0, 10)) {
+        const ed = new Date(`${end.slice(0, 10)}T00:00`).toLocaleDateString(undefined, dateOpts);
+        return `${sd} – ${ed} · all day`;
+      }
+      return `${sd} · all day`;
+    }
+    const dateStr = startD.toLocaleDateString(undefined, dateOpts);
+    const startT = startD.toLocaleTimeString(undefined, timeOpts);
+    if (kind === 'event' && end) {
+      const endD = new Date(end);
+      return end.slice(0, 10) === start.slice(0, 10)
+        ? `${dateStr} · ${startT} – ${endD.toLocaleTimeString(undefined, timeOpts)}`
+        : `${dateStr} ${startT} – ${endD.toLocaleDateString(undefined, dateOpts)} ${endD.toLocaleTimeString(undefined, timeOpts)}`;
+    }
+    return `${dateStr} · ${startT}`;
+  }
+
+  function fmtRepeat(): string | null {
+    if (freq === 'none') return null;
+    const unit = { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' }[freq];
+    let s = repeatEvery > 1 ? `Every ${repeatEvery} ${unit}s` : `Every ${unit}`;
+    if (freq === 'weekly' && weekdays.size > 0) s += ` on ${[...weekdays].join(', ')}`;
+    if (until) s += `, until ${until}`;
+    return s;
+  }
+
+  const assigneeName = assigneeId ? (members.find((m) => m.id === assigneeId)?.name ?? null) : null;
+
   async function save() {
     if (!title.trim() || !start) {
       setError('Title and start are required.');
@@ -232,9 +270,64 @@ export function EventModal({
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{editing ? 'Edit event' : 'New event'}</h2>
+        <h2>{!editing ? 'New event' : mode === 'edit' ? 'Edit event' : title || 'Event'}</h2>
         {loading ? (
           <p>Loading…</p>
+        ) : mode === 'view' ? (
+          <>
+            <div className="event-view">
+              <span className={kind === 'event' ? 'badge admin' : 'badge member'}>
+                {kind === 'event' ? '📅 Event' : '🔔 Reminder'}
+              </span>
+              <div className="ev-row">
+                <span className="ev-k">When</span>
+                <span>{fmtWhen()}</span>
+              </div>
+              {location && (
+                <div className="ev-row">
+                  <span className="ev-k">Location</span>
+                  <span>{location}</span>
+                </div>
+              )}
+              {category && (
+                <div className="ev-row">
+                  <span className="ev-k">Category</span>
+                  <span>{category}</span>
+                </div>
+              )}
+              <div className="ev-row">
+                <span className="ev-k">For</span>
+                <span>{assigneeName ?? 'Whole group'}</span>
+              </div>
+              {kind === 'event' && !allDay && (
+                <div className="ev-row">
+                  <span className="ev-k">Remind</span>
+                  <span>{LEAD_OPTIONS.find((o) => o.value === lead)?.label ?? `${lead} min before`}</span>
+                </div>
+              )}
+              {fmtRepeat() && (
+                <div className="ev-row">
+                  <span className="ev-k">Repeat</span>
+                  <span>{fmtRepeat()}</span>
+                </div>
+              )}
+            </div>
+
+            {error && <p className="error">{error}</p>}
+
+            <div className="modal-actions">
+              <button className="danger" onClick={remove} disabled={busy}>
+                Delete
+              </button>
+              <span style={{ flex: 1 }} />
+              <button onClick={onClose} disabled={busy}>
+                Close
+              </button>
+              <button className="primary" onClick={() => setMode('edit')} disabled={busy}>
+                Edit
+              </button>
+            </div>
+          </>
         ) : (
           <>
             <label>

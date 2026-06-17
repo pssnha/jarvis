@@ -66,6 +66,8 @@ export function VacationItemModal({
   const editing = Boolean(existing);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Existing items open read-only; new items go straight to the form.
+  const [mode, setMode] = useState<'view' | 'edit'>(editing ? 'view' : 'edit');
 
   const [type, setType] = useState<VacationItemType>(existing?.type ?? initialType ?? 'activity');
   const [title, setTitle] = useState(existing?.title ?? '');
@@ -151,6 +153,78 @@ export function VacationItemModal({
   }
 
   const seatLabel = type === 'hotel' ? 'Room' : type === 'flight' ? 'Seat' : 'Seat / unit';
+  const typeLabel = TYPES.find((t) => t.value === type)?.label ?? type;
+
+  // --- Read-only display helpers ---
+  function fmtWhen(): string {
+    if (!start) return '';
+    const dateOpts: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric' };
+    const timeOpts: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
+    const startD = new Date(start.length === 10 ? `${start}T00:00` : start);
+    if (allDay) {
+      const sd = startD.toLocaleDateString(undefined, dateOpts);
+      if (end && end.slice(0, 10) !== start.slice(0, 10)) {
+        const ed = new Date(`${end.slice(0, 10)}T00:00`).toLocaleDateString(undefined, dateOpts);
+        return `${sd} – ${ed} · all day`;
+      }
+      return `${sd} · all day`;
+    }
+    const dateStr = startD.toLocaleDateString(undefined, dateOpts);
+    const startT = startD.toLocaleTimeString(undefined, timeOpts);
+    if (end) {
+      const endD = new Date(end.length === 10 ? `${end}T00:00` : end);
+      return end.slice(0, 10) === start.slice(0, 10)
+        ? `${dateStr} · ${startT} – ${endD.toLocaleTimeString(undefined, timeOpts)}`
+        : `${dateStr} ${startT} – ${endD.toLocaleDateString(undefined, dateOpts)} ${endD.toLocaleTimeString(undefined, timeOpts)}`;
+    }
+    return `${dateStr} · ${startT}`;
+  }
+
+  if (mode === 'view') {
+    const route = f.fromTo && (fromLabel || toLabel) ? `${fromLabel || '?'} → ${toLabel || '?'}` : null;
+    const row = (k: string, v: string | null | undefined) =>
+      v ? (
+        <div className="ev-row">
+          <span className="ev-k">{k}</span>
+          <span>{v}</span>
+        </div>
+      ) : null;
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <h2>{title || 'Item'}</h2>
+          <div className="event-view">
+            <span className="badge member">{typeLabel}</span>
+            {row('When', fmtWhen())}
+            {route && row(labels.start === 'Departure' ? 'Route' : 'From → To', route)}
+            {f.provider && row(providerLabel(type), provider)}
+            {f.number && row('Number', number)}
+            {f.location && row(type === 'hotel' ? 'Address' : 'Location', location)}
+            {f.seat && row(seatLabel, seat)}
+            {f.phone && row('Phone', phone)}
+            {f.booking && row('Confirmation', confirmation)}
+            {f.cost && row('Cost', cost)}
+            {row('Notes', notes)}
+          </div>
+
+          {error && <p className="error">{error}</p>}
+
+          <div className="modal-actions">
+            <button className="danger" onClick={remove} disabled={busy}>
+              Delete
+            </button>
+            <span style={{ flex: 1 }} />
+            <button onClick={onClose} disabled={busy}>
+              Close
+            </button>
+            <button className="primary" onClick={() => setMode('edit')} disabled={busy}>
+              Edit
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>

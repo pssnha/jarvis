@@ -2223,53 +2223,6 @@ button.primary:active {
   border-radius: var(--r-md);
 }
 
-/* ---------- Update toast ---------- */
-.update-toast {
-  position: fixed;
-  left: 50%;
-  bottom: 1.25rem;
-  transform: translateX(-50%);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background: var(--material-strong);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  color: var(--text);
-  padding: 0.7rem 1rem;
-  border-radius: var(--r-md);
-  border: 1px solid var(--separator);
-  box-shadow: var(--shadow-pop);
-  font-size: 0.9rem;
-  max-width: calc(100vw - 1.5rem);
-}
-.update-actions {
-  display: flex;
-  gap: 0.4rem;
-}
-.update-toast button {
-  border: 1px solid var(--separator);
-  background: var(--surface-2);
-  color: var(--text);
-  border-radius: var(--r-sm);
-  padding: 0.4rem 0.8rem;
-  cursor: pointer;
-}
-.update-toast button.primary {
-  background: var(--accent) !important;
-  color: var(--on-accent);
-  border-color: transparent !important;
-}
-@media (max-width: 480px) {
-  .update-toast {
-    left: 0.75rem;
-    right: 0.75rem;
-    transform: none;
-    justify-content: space-between;
-  }
-}
-
 /* ---------- Event modal: type toggle, lead, conflicts ---------- */
 .kind-toggle {
   display: flex;

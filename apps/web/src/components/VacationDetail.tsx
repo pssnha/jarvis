@@ -5,11 +5,10 @@ import { HOUR_PX, hourLabel, layoutColumns, minutesOf } from '../lib/timegrid';
 import { VacationItemModal } from './VacationItemModal';
 import { VacationModal } from './VacationModal';
 
-// Itinerary timeline window: 7:00 AM → 9:00 PM.
+// Default itinerary timeline window: 7:00 AM → 9:00 PM. The grid expands beyond
+// this when a day has events that start earlier or end later (see hoursWin below).
 const DAY_START = 7;
 const DAY_END = 21;
-const HOURS_WIN = Array.from({ length: DAY_END - DAY_START + 1 }, (_, i) => DAY_START + i);
-const GRID_PX = HOURS_WIN.length * HOUR_PX;
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -116,6 +115,13 @@ export function VacationDetail({ circleId, vacationId, onBack }: Props) {
       return { o: i, startMin: s, endMin: Math.min(e, 1440) };
     }),
   );
+
+  // Expand the timeline window to fit any events outside the default hours, so a
+  // late dinner or early flight is never clipped.
+  const dayStartH = blocks.reduce((m, b) => Math.min(m, Math.floor(b.startMin / 60)), DAY_START);
+  const dayEndH = blocks.reduce((m, b) => Math.max(m, Math.ceil(b.endMin / 60) - 1), DAY_END);
+  const hoursWin = Array.from({ length: dayEndH - dayStartH + 1 }, (_, i) => dayStartH + i);
+  const gridPx = hoursWin.length * HOUR_PX;
 
   const cities = (v.destinations ?? '')
     .split(',')
@@ -307,8 +313,8 @@ export function VacationDetail({ circleId, vacationId, onBack }: Props) {
           </div>
 
           <div className="tg-body">
-            <div className="tg-gutter" style={{ height: GRID_PX }}>
-              {HOURS_WIN.map((h) => (
+            <div className="tg-gutter" style={{ height: gridPx }}>
+              {hoursWin.map((h) => (
                 <div key={h} className="tg-hour" style={{ height: HOUR_PX }}>
                   <span>{hourLabel(h)}</span>
                 </div>
@@ -317,18 +323,18 @@ export function VacationDetail({ circleId, vacationId, onBack }: Props) {
             <div
               className="tg-col"
               style={{
-                height: GRID_PX,
+                height: gridPx,
                 backgroundImage: `repeating-linear-gradient(to bottom, #eef0f2 0, #eef0f2 1px, transparent 1px, transparent ${HOUR_PX}px)`,
               }}
               onClick={() => setItemModal({ dateKey: dayKey })}
             >
               {blocks.map((b, idx) => {
                 const c = color(b.o);
-                // Position relative to the 7:00 window start; clamp into view.
-                const rawTop = ((b.startMin - DAY_START * 60) / 60) * HOUR_PX;
-                const top = Math.max(0, Math.min(rawTop, GRID_PX - 18));
+                // Position relative to the window start; clamp into view.
+                const rawTop = ((b.startMin - dayStartH * 60) / 60) * HOUR_PX;
+                const top = Math.max(0, Math.min(rawTop, gridPx - 18));
                 const rawH = Math.max(((b.endMin - b.startMin) / 60) * HOUR_PX - 2, 18);
-                const height = Math.max(14, Math.min(rawH, GRID_PX - top));
+                const height = Math.max(14, Math.min(rawH, gridPx - top));
                 return (
                   <button
                     key={`${b.o.id}-${idx}`}

@@ -13,6 +13,7 @@ import {
   timeLabel,
   toLocalInput,
   updateEvent,
+  updateEventOccurrence,
   type EventKind,
   type ScheduleScope,
   type UpdateEventInput,
@@ -240,6 +241,9 @@ export async function registerCircles(app: FastifyInstance): Promise<void> {
   app.patch('/circles/:cid/events/:eventId', async (req, reply) => {
     const { cid, eventId } = req.params as { cid: string; eventId: string };
     const body = (req.body ?? {}) as EventBody;
+    // `scope=single` + `occurrence` (the clicked instance's local ISO start)
+    // edits just that occurrence of a recurring series; default edits the series.
+    const { scope: editScope, occurrence } = req.query as { scope?: string; occurrence?: string };
     const circle = await prisma.circle.findUnique({ where: { id: cid } });
     if (!circle) return reply.code(404).send({ error: 'circle not found' });
     if (!(await canAccess(req, cid))) return reply.code(403).send({ error: 'forbidden' });
@@ -258,6 +262,17 @@ export async function registerCircles(app: FastifyInstance): Promise<void> {
       reminderLeadMinutes:
         body.reminderLeadMinutes === undefined ? undefined : body.reminderLeadMinutes,
     };
+    if (editScope === 'single' && occurrence) {
+      const ev = await updateEventOccurrence(
+        cid,
+        eventId,
+        localIsoToUtc(occurrence, circle.timezone),
+        patch,
+        circle.timezone,
+      );
+      if (!ev) return reply.code(404).send({ error: 'event not found' });
+      return ev;
+    }
     const ev = await updateEvent(cid, eventId, patch, circle.timezone);
     if (!ev) return reply.code(404).send({ error: 'event not found' });
     return ev;

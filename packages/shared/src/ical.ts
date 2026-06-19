@@ -8,6 +8,9 @@ export interface ICalEvent {
   location?: string;
   /** RFC 5545 RRULE value (without the "RRULE:" prefix) for recurring events. */
   rrule?: string;
+  /** Original instants excluded from the series (moved into single-occurrence
+   *  overrides) — emitted as EXDATE so subscribers don't show a ghost. */
+  exdates?: Date[];
   /** When true, marks the event as free/available (TRANSP:TRANSPARENT). */
   transparent?: boolean;
 }
@@ -66,7 +69,11 @@ export function buildICalendar(calendarName: string, events: ICalEvent[]): strin
       lines.push(`DTSTART:${formatUtc(e.start)}`);
       if (e.end) lines.push(`DTEND:${formatUtc(e.end)}`);
     }
-    if (e.rrule) lines.push(`RRULE:${e.rrule}`);
+    if (e.rrule) {
+      lines.push(`RRULE:${e.rrule}`);
+      for (const ex of e.exdates ?? [])
+        lines.push(e.allDay ? `EXDATE;VALUE=DATE:${formatDate(ex)}` : `EXDATE:${formatUtc(ex)}`);
+    }
     lines.push(`TRANSP:${e.transparent ? 'TRANSPARENT' : 'OPAQUE'}`);
     lines.push(`SUMMARY:${escapeText(e.title)}`);
     if (e.location) lines.push(`LOCATION:${escapeText(e.location)}`);

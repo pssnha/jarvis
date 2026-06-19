@@ -470,8 +470,12 @@ export async function updateEvent(
   cid: string,
   eventId: string,
   payload: EventPayload,
+  /** Edit a single occurrence of a recurring series: pass the clicked instance's
+   *  local ISO start. Omit to edit the whole series. */
+  occurrence?: string,
 ): Promise<void> {
-  await fetch(`/api/circles/${cid}/events/${eventId}`, {
+  const qs = occurrence ? `?scope=single&occurrence=${encodeURIComponent(occurrence)}` : '';
+  await fetch(`/api/circles/${cid}/events/${eventId}${qs}`, {
     method: 'PATCH',
     headers: jsonHeaders,
     body: JSON.stringify(payload),

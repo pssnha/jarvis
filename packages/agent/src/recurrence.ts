@@ -68,23 +68,35 @@ export function nextOccurrence(
   startsAtUtc: Date,
   tz: string,
   from: Date,
+  exclude?: Date[],
 ): Date | null {
   const rule = buildRule(rruleStr, startsAtUtc, tz);
-  const occ = rule.after(utcToFloating(from, tz), true);
-  return occ ? floatingToUtc(occ, tz) : null;
+  const skip = new Set((exclude ?? []).map((d) => d.getTime()));
+  let cursor = utcToFloating(from, tz);
+  // Walk forward past any instances detached into single-occurrence overrides.
+  for (;;) {
+    const occ = rule.after(cursor, true);
+    if (!occ) return null;
+    const utc = floatingToUtc(occ, tz);
+    if (!skip.has(utc.getTime())) return utc;
+    cursor = new Date(occ.getTime() + 1000);
+  }
 }
 
-/** All occurrences in (after, before] as real UTC instants. */
+/** All occurrences in (after, before] as real UTC instants. `exclude` drops
+ *  instants detached into single-occurrence overrides. */
 export function occurrencesBetween(
   rruleStr: string,
   startsAtUtc: Date,
   tz: string,
   after: Date,
   before: Date,
+  exclude?: Date[],
 ): Date[] {
   const rule = buildRule(rruleStr, startsAtUtc, tz);
   const occs = rule.between(utcToFloating(after, tz), utcToFloating(before, tz), true);
-  return occs.map((o) => floatingToUtc(o, tz));
+  const skip = new Set((exclude ?? []).map((d) => d.getTime()));
+  return occs.map((o) => floatingToUtc(o, tz)).filter((d) => !skip.has(d.getTime()));
 }
 
 const FREQ_MAP: Record<string, Recurrence['freq']> = {

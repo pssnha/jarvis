@@ -50,6 +50,34 @@ describe('occurrencesBetween', () => {
       '2026-06-12T16:00:00.000Z',
     ]);
   });
+
+  it('skips instants detached into single-occurrence overrides', () => {
+    const start = new Date('2026-06-09T16:00:00Z');
+    const occ = occurrencesBetween(
+      'FREQ=DAILY',
+      start,
+      TZ,
+      new Date('2026-06-10T00:00:00Z'),
+      new Date('2026-06-12T23:59:59Z'),
+      [new Date('2026-06-11T16:00:00Z')], // the 11th was moved
+    );
+    expect(occ.map((d) => d.toISOString())).toEqual([
+      '2026-06-10T16:00:00.000Z',
+      '2026-06-12T16:00:00.000Z',
+    ]);
+  });
+});
+
+describe('nextOccurrence with overrides', () => {
+  it('walks past an overridden instance to the next free one', () => {
+    const start = new Date('2026-06-09T16:00:00Z'); // Tue 09:00 PDT, weekly
+    const from = new Date('2026-06-10T00:00:00Z');
+    const next = nextOccurrence('FREQ=WEEKLY;BYDAY=TU', start, TZ, from, [
+      new Date('2026-06-16T16:00:00Z'), // next Tuesday moved
+    ]);
+    // Should skip 06-16 and return 06-23.
+    expect(next!.toISOString()).toBe('2026-06-23T16:00:00.000Z');
+  });
 });
 
 describe('iCal RRULE', () => {

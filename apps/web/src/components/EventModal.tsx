@@ -28,6 +28,17 @@ const LEAD_OPTIONS: { value: number; label: string }[] = [
   { value: 1440, label: '1 day before' },
 ];
 
+/** Parse a local ISO ("yyyy-MM-dd" or "yyyy-MM-ddTHH:mm") as a local Date. */
+function localToDate(s: string): Date {
+  return new Date(s.length === 10 ? `${s}T00:00:00` : `${s}:00`);
+}
+/** Format a local Date back into a "yyyy-MM-dd[THH:mm]" string. */
+function dateToLocal(d: Date, dateOnly: boolean): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  const day = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return dateOnly ? day : `${day}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 /** Add one hour to a "yyyy-MM-ddTHH:mm" local string (for a default event end). */
 function plusHour(local: string): string {
   const [d, t] = local.split('T');
@@ -51,6 +62,11 @@ interface Props {
   circleId: string;
   eventId?: string | null;
   initialDateKey?: string;
+  /** The clicked occurrence's local ISO start (recurring events) — lets us edit
+   *  just that instance and pre-fill the form with its date/time. */
+  occurrenceStart?: string;
+  /** True when the clicked chip is one instance of a recurring series. */
+  recurring?: boolean;
   /** Where a *new* event lands: a group (shared) or a member (private). */
   target?: { groupId?: string | null; ownerMemberId?: string | null };
   /** The active calendar scope (for scoped conflict checks). */
@@ -64,6 +80,8 @@ export function EventModal({
   circleId,
   eventId,
   initialDateKey,
+  occurrenceStart,
+  recurring,
   target,
   scope,
   defaultAssigneeId,
@@ -76,6 +94,9 @@ export function EventModal({
   const [error, setError] = useState<string | null>(null);
   // Existing events open read-only; new events go straight to the form.
   const [mode, setMode] = useState<'view' | 'edit'>(editing ? 'view' : 'edit');
+  // Editing one instance of a recurring series: this occurrence vs the whole series.
+  const editOccurrence = Boolean(recurring && occurrenceStart);
+  const [editScope, setEditScope] = useState<'single' | 'all'>('single');
 
   const [title, setTitle] = useState('');
   const [kind, setKind] = useState<EventKind>('reminder');
@@ -110,8 +131,18 @@ export function EventModal({
         setKind(ev.kind);
         setLead(ev.reminderLeadMinutes ?? 0);
         setAllDay(ev.allDay);
-        setStart(ev.startLocal);
-        setEnd(ev.endLocal ?? '');
+        // For a clicked recurring instance, pre-fill with that occurrence's time
+        // (the series anchor would otherwise show the first occurrence).
+        if (occurrenceStart) {
+          setStart(occurrenceStart);
+          if (ev.endLocal) {
+            const durMs = localToDate(ev.endLocal).getTime() - localToDate(ev.startLocal).getTime();
+            setEnd(dateToLocal(new Date(localToDate(occurrenceStart).getTime() + durMs), occurrenceStart.length === 10));
+          } else setEnd('');
+        } else {
+          setStart(ev.startLocal);
+          setEnd(ev.endLocal ?? '');
+        }
         setLocation(ev.location ?? '');
         setCategory(ev.category ?? '');
         setAssigneeId(ev.assigneeId ?? '');
@@ -243,8 +274,12 @@ export function EventModal({
       reminderLeadMinutes: kind === 'event' ? lead : null,
       recurrence,
     };
+    // A single-occurrence edit detaches just that instance; it never repeats.
+    const single = editOccurrence && editScope === 'single';
+    if (single) payload.recurrence = null;
     try {
-      if (editing && eventId) await updateEvent(circleId, eventId, payload);
+      if (editing && eventId)
+        await updateEvent(circleId, eventId, payload, single ? occurrenceStart : undefined);
       else await createEvent(circleId, { ...payload, ...target });
       onSaved();
     } catch (e) {
@@ -330,6 +365,25 @@ export function EventModal({
           </>
         ) : (
           <>
+            {editOccurrence && (
+              <div className="kind-toggle">
+                <button
+                  type="button"
+                  className={editScope === 'single' ? 'kt on' : 'kt'}
+                  onClick={() => setEditScope('single')}
+                >
+                  This event
+                </button>
+                <button
+                  type="button"
+                  className={editScope === 'all' ? 'kt on' : 'kt'}
+                  onClick={() => setEditScope('all')}
+                >
+                  All events
+                </button>
+              </div>
+            )}
+
             <label>
               Title
               <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
@@ -470,18 +524,20 @@ export function EventModal({
               </select>
             </label>
 
-            <label>
-              Repeat
-              <select value={freq} onChange={(e) => setFreq(e.target.value as RecurrenceFreq | 'none')}>
-                {FREQ_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {!(editOccurrence && editScope === 'single') && (
+              <label>
+                Repeat
+                <select value={freq} onChange={(e) => setFreq(e.target.value as RecurrenceFreq | 'none')}>
+                  {FREQ_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
-            {freq !== 'none' && (
+            {!(editOccurrence && editScope === 'single') && freq !== 'none' && (
               <div className="recurrence">
                 <label className="row">
                   Every

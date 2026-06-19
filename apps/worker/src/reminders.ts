@@ -1,5 +1,5 @@
 import { prisma } from '@jarvis/db';
-import { decryptValue, formatEventTime, occurrencesBetween } from '@jarvis/agent';
+import { decryptValue, formatEventTime, occurrencesBetween, overridesByParent } from '@jarvis/agent';
 import { groupConnected, sendDirect, sendToGroup } from './send';
 
 type ReminderEvent = {
@@ -38,6 +38,10 @@ export async function sendDueReminders(): Promise<void> {
     },
   })) as unknown as ReminderEvent[];
 
+  // Instances detached into single-occurrence overrides must not also fire from
+  // the parent series (the override row reminds at its own new time).
+  const overrides = await overridesByParent(events.filter((e) => e.rrule).map((e) => e.id));
+
   for (const ev of events) {
     const leadMs = (ev.reminderLeadMinutes ?? 0) * 60_000;
     const tz = ev.circle.timezone;
@@ -50,6 +54,7 @@ export async function sendDueReminders(): Promise<void> {
         tz,
         new Date(after.getTime() + leadMs),
         new Date(now.getTime() + leadMs),
+        overrides.get(ev.id),
       );
       if (occ.length === 0) continue;
       await announce(ev, occ[occ.length - 1]!);

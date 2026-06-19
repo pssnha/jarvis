@@ -226,6 +226,15 @@ model Event {
   /// RFC 5545 RRULE value (without "RRULE:" prefix). Null for one-off events.
   rrule       String?  @db.Text
 
+  /// Single-occurrence override: this row replaces one instance of a recurring
+  /// parent. `recurrenceParentId` points at the parent series; `recurrenceStart`
+  /// is the original UTC instant of the instance this row stands in for (so the
+  /// parent's expansion skips it). Both null for normal events.
+  recurrenceParentId  String?
+  recurrenceParent    Event?  @relation("EventOverrides", fields: [recurrenceParentId], references: [id], onDelete: Cascade)
+  recurrenceOverrides Event[] @relation("EventOverrides")
+  recurrenceStart     DateTime?
+
   /// Where this event came from: whatsapp | email | web.
   source    String
   sourceRef String?
@@ -248,6 +257,7 @@ model Event {
   @@index([ownerMemberId, startsAt])
   @@index([source, sourceRef])
   @@index([assigneeId])
+  @@index([recurrenceParentId])
 }
 
 /// A planned trip — one circle-wide vacation calendar. Times stored UTC.

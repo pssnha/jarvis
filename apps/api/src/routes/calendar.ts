@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '@jarvis/db';
+import { overridesByParent } from '@jarvis/agent';
 import { buildICalendar } from '@jarvis/shared';
 
 export async function registerCalendar(app: FastifyInstance): Promise<void> {
@@ -13,6 +14,9 @@ export async function registerCalendar(app: FastifyInstance): Promise<void> {
       where: { groupId: group.id },
       orderBy: { startsAt: 'asc' },
     });
+    // Exclude instants detached into overrides from each parent series, so
+    // subscribers don't see a ghost at the original time.
+    const overrides = await overridesByParent(events.filter((e) => e.rrule).map((e) => e.id));
 
     const ics = buildICalendar(
       group.name,
@@ -25,6 +29,7 @@ export async function registerCalendar(app: FastifyInstance): Promise<void> {
         allDay: e.allDay,
         location: e.location ?? undefined,
         rrule: e.rrule ?? undefined,
+        exdates: e.rrule ? overrides.get(e.id) : undefined,
         transparent: e.kind !== 'event',
       })),
     );

@@ -77,7 +77,7 @@ interface TimeGridProps {
   byDay: Map<string, CalendarOccurrence[]>;
   individual: boolean;
   todayKey: string;
-  onPick: (eventId: string) => void;
+  onPick: (o: CalendarOccurrence) => void;
   onAdd: (dateKey: string) => void;
 }
 
@@ -144,7 +144,7 @@ function TimeGrid({ days, byDay, individual, todayKey, onPick, onAdd }: TimeGrid
                     title={o.title}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onPick(o.eventId);
+                      onPick(o);
                     }}
                   >
                     {o.title}
@@ -202,7 +202,7 @@ function TimeGrid({ days, byDay, individual, todayKey, onPick, onAdd }: TimeGrid
                     title={b.o.title}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onPick(b.o.eventId);
+                      onPick(b.o);
                     }}
                   >
                     <span className="tg-ev-title">
@@ -283,7 +283,12 @@ export function Calendar({
   const [anchor, setAnchor] = useState<Anchor>(todayAnchor);
   const [byDay, setByDay] = useState<Map<string, CalendarOccurrence[]>>(new Map());
   const [error, setError] = useState<string | null>(null);
-  const [modal, setModal] = useState<{ eventId?: string; dateKey?: string } | null>(null);
+  const [modal, setModal] = useState<{
+    eventId?: string;
+    dateKey?: string;
+    occurrenceStart?: string;
+    recurring?: boolean;
+  } | null>(null);
 
   const range = useMemo(() => computeRange(view, anchor), [view, anchor]);
   const todayKey = ymd(new Date(Date.UTC(todayAnchor.y, todayAnchor.m, todayAnchor.d)));
@@ -538,7 +543,7 @@ export function Calendar({
                       title={`${o.title}${o.assigneeName ? ` · ${o.assigneeName}` : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setModal({ eventId: o.eventId });
+                        setModal({ eventId: o.eventId, occurrenceStart: o.startLocal, recurring: o.recurring });
                       }}
                     >
                       <span className="chip-time">{o.allDay ? '•' : o.timeLabel}</span>{' '}
@@ -559,7 +564,7 @@ export function Calendar({
           byDay={byDay}
           individual={individual}
           todayKey={todayKey}
-          onPick={(eventId) => setModal({ eventId })}
+          onPick={(o) => setModal({ eventId: o.eventId, occurrenceStart: o.startLocal, recurring: o.recurring })}
           onAdd={(dk) => setModal({ dateKey: dk })}
         />
       )}
@@ -569,6 +574,8 @@ export function Calendar({
           circleId={circleId}
           eventId={modal.eventId}
           initialDateKey={modal.dateKey}
+          occurrenceStart={modal.occurrenceStart}
+          recurring={modal.recurring}
           target={modal.eventId ? undefined : createTarget}
           scope={scopeValue || undefined}
           onClose={() => setModal(null)}

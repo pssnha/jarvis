@@ -1,4 +1,5 @@
 import { prisma, type EmailProposal } from '@jarvis/db';
+import type { EventDraft } from '@jarvis/shared';
 import type { AnalyzedProposal, VacationDraft, VacationItemDraft } from './extract';
 import { createEvent } from './schedule';
 import { getCircle } from './conversation';
@@ -150,23 +151,114 @@ async function applyConfirm(
       return await confirmVacation(circleId, p, a.vacation, zone, target);
     }
     if (a.draft) {
-      const ev = await createEvent({
-        circleId,
-        groupId: await primaryGroupId(circleId),
-        draft: a.draft,
-        source: 'email',
-        timezone: zone,
-        sourceRef: p.messageId ?? undefined,
-        kind: a.kind === 'event' ? 'event' : 'reminder',
-        reminderLeadMinutes: a.kind === 'event' ? (a.reminderLeadMinutes ?? null) : null,
-      });
-      await finalize(p.id);
-      return { message: `Added ${a.kind} "${ev.title}".` };
+      // A reservation whose date falls within an existing trip belongs on that
+      // trip's itinerary, not the standalone calendar.
+      const placed = await confirmEvent(circleId, p, a, a.draft, zone, target);
+      return placed;
     }
     return { message: `Proposal "${p.code}" is malformed.` };
   } catch (err) {
     return { message: `Couldn't create "${p.title}": ${(err as Error).message}` };
   }
+}
+
+/** File a plain calendar event in the circle's primary group (no trip match). */
+async function createCalendarEvent(
+  circleId: string,
+  p: EmailProposal,
+  a: AnalyzedProposal,
+  draft: EventDraft,
+  zone: string,
+): Promise<ConfirmResult> {
+  const ev = await createEvent({
+    circleId,
+    groupId: await primaryGroupId(circleId),
+    draft,
+    source: 'email',
+    timezone: zone,
+    sourceRef: p.messageId ?? undefined,
+    kind: a.kind === 'event' ? 'event' : 'reminder',
+    reminderLeadMinutes: a.kind === 'event' ? (a.reminderLeadMinutes ?? null) : null,
+  });
+  await finalize(p.id);
+  return { message: `Added ${a.kind} "${ev.title}".` };
+}
+
+const MEAL_RE =
+  /\b(breakfast|brunch|lunch|dinner|restaurant|reservation|dining|bistro|trattoria|osteria|ristorante|caf[eé]|eatery|grill|kitchen|tavern|steakhouse)\b/i;
+
+/** Map an email event-draft onto a trip itinerary item (best-effort type). */
+function eventDraftToItem(draft: EventDraft, confirmation?: string): VacationItemDraft {
+  return {
+    type: MEAL_RE.test(draft.title) ? 'meal' : 'activity',
+    title: draft.title,
+    startsAt: draft.start,
+    endsAt: draft.end,
+    location: draft.location,
+    confirmation,
+  };
+}
+
+/**
+ * Confirm an event/reminder proposal. If its date falls in (or adjacent to) an
+ * existing trip, it's added to that trip's itinerary; otherwise it lands on the
+ * calendar. When more than one trip could match, ask which (or the calendar).
+ */
+async function confirmEvent(
+  circleId: string,
+  p: EmailProposal,
+  a: AnalyzedProposal,
+  draft: EventDraft,
+  zone: string,
+  target?: string,
+): Promise<ConfirmResult> {
+  // Resolve a prior needsChoice: 'calendar' = keep it off any trip.
+  if (target === 'calendar') return createCalendarEvent(circleId, p, a, draft, zone);
+  if (target) {
+    const v = await getVacation(circleId, target);
+    if (!v) return { message: 'That trip no longer exists.' };
+    await attachItem(circleId, v, eventDraftToItem(draft), zone);
+    await finalize(p.id);
+    return { message: `Added "${a.title}" to "${v.title}".` };
+  }
+
+  const itemDate = draft.start.slice(0, 10);
+  const candidates = await matchingTrips(circleId, itemDate, zone);
+
+  if (candidates.length === 1) {
+    await attachItem(circleId, candidates[0]!, eventDraftToItem(draft), zone);
+    await finalize(p.id);
+    return { message: `Added "${a.title}" to "${candidates[0]!.title}".` };
+  }
+  if (candidates.length === 0) return createCalendarEvent(circleId, p, a, draft, zone);
+
+  return {
+    message: `"${a.title}" (${itemDate}) could belong to more than one trip.`,
+    needsChoice: {
+      proposalId: p.id,
+      summary: `${a.title} · ${itemDate}`,
+      options: [
+        ...candidates.map((v) => ({
+          target: v.id,
+          label: `${v.title} (${toLocalInput(v.startDate, zone, true)} → ${toLocalInput(v.endDate, zone, true)})`,
+        })),
+        { target: 'calendar', label: 'Add to calendar (not a trip)' },
+      ],
+    },
+  };
+}
+
+/** Trips whose date range contains (or is adjacent to) the given local date. */
+async function matchingTrips(circleId: string, itemDate: string, zone: string) {
+  const vacs = await listVacations(circleId, { includePast: true });
+  return vacs.filter((v) =>
+    inRange(
+      itemDate,
+      toLocalInput(v.startDate, zone, true),
+      toLocalInput(v.endDate, zone, true),
+      VACATION_ADJACENCY_DAYS,
+    ),
+  );
 }
 
 async function finalize(id: string): Promise<void> {
@@ -265,15 +357,7 @@ async function confirmVacation(
 
   // Auto-match against existing trips by the item's date.
   const itemDate = (item.startsAt || vac.startDate).slice(0, 10);
-  const vacs = await listVacations(circleId, { includePast: true });
-  const candidates = vacs.filter((v) =>
-    inRange(
-      itemDate,
-      toLocalInput(v.startDate, zone, true),
-      toLocalInput(v.endDate, zone, true),
-      VACATION_ADJACENCY_DAYS,
-    ),
-  );
+  const candidates = await matchingTrips(circleId, itemDate, zone);
 
   if (candidates.length === 1) {
     await attachItem(circleId, candidates[0]!, item, zone);

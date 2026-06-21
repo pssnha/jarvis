@@ -276,13 +276,16 @@ function inRange(dateStr: string, start: string, end: string, adj: number): bool
   return !Number.isNaN(d) && d >= s && d <= e;
 }
 
-/** Add an email item to an existing trip, extending the trip's dates if needed. */
+/** Add an email item to an existing trip, extending the trip's dates if needed.
+ *  Times are interpreted in the trip's own zone (falling back to `zone`), so an
+ *  item imported into a trip reads in the destination's local time. */
 async function attachItem(
   circleId: string,
-  v: { id: string; title: string; startDate: Date; endDate: Date },
+  v: { id: string; title: string; startDate: Date; endDate: Date; timezone?: string | null },
   it: VacationItemDraft,
   zone: string,
 ): Promise<void> {
+  const tz = v.timezone ?? zone;
   await addVacationItem(
     v.id,
     {
@@ -295,18 +298,20 @@ async function attachItem(
       number: it.number ?? null,
       fromLabel: it.fromLabel ?? null,
       toLabel: it.toLabel ?? null,
+      fromTimezone: it.fromTimezone ?? null,
+      toTimezone: it.toTimezone ?? null,
       seat: it.seat ?? null,
       confirmation: it.confirmation ?? null,
     },
-    zone,
+    tz,
   );
   const itemDate = it.startsAt.slice(0, 10);
-  const start = toLocalInput(v.startDate, zone, true);
-  const end = toLocalInput(v.endDate, zone, true);
+  const start = toLocalInput(v.startDate, tz, true);
+  const end = toLocalInput(v.endDate, tz, true);
   const patch: { startDate?: string; endDate?: string } = {};
   if (itemDate < start) patch.startDate = itemDate;
   if (itemDate > end) patch.endDate = itemDate;
-  if (patch.startDate || patch.endDate) await updateVacation(circleId, v.id, patch, zone);
+  if (patch.startDate || patch.endDate) await updateVacation(circleId, v.id, patch, tz);
 }
 
 async function createTrip(circleId: string, p: EmailProposal, vac: VacationDraft, zone: string) {
@@ -314,6 +319,8 @@ async function createTrip(circleId: string, p: EmailProposal, vac: VacationDraft
     title: vac.title,
     destinations: vac.destinations ?? null,
   }).catch(() => null);
+  // Show the trip in its destination's zone; fall back to the circle zone.
+  const tz = vac.timezone ?? zone;
   const v = await createVacation(
     {
       circleId,
@@ -321,12 +328,13 @@ async function createTrip(circleId: string, p: EmailProposal, vac: VacationDraft
       destinations: vac.destinations ?? null,
       startDate: vac.startDate,
       endDate: vac.endDate,
+      timezone: vac.timezone ?? null,
       description: p.subject ? `From email: ${p.subject}` : null,
       coverImageUrl,
     },
-    zone,
+    tz,
   );
-  if (vac.item) await attachItem(circleId, v, vac.item, zone);
+  if (vac.item) await attachItem(circleId, v, vac.item, tz);
   return v;
 }
 

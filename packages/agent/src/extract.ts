@@ -121,6 +121,8 @@ export interface VacationItemDraft {
   number?: string;
   fromLabel?: string;
   toLabel?: string;
+  fromTimezone?: string;
+  toTimezone?: string;
   seat?: string;
   confirmation?: string;
 }
@@ -130,6 +132,8 @@ export interface VacationDraft {
   destinations?: string;
   startDate: string;
   endDate: string;
+  /** IANA timezone of the destination; the trip is shown in this zone. */
+  timezone?: string;
   item?: VacationItemDraft;
 }
 
@@ -208,6 +212,11 @@ const ANALYZE_SCHEMA: JsonSchema = {
               destinations: { type: 'string', description: 'Comma-separated cities.' },
               start_date: { type: 'string', description: 'Trip start date "YYYY-MM-DD".' },
               end_date: { type: 'string', description: 'Trip end date "YYYY-MM-DD".' },
+              timezone: {
+                type: 'string',
+                description:
+                  'IANA timezone of the primary destination, inferred from the city/country, e.g. "America/Edmonton" for Banff, "America/Detroit" for Detroit, "Asia/Kolkata" for Mumbai. The trip\'s times are shown in this zone.',
+              },
               item: {
                 type: 'object',
                 description: 'The booking this email represents, if any.',
@@ -224,6 +233,16 @@ const ANALYZE_SCHEMA: JsonSchema = {
                   number: { type: 'string', description: 'Flight or booking number.' },
                   from_label: { type: 'string', description: 'Departure airport / pickup.' },
                   to_label: { type: 'string', description: 'Arrival airport / dropoff.' },
+                  from_timezone: {
+                    type: 'string',
+                    description:
+                      'For flights/transport: IANA timezone of the departure point (starts_at is its local time).',
+                  },
+                  to_timezone: {
+                    type: 'string',
+                    description:
+                      'For flights/transport: IANA timezone of the arrival point (ends_at is its local time) — so arrival shows in destination time, not origin.',
+                  },
                   seat: { type: 'string', description: 'Seat / room.' },
                   confirmation: { type: 'string', description: 'PNR / confirmation code.' },
                 },
@@ -315,6 +334,8 @@ function normalizeProposal(input: unknown): AnalyzedProposal | null {
         number: str(itemRaw, 'number'),
         fromLabel: str(itemRaw, 'from_label'),
         toLabel: str(itemRaw, 'to_label'),
+        fromTimezone: str(itemRaw, 'from_timezone'),
+        toTimezone: str(itemRaw, 'to_timezone'),
         seat: str(itemRaw, 'seat'),
         confirmation: str(itemRaw, 'confirmation'),
       };
@@ -328,6 +349,7 @@ function normalizeProposal(input: unknown): AnalyzedProposal | null {
         destinations: str(v, 'destinations'),
         startDate,
         endDate: endDate ?? startDate,
+        timezone: str(v, 'timezone'),
         item,
       },
     };

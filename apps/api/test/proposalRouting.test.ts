@@ -82,4 +82,30 @@ describe('email reservation routing', () => {
     const items = await prisma.vacationItem.count({ where: { vacationId: id('V'), title: 'Dentist appointment' } });
     expect(items).toBe(0);
   });
+
+  it('creates a trip in its destination timezone and interprets items there', async () => {
+    if (!dbOk) return;
+    const vac: AnalyzedProposal = {
+      kind: 'vacation',
+      title: 'Mumbai trip',
+      summary: 'Mumbai trip',
+      vacation: {
+        title: 'Mumbai trip',
+        destinations: 'Mumbai',
+        startDate: '2026-12-19',
+        endDate: '2026-12-26',
+        timezone: 'Asia/Kolkata',
+        item: { type: 'meal', title: 'Welcome dinner', startsAt: '2026-12-19T20:00' },
+      },
+    };
+    await prisma.emailProposal.create({
+      data: { circleId: id('C'), code: '3', kind: 'vacation', title: vac.title, summary: vac.summary, payload: JSON.stringify(vac) },
+    });
+    await confirmProposal(id('C'), '3');
+    const trip = await prisma.vacation.findFirst({ where: { circleId: id('C'), title: 'Mumbai trip' } });
+    expect(trip?.timezone).toBe('Asia/Kolkata');
+    // 8pm IST = 14:30 UTC, not 8pm interpreted in the circle's Pacific zone.
+    const item = await prisma.vacationItem.findFirst({ where: { vacationId: trip!.id, title: 'Welcome dinner' } });
+    expect(item?.startsAt.toISOString()).toBe('2026-12-19T14:30:00.000Z');
+  });
 });

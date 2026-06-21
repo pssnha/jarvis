@@ -47,6 +47,16 @@ beforeAll(async () => {
     });
   await mk('1', eventProposal('1', 'Dinner at Test Bistro', '2026-08-03T19:00')); // inside trip
   await mk('2', eventProposal('2', 'Dentist appointment', '2026-09-15T09:00')); // outside any trip
+  await mk('4', eventProposal('4', 'Guitar class', '2026-07-31T07:30')); // day before trip (adjacent)
+  const recurring: AnalyzedProposal = {
+    kind: 'event',
+    title: 'Weekly class',
+    summary: 'Weekly class',
+    draft: { title: 'Weekly class', start: '2026-08-03T07:30', end: '2026-08-03T08:30', recurrence: { freq: 'weekly' } },
+  };
+  await prisma.emailProposal.create({
+    data: { circleId: id('C'), code: '5', kind: 'event', title: recurring.title, summary: recurring.summary, payload: JSON.stringify(recurring) },
+  });
 });
 
 afterAll(async () => {
@@ -80,6 +90,24 @@ describe('email reservation routing', () => {
     const evs = await prisma.event.count({ where: { circleId: id('C'), title: 'Dentist appointment' } });
     expect(evs).toBe(1);
     const items = await prisma.vacationItem.count({ where: { vacationId: id('V'), title: 'Dentist appointment' } });
+    expect(items).toBe(0);
+  });
+
+  it('does not pull an event adjacent to (but outside) a trip into it', async () => {
+    if (!dbOk) return;
+    await confirmProposal(id('C'), '4'); // Jul 31, trip starts Aug 1
+    const evs = await prisma.event.count({ where: { circleId: id('C'), title: 'Guitar class' } });
+    expect(evs).toBe(1);
+    const items = await prisma.vacationItem.count({ where: { vacationId: id('V'), title: 'Guitar class' } });
+    expect(items).toBe(0);
+  });
+
+  it('keeps a recurring event on the calendar even if it falls inside a trip', async () => {
+    if (!dbOk) return;
+    await confirmProposal(id('C'), '5'); // Aug 3 (inside trip) but recurring
+    const evs = await prisma.event.count({ where: { circleId: id('C'), title: 'Weekly class' } });
+    expect(evs).toBe(1);
+    const items = await prisma.vacationItem.count({ where: { vacationId: id('V'), title: 'Weekly class' } });
     expect(items).toBe(0);
   });
 

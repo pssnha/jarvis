@@ -241,8 +241,12 @@ async function confirmEvent(
     return { message: `Added "${a.title}" to "${v.title}".` };
   }
 
+  // Only a one-off event that falls strictly WITHIN a trip's dates is a trip
+  // item. A recurring event (e.g. a weekly class) or one merely near a trip
+  // (the day before/after) stays on the calendar — the ±2-day adjacency used
+  // for travel bookings is too loose for arbitrary events.
   const itemDate = draft.start.slice(0, 10);
-  const candidates = await matchingTrips(circleId, itemDate, zone);
+  const candidates = draft.recurrence ? [] : await matchingTrips(circleId, itemDate, zone, 0);
 
   if (candidates.length === 1) {
     await attachItem(circleId, candidates[0]!, eventDraftToItem(draft), zone);
@@ -267,16 +271,13 @@ async function confirmEvent(
   };
 }
 
-/** Trips whose date range contains (or is adjacent to) the given local date. */
-async function matchingTrips(circleId: string, itemDate: string, zone: string) {
+/** Trips whose date range contains the given local date. `adj` expands the
+ *  range by N days each side (default for travel bookings; pass 0 for a strict
+ *  in-range match). */
+async function matchingTrips(circleId: string, itemDate: string, zone: string, adj = VACATION_ADJACENCY_DAYS) {
   const vacs = await listVacations(circleId, { includePast: true });
   return vacs.filter((v) =>
-    inRange(
-      itemDate,
-      toLocalInput(v.startDate, zone, true),
-      toLocalInput(v.endDate, zone, true),
-      VACATION_ADJACENCY_DAYS,
-    ),
+    inRange(itemDate, toLocalInput(v.startDate, zone, true), toLocalInput(v.endDate, zone, true), adj),
   );
 }
 

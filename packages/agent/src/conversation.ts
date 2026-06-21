@@ -21,11 +21,15 @@ export async function getOrCreateConversation(
 }
 
 export async function loadHistory(conversationId: string, limit = 20): Promise<LlmMessage[]> {
+  // Take the most RECENT `limit` messages, then restore chronological order —
+  // ordering asc + take returns the oldest rows, so a long conversation would
+  // feed the model ancient turns and lose the recent context.
   const rows = await prisma.message.findMany({
     where: { conversationId },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { createdAt: 'desc' },
     take: limit,
   });
+  rows.reverse();
   return rows.map((r) => ({
     role: r.role === 'assistant' ? ('assistant' as const) : ('user' as const),
     content: r.authorName && r.role !== 'assistant' ? `${r.authorName}: ${r.content}` : r.content,

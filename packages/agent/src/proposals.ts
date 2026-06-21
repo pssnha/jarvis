@@ -89,11 +89,30 @@ export async function createProposals(
   return created;
 }
 
+/** A pending proposal not acted on within this many days goes stale. */
+const PROPOSAL_TTL_DAYS = 7;
+
+function staleCutoff(): Date {
+  return new Date(Date.now() - PROPOSAL_TTL_DAYS * 86_400_000);
+}
+
+/** Pending proposals still worth acting on (recent). Old, never-decided ones are
+ *  excluded so a later "add all" can't sweep up a stale backlog. */
 export async function listPendingProposals(circleId: string): Promise<EmailProposal[]> {
   return prisma.emailProposal.findMany({
-    where: { circleId, status: 'pending' },
+    where: { circleId, status: 'pending', createdAt: { gte: staleCutoff() } },
     orderBy: { createdAt: 'asc' },
   });
+}
+
+/** Mark never-decided proposals older than the TTL as expired (housekeeping run
+ *  at poll time) so they leave the pending set for good. */
+export async function expireStaleProposals(circleId: string): Promise<number> {
+  const r = await prisma.emailProposal.updateMany({
+    where: { circleId, status: 'pending', createdAt: { lt: staleCutoff() } },
+    data: { status: 'expired', decidedAt: new Date() },
+  });
+  return r.count;
 }
 
 export async function markNotified(ids: string[]): Promise<void> {

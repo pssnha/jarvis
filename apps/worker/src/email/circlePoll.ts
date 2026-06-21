@@ -8,6 +8,7 @@ import {
   circleUsageStatus,
   createProposals,
   decryptValue,
+  expireStaleProposals,
   listPendingProposals,
   markNotified,
 } from '@jarvis/agent';
@@ -189,6 +190,9 @@ async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; fou
     data: { emailFirstScanDone: true, emailLastPolledAt: new Date() },
   });
 
+  // Drop a stale backlog of never-decided proposals before notifying, so a
+  // later "add all" only acts on what's currently in the inbox.
+  await expireStaleProposals(circle.id);
   await notifyPending(circle);
   return { scanned, found: foundCount };
 }

@@ -272,6 +272,7 @@ export async function analyzeEmail(opts: AnalyzeEmailOptions): Promise<AnalyzedP
   const system = `You triage emails sent to a shared family's scheduling assistant. Decide what, if anything, should go on the schedule.
 Right now it is ${describeNow(opts.timezone)} in the time zone (${opts.timezone}).
 Resolve relative dates against that and return local wall-clock times without a timezone offset.
+When the email states an explicit calendar date, use that exact date — do NOT shift it or recompute it from the weekday. If a stated weekday and date disagree, trust the numeric date (e.g. "Saturday, June 27" → 2026-06-27, even if you think the 27th is a different weekday).
 
 Capture as proposals:
 - event: a real, time-bound commitment — appointment, meeting, class, school event, test, party, reservation.

@@ -1,13 +1,17 @@
 import type { FastifyInstance } from 'fastify';
+import type { MultipartFile } from '@fastify/multipart';
 import { prisma } from '@jarvis/db';
 import {
   addVacationItem,
+  appendMessages,
   createVacation,
   deleteVacation,
   deleteVacationItem,
   expandItinerary,
   formatEventTime,
+  getOrCreateConversation,
   getVacation,
+  ingestItineraryDocument,
   listVacations,
   resolveVacationImage,
   toItineraryItemDTO,
@@ -210,5 +214,43 @@ export async function registerVacations(app: FastifyInstance): Promise<void> {
     const item = await deleteVacationItem(vid, itemId);
     if (!item) return reply.code(404).send({ error: 'item not found' });
     return { ok: true };
+  });
+
+  // Upload an itinerary (PDF/image) from the web chat: parse it and apply it to
+  // the matching trip (auto-apply), recording the exchange in the chat history.
+  app.post('/circles/:cid/itinerary', async (req, reply) => {
+    const { cid } = req.params as { cid: string };
+    const { scope: rawScope } = req.query as { scope?: string };
+    const circle = await prisma.circle.findUnique({ where: { id: cid } });
+    if (!circle) return reply.code(404).send({ error: 'circle not found' });
+
+    const file = await (req as { file?: () => Promise<MultipartFile | undefined> }).file?.();
+    if (!file) return reply.code(400).send({ error: 'no file uploaded' });
+    const mediaType = file.mimetype;
+    if (mediaType !== 'application/pdf' && !mediaType.startsWith('image/')) {
+      return reply.code(400).send({ error: 'only PDF or image itineraries are supported' });
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = await file.toBuffer();
+    } catch {
+      return reply.code(413).send({ error: 'file too large' });
+    }
+
+    const res = await ingestItineraryDocument({
+      circleId: cid,
+      zone: circle.timezone,
+      documents: [{ data: buffer.toString('base64'), mediaType, filename: file.filename }],
+      source: 'web',
+    });
+
+    // Mirror the socket chat flow so the upload + reply persist in the thread.
+    const groupId = rawScope?.startsWith('group:') ? rawScope.slice(6) : null;
+    const memberId = rawScope?.startsWith('individual:') ? rawScope.slice(11) : null;
+    const convo = await getOrCreateConversation(cid, 'web', { groupId, memberId });
+    await appendMessages(convo.id, `📎 ${file.filename}`, res.message);
+
+    return { reply: res.message, ok: res.ok };
   });
 }

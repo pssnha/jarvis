@@ -2,10 +2,10 @@ import { EVENT_CATEGORIES, RECURRENCE_FREQS, WEEKDAYS, type Channel, type EventD
 import { cancelEvent, createEvent, findConflicts, findEvents, getSchedule } from '../schedule';
 import { confirmProposal, rejectProposal } from '../proposals';
 import {
-  addVacationItem,
   deleteVacationItem,
   getVacation,
   listVacations,
+  upsertVacationItem,
   type VacationItemInput,
 } from '../vacations';
 import { VACATION_ITEM_TYPES } from '@jarvis/shared';
@@ -368,7 +368,12 @@ export const tools: AgentTool[] = [
         confirmation: str('confirmation') ?? null,
         notes: str('notes') ?? null,
       };
-      const item = await addVacationItem(tripId, draft, zone);
+      const { item, action, changes } = await upsertVacationItem(tripId, draft, zone);
+      if (action === 'unchanged') return `"${item.title}" is already on "${v.title}" — nothing changed.`;
+      if (action === 'updated') {
+        const detail = changes.length ? ` (${changes.join('; ')})` : '';
+        return `Updated ${item.type} "${item.title}" on "${v.title}"${detail}.`;
+      }
       return `Added ${item.type} "${item.title}" to "${v.title}".`;
     },
   },

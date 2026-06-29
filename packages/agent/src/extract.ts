@@ -2,6 +2,7 @@ import { EVENT_CATEGORIES, RECURRENCE_FREQS, WEEKDAYS, type EventDraft } from '@
 import { describeNow } from './datetime';
 import { getProvider } from './llm';
 import type { JsonSchema } from './llm/schema';
+import type { LlmDocument } from './llm/types';
 
 const EXTRACT_SCHEMA: JsonSchema = {
   type: 'object',
@@ -121,10 +122,13 @@ export interface VacationItemDraft {
   number?: string;
   fromLabel?: string;
   toLabel?: string;
+  /** IANA zone of the departure leg (flights/transport crossing time zones). */
   fromTimezone?: string;
+  /** IANA zone of the arrival leg. */
   toTimezone?: string;
   seat?: string;
   confirmation?: string;
+  notes?: string;
 }
 
 export interface VacationDraft {
@@ -356,6 +360,15 @@ function normalizeProposal(input: unknown): AnalyzedProposal | null {
     };
   }
 
+  return normalizeEventProposal(o, kind, title, summary);
+}
+
+function normalizeEventProposal(
+  o: Record<string, unknown>,
+  kind: 'reminder' | 'event',
+  title: string,
+  summary: string,
+): AnalyzedProposal | null {
   // reminder | event
   const ev = (o.event ?? {}) as Record<string, unknown>;
   const start = str(ev, 'start');
@@ -378,5 +391,163 @@ function normalizeProposal(input: unknown): AnalyzedProposal | null {
       kind === 'event' && typeof ev.remind_lead_minutes === 'number'
         ? (ev.remind_lead_minutes as number)
         : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Itinerary documents: parse a whole trip (often many flights/hotels) out of an
+// uploaded PDF/image or a forwarded itinerary. Unlike analyzeEmail (which yields
+// one booking per email), this returns a single trip with ALL its items.
+// ---------------------------------------------------------------------------
+
+/** A full trip parsed from an itinerary document. */
+export interface ParsedItinerary {
+  title: string;
+  destinations?: string;
+  /** Local date "YYYY-MM-DD" in the trip zone. */
+  startDate: string;
+  endDate: string;
+  /** Primary IANA zone of the trip, if discernible. */
+  timezone?: string;
+  items: VacationItemDraft[];
+}
+
+const ITINERARY_ITEM_SCHEMA: JsonSchema = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', enum: ['activity', 'flight', 'hotel', 'transport', 'meal', 'note'] },
+    title: { type: 'string', description: 'e.g. "AC 8558 SFO → YEG" or "Fairmont Banff Springs".' },
+    starts_at: {
+      type: 'string',
+      description:
+        'Local wall-clock ISO without offset "2026-07-03T12:50" (flight=departure, hotel=check-in). For flights, this is local time at the DEPARTURE airport.',
+    },
+    ends_at: {
+      type: 'string',
+      description: 'Local ISO (flight=arrival in the ARRIVAL airport local time, hotel=check-out).',
+    },
+    location: { type: 'string' },
+    provider: { type: 'string', description: 'Airline / hotel / operator.' },
+    number: { type: 'string', description: 'Flight or booking number, e.g. "AC 8558".' },
+    from_label: { type: 'string', description: 'Departure airport/city, e.g. "SFO – San Francisco".' },
+    to_label: { type: 'string', description: 'Arrival airport/city, e.g. "YEG – Edmonton".' },
+    from_timezone: {
+      type: 'string',
+      description:
+        'IANA zone of the departure (infer from the airport, e.g. "America/Los_Angeles" for SFO). starts_at is in this zone.',
+    },
+    to_timezone: {
+      type: 'string',
+      description: 'IANA zone of the arrival (e.g. "America/Edmonton" for YEG). ends_at is in this zone.',
+    },
+    seat: { type: 'string', description: 'Seat / room / cabin.' },
+    confirmation: { type: 'string', description: 'PNR / booking reference.' },
+    notes: { type: 'string', description: 'Terminal, gate, fare class, or other useful detail.' },
+  },
+  required: ['type', 'title', 'starts_at'],
+};
+
+const ITINERARY_SCHEMA: JsonSchema = {
+  type: 'object',
+  properties: {
+    trip: {
+      type: 'object',
+      description: 'The trip described by the document. Omit if the document is not a travel itinerary.',
+      properties: {
+        title: { type: 'string', description: 'Trip title, e.g. "Banff trip".' },
+        destinations: { type: 'string', description: 'Comma-separated destination cities.' },
+        start_date: { type: 'string', description: 'Trip start date "YYYY-MM-DD".' },
+        end_date: { type: 'string', description: 'Trip end date "YYYY-MM-DD".' },
+        timezone: { type: 'string', description: 'Primary IANA zone of the destination, e.g. "America/Edmonton".' },
+        items: {
+          type: 'array',
+          description: 'Every flight, hotel, transfer, activity, and meal in the itinerary.',
+          items: ITINERARY_ITEM_SCHEMA,
+        },
+      },
+      required: ['title', 'start_date', 'end_date', 'items'],
+    },
+  },
+  required: ['trip'],
+};
+
+export interface AnalyzeItineraryOptions {
+  /** The itinerary document(s) — PDF or image. */
+  documents: LlmDocument[];
+  timezone: string;
+  /** Optional accompanying message/subject text. */
+  context?: string;
+  circleId?: string;
+  source?: string;
+}
+
+/** Parse a full trip itinerary out of an uploaded/forwarded document. */
+export async function analyzeItinerary(opts: AnalyzeItineraryOptions): Promise<ParsedItinerary | null> {
+  const system = `You extract a complete travel itinerary from an attached document (a PDF or image — a flight confirmation, e-ticket, or trip summary) for a shared family scheduling assistant.
+Right now it is ${describeNow(opts.timezone)} in the family's home zone (${opts.timezone}).
+Capture EVERY segment: each flight leg, hotel stay, car/transfer, tour, and reservation — do not collapse a multi-leg trip into one item.
+Return local wall-clock times WITHOUT a timezone offset. For flights, starts_at is the local time at the departure airport and ends_at the local time at the arrival airport; set from_timezone/to_timezone to the IANA zones inferred from the airport codes so the times resolve correctly. Carry the flight/booking number and confirmation (PNR) onto each item.
+If the document is not a travel itinerary, omit the trip.`;
+
+  const text = opts.context
+    ? `${opts.context}\n\nExtract the full itinerary from the attached document.`
+    : 'Extract the full itinerary from the attached document.';
+
+  const args = await getProvider().extractStructured({
+    system,
+    text,
+    documents: opts.documents,
+    toolName: 'record_itinerary',
+    schema: ITINERARY_SCHEMA,
+    circleId: opts.circleId,
+    source: opts.source ?? 'itinerary',
+  });
+
+  const trip = (args as { trip?: unknown }).trip;
+  if (!trip || typeof trip !== 'object') return null;
+  const t = trip as Record<string, unknown>;
+  const startDate = str(t, 'start_date');
+  const endDate = str(t, 'end_date') ?? startDate;
+  const title = str(t, 'title');
+  if (!startDate || !title) return null;
+
+  const rawItems = Array.isArray(t.items) ? t.items : [];
+  const items = rawItems
+    .map(normalizeItemDraft)
+    .filter((i): i is VacationItemDraft => i !== null);
+  if (items.length === 0) return null;
+
+  return {
+    title,
+    destinations: str(t, 'destinations'),
+    startDate,
+    endDate: endDate ?? startDate,
+    timezone: str(t, 'timezone'),
+    items,
+  };
+}
+
+function normalizeItemDraft(input: unknown): VacationItemDraft | null {
+  if (!input || typeof input !== 'object') return null;
+  const o = input as Record<string, unknown>;
+  const title = str(o, 'title');
+  const startsAt = str(o, 'starts_at');
+  if (!title || !startsAt) return null;
+  const t = str(o, 'type');
+  return {
+    type: (t as VacationItemDraft['type']) ?? 'activity',
+    title,
+    startsAt,
+    endsAt: str(o, 'ends_at'),
+    location: str(o, 'location'),
+    provider: str(o, 'provider'),
+    number: str(o, 'number'),
+    fromLabel: str(o, 'from_label'),
+    toLabel: str(o, 'to_label'),
+    fromTimezone: str(o, 'from_timezone'),
+    toTimezone: str(o, 'to_timezone'),
+    seat: str(o, 'seat'),
+    confirmation: str(o, 'confirmation'),
+    notes: str(o, 'notes'),
   };
 }

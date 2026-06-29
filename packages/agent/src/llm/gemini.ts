@@ -89,9 +89,14 @@ export const geminiProvider: LlmProvider = {
         parameters: toGeminiSchema(opts.schema),
       },
     ];
+    const parts: any[] = [];
+    for (const doc of opts.documents ?? []) {
+      parts.push({ inlineData: { mimeType: doc.mediaType, data: doc.data } });
+    }
+    parts.push({ text: opts.text });
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
-      contents: [{ role: 'user', parts: [{ text: opts.text }] }],
+      contents: [{ role: 'user', parts }],
       config: {
         systemInstruction: opts.system,
         tools: [{ functionDeclarations }],

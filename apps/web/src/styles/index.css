@@ -499,6 +499,20 @@ button.primary:active {
 .composer button:active {
   transform: scale(0.97);
 }
+.composer button.composer-attach {
+  padding: 0.7rem 0.85rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--separator);
+  font-size: 1.15rem;
+}
+.composer button.composer-attach:hover {
+  background: var(--surface-3, var(--surface-2));
+}
+.composer button.composer-attach:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .chat-usage {
   padding: 0.4rem 1.25rem 0.6rem;
   font-size: 0.78rem;

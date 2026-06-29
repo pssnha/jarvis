@@ -9,6 +9,7 @@ import {
   createProposals,
   decryptValue,
   expireStaleProposals,
+  ingestItineraryDocument,
   listPendingProposals,
   markNotified,
 } from '@jarvis/agent';
@@ -119,6 +120,8 @@ async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; fou
   if (!circle.emailAddress || !pass) return { scanned: 0, found: 0 };
   let scanned = 0;
   let foundCount = 0;
+  // Auto-applied itinerary attachments (PDFs) — summarised to the admin after the poll.
+  const itinerarySummaries: string[] = [];
 
   const client = new ImapFlow({
     host: circle.emailHost || 'imap.gmail.com',
@@ -166,6 +169,34 @@ async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; fou
               foundCount += created.length; // actually-persisted items (de-dup aware)
             }
           }
+          // PDF attachments are treated as full itineraries: parse and apply them
+          // directly to the matching trip (auto-apply), then summarise to the admin.
+          for (const att of parsed.attachments ?? []) {
+            const isPdf =
+              att.contentType === 'application/pdf' || /\.pdf$/i.test(att.filename ?? '');
+            if (!isPdf || !att.content || att.content.length > 8 * 1024 * 1024) continue;
+            try {
+              const res = await ingestItineraryDocument({
+                circleId: circle.id,
+                zone: circle.timezone,
+                documents: [
+                  {
+                    data: att.content.toString('base64'),
+                    mediaType: 'application/pdf',
+                    filename: att.filename ?? undefined,
+                  },
+                ],
+                context: parsed.subject ? `Email subject: ${parsed.subject}` : undefined,
+                source: 'email',
+              });
+              if (res.ok) {
+                foundCount++;
+                itinerarySummaries.push(res.message);
+              }
+            } catch (err) {
+              console.error(`[email] itinerary attachment failed for uid ${uid}:`, err);
+            }
+          }
           // Processed — move it out of the inbox. If there's no Processed label we
           // leave it (messageId de-dup still prevents duplicate proposals).
           if (processed) await client.messageMove(String(uid), processed, { uid: true });
@@ -194,7 +225,20 @@ async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; fou
   // later "add all" only acts on what's currently in the inbox.
   await expireStaleProposals(circle.id);
   await notifyPending(circle);
+  if (itinerarySummaries.length > 0) await notifyItineraries(circle, itinerarySummaries);
   return { scanned, found: foundCount };
+}
+
+/** DM the admin a summary of itineraries auto-applied from email attachments. */
+async function notifyItineraries(circle: Circle, summaries: string[]): Promise<void> {
+  const tgId = await adminTelegramId();
+  const waNumber = tgId ? null : await adminWhatsAppNumber();
+  if (!tgId && !waNumber) return;
+  if (waNumber && !isConnected(circle.id)) return;
+  for (const summary of summaries) {
+    await sendDirect(circle.id, { tgId, waNumber }, `[${circle.name}] ${summary}`);
+    await sleep(800);
+  }
 }
 
 const CHUNK = 12;

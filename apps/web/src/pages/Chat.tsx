@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { socket } from '../lib/socket';
-import { getCircleUsage, getCircleChat } from '../lib/api';
+import { getCircleUsage, getCircleChat, uploadItinerary } from '../lib/api';
 import type { CircleUsage, Me } from '../lib/types';
 
 interface ChatMessage {
@@ -55,8 +55,10 @@ export function Chat({
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(socket.connected);
   const [usage, setUsage] = useState<CircleUsage | null>(null);
+  const [uploading, setUploading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // Load the stored conversation for the active circle + scope so history
   // survives reloads and reopening the pane, and resets when you switch circles.
@@ -152,6 +154,23 @@ export function Chat({
     requestAnimationFrame(autoresize); // shrink back to one line
   }
 
+  function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-uploading the same file
+    if (!file || !circleId) return;
+    setMessages((m) => [...m, { role: 'user', text: `📎 ${file.name}` }]);
+    setUploading(true);
+    uploadItinerary(circleId, file, scope)
+      .then((res) => {
+        setMessages((m) => [...m, { role: 'assistant', text: res.reply }]);
+        window.dispatchEvent(new Event('jarvis:refresh'));
+      })
+      .catch((err: Error) =>
+        setMessages((m) => [...m, { role: 'assistant', text: `⚠️ ${err.message}` }]),
+      )
+      .finally(() => setUploading(false));
+  }
+
   return (
     <div className="chatview">
       <div className="chat-head">
@@ -180,6 +199,22 @@ export function Chat({
         <div ref={endRef} />
       </div>
       <div className="composer">
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,image/*"
+          hidden
+          onChange={onPickFile}
+        />
+        <button
+          className="composer-attach"
+          onClick={() => fileRef.current?.click()}
+          disabled={!circleId || uploading}
+          title="Upload an itinerary (PDF or image)"
+          aria-label="Upload an itinerary"
+        >
+          {uploading ? '…' : '📎'}
+        </button>
         <textarea
           ref={inputRef}
           rows={1}

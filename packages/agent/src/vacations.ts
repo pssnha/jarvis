@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon';
-import { Prisma, prisma } from '@jarvis/db';
+import { Prisma, prisma, type VacationItem } from '@jarvis/db';
 import type { VacationItemType } from '@jarvis/shared';
 import { dateKeyInZone, localIsoToUtc, timeLabel, toLocalInput, zonedTimeLabel } from './datetime';
 
@@ -144,33 +144,47 @@ function normTitle(s: string | null | undefined): string {
   return (s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-export async function addVacationItem(vacationId: string, input: VacationItemInput, zone: string) {
-  const startsAt = localIsoToUtc(input.startsAt, input.fromTimezone || zone);
-  const data = {
-    type: input.type,
-    title: input.title,
-    startsAt,
-    endsAt: input.endsAt ? localIsoToUtc(input.endsAt, input.toTimezone || zone) : null,
-    allDay: input.allDay ?? false,
-    location: input.location ?? null,
-    notes: input.notes ?? null,
-    confirmation: input.confirmation ?? null,
-    provider: input.provider ?? null,
-    number: input.number ?? null,
-    fromLabel: input.fromLabel ?? null,
-    toLabel: input.toLabel ?? null,
-    fromTimezone: input.fromTimezone ?? null,
-    toTimezone: input.toTimezone ?? null,
-    seat: input.seat ?? null,
-    phone: input.phone ?? null,
-    cost: input.cost ?? null,
-    color: input.color ?? null,
-  };
+/** Outcome of an upsert: whether the item was created, changed, or already current. */
+export interface UpsertItemResult {
+  item: VacationItem;
+  action: 'added' | 'updated' | 'unchanged';
+  /** Human-readable "before → after" lines for the meaningful changes (times etc.). */
+  changes: string[];
+}
 
-  // De-dupe within the trip. Note a single booking confirmation can cover
-  // MANY flights (a multi-leg/round trip), so confirmation alone must NOT
-  // collapse flights — use the flight/transport number for those. For other
-  // types a shared confirmation does mean the same item.
+/** Text fields that an incoming itinerary may carry; overwritten in place when changed. */
+const SCALAR_FIELDS = [
+  'title', 'location', 'notes', 'confirmation', 'provider', 'number',
+  'fromLabel', 'toLabel', 'fromTimezone', 'toTimezone', 'seat', 'phone', 'cost',
+] as const;
+
+/** Short label for the few changes worth surfacing in a notification. */
+const CHANGE_LABEL: Partial<Record<(typeof SCALAR_FIELDS)[number], string>> = {
+  number: 'flight',
+  seat: 'seat',
+  confirmation: 'confirmation',
+  title: 'title',
+};
+
+/**
+ * Add an item, or — when it matches one already on the trip — update it in place.
+ *
+ * Matching: a flight/transport leg is the same when the flight/booking number
+ * matches and the time is close (a single PNR can cover many legs, so we never
+ * collapse on confirmation alone); other types collapse on a shared confirmation
+ * or a near-identical title nearby. On a match we OVERWRITE changed fields —
+ * including the departure/arrival times — so a re-sent itinerary with updated
+ * times actually updates the trip. Fields the incoming item doesn't supply are
+ * left untouched (we never wipe existing detail).
+ */
+export async function upsertVacationItem(
+  vacationId: string,
+  input: VacationItemInput,
+  zone: string,
+): Promise<UpsertItemResult> {
+  const startsAt = localIsoToUtc(input.startsAt, input.fromTimezone || zone);
+  const endsAt = input.endsAt ? localIsoToUtc(input.endsAt, input.toTimezone || zone) : null;
+
   const existing = await prisma.vacationItem.findMany({ where: { vacationId, type: input.type } });
   const NEAR_MS = 36 * 3_600_000; // within ~1.5 days
   const isTravel = input.type === 'flight' || input.type === 'transport';
@@ -178,30 +192,79 @@ export async function addVacationItem(vacationId: string, input: VacationItemInp
     const near = Math.abs(e.startsAt.getTime() - startsAt.getTime()) < NEAR_MS;
     if (isTravel) {
       // Same vehicle/flight number close in time = the same leg.
-      if (data.number && e.number && data.number === e.number && near) return true;
-    } else if (data.confirmation && e.confirmation && data.confirmation === e.confirmation) {
+      if (input.number && e.number && input.number === e.number && near) return true;
+    } else if (input.confirmation && e.confirmation && input.confirmation === e.confirmation) {
       return true;
     }
     // Fallback: same type + nearby + (near-)identical title.
-    const nt = normTitle(data.title);
+    const nt = normTitle(input.title);
     const en = normTitle(e.title);
     return near && nt.length > 0 && (nt === en || nt.startsWith(en) || en.startsWith(nt));
   });
 
-  if (dup) {
-    // Enrich the kept item with any detail it was missing, rather than duplicate it.
-    const fill: Record<string, unknown> = {};
-    for (const k of [
-      'endsAt', 'location', 'notes', 'confirmation', 'provider', 'number',
-      'fromLabel', 'toLabel', 'fromTimezone', 'toTimezone', 'seat', 'phone', 'cost',
-    ] as const) {
-      if (!dup[k] && data[k]) fill[k] = data[k];
-    }
-    if (Object.keys(fill).length === 0) return dup;
-    return prisma.vacationItem.update({ where: { id: dup.id }, data: fill });
+  if (!dup) {
+    const item = await prisma.vacationItem.create({
+      data: {
+        vacationId,
+        type: input.type,
+        title: input.title,
+        startsAt,
+        endsAt,
+        allDay: input.allDay ?? false,
+        location: input.location ?? null,
+        notes: input.notes ?? null,
+        confirmation: input.confirmation ?? null,
+        provider: input.provider ?? null,
+        number: input.number ?? null,
+        fromLabel: input.fromLabel ?? null,
+        toLabel: input.toLabel ?? null,
+        fromTimezone: input.fromTimezone ?? null,
+        toTimezone: input.toTimezone ?? null,
+        seat: input.seat ?? null,
+        phone: input.phone ?? null,
+        cost: input.cost ?? null,
+        color: input.color ?? null,
+      },
+    });
+    return { item, action: 'added', changes: [] };
   }
 
-  return prisma.vacationItem.create({ data: { vacationId, ...data } });
+  const patch: Prisma.VacationItemUpdateInput = {};
+  const changes: string[] = [];
+  const fromTz = input.fromTimezone || dup.fromTimezone || zone;
+  const toTz = input.toTimezone || dup.toTimezone || fromTz;
+
+  if (dup.startsAt.getTime() !== startsAt.getTime()) {
+    patch.startsAt = startsAt;
+    changes.push(`departure ${timeLabel(dup.startsAt, fromTz)} → ${timeLabel(startsAt, fromTz)}`);
+  }
+  // Only touch the end when a new one is supplied (don't wipe an existing arrival).
+  if (endsAt && dup.endsAt?.getTime() !== endsAt.getTime()) {
+    changes.push(`arrival ${dup.endsAt ? timeLabel(dup.endsAt, toTz) : '—'} → ${timeLabel(endsAt, toTz)}`);
+    patch.endsAt = endsAt;
+  }
+
+  for (const k of SCALAR_FIELDS) {
+    const next = input[k];
+    if (next == null || next === dup[k]) continue; // not supplied, or unchanged
+    (patch as Record<string, unknown>)[k] = next;
+    const label = CHANGE_LABEL[k];
+    if (label) changes.push(`${label} ${dup[k] ?? '—'} → ${next}`);
+  }
+
+  if (Object.keys(patch).length === 0) return { item: dup, action: 'unchanged', changes: [] };
+  const item = await prisma.vacationItem.update({ where: { id: dup.id }, data: patch });
+  return { item, action: 'updated', changes };
+}
+
+/** Add or update an itinerary item, returning just the resulting row. */
+export async function addVacationItem(
+  vacationId: string,
+  input: VacationItemInput,
+  zone: string,
+): Promise<VacationItem> {
+  const { item } = await upsertVacationItem(vacationId, input, zone);
+  return item;
 }
 
 export async function updateVacationItem(

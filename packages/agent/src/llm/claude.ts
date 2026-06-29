@@ -3,6 +3,27 @@ import { anthropic, MODEL } from '../client';
 import type { ExtractOpts, LlmProvider, RunConversationOpts, UsageContext } from './types';
 import { recordLlmUsage } from './usage';
 
+/** Build the user content for a structured extraction: any attached documents
+ *  (PDFs render as document blocks, images as image blocks) followed by the text. */
+function buildExtractContent(opts: ExtractOpts): Anthropic.ContentBlockParam[] {
+  const blocks: Anthropic.ContentBlockParam[] = [];
+  for (const doc of opts.documents ?? []) {
+    if (doc.mediaType === 'application/pdf') {
+      blocks.push({
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: doc.data },
+      });
+    } else if (doc.mediaType.startsWith('image/')) {
+      blocks.push({
+        type: 'image',
+        source: { type: 'base64', media_type: doc.mediaType as never, data: doc.data },
+      });
+    }
+  }
+  blocks.push({ type: 'text', text: opts.text });
+  return blocks;
+}
+
 /** Record an Anthropic response's token usage against the call's circle. */
 function record(ctx: UsageContext, usage: Anthropic.Usage | undefined): void {
   if (!usage) return;
@@ -89,7 +110,7 @@ export const claudeProvider: LlmProvider = {
         },
       ],
       tool_choice: { type: 'tool', name: opts.toolName },
-      messages: [{ role: 'user', content: opts.text }],
+      messages: [{ role: 'user', content: buildExtractContent(opts) }],
     });
     record(opts, response.usage);
     const toolUse = response.content.find(

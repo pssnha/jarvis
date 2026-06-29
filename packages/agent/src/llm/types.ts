@@ -30,11 +30,22 @@ export interface RunConversationOpts extends UsageContext {
   maxTurns?: number;
 }
 
+/** A binary document (PDF/image) fed to the LLM alongside the prompt text. */
+export interface LlmDocument {
+  /** Base64-encoded file bytes. */
+  data: string;
+  /** MIME type, e.g. "application/pdf", "image/png", "image/jpeg". */
+  mediaType: string;
+  filename?: string;
+}
+
 export interface ExtractOpts extends UsageContext {
   system: string;
   text: string;
   toolName: string;
   schema: JsonSchema;
+  /** Optional attachments (e.g. an itinerary PDF) to extract from. */
+  documents?: LlmDocument[];
 }
 
 /** A pluggable LLM backend (Claude, Gemini, …). */

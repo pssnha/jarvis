@@ -9,6 +9,7 @@ export * from './vacations';
 export * from './vacationImage';
 export * from './cron';
 export * from './extract';
+export * from './itinerary';
 export * from './proposals';
 export * from './tools';
 export * from './run';

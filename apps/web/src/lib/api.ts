@@ -558,5 +558,19 @@ export async function deleteVacationItem(
   }).then((r) => json(r));
 }
 
+/** Upload an itinerary (PDF/image) for the assistant to parse and apply. */
+export async function uploadItinerary(
+  cid: string,
+  file: File,
+  scope?: string,
+): Promise<{ reply: string; ok: boolean }> {
+  const form = new FormData();
+  form.append('file', file);
+  const qs = scope ? `?scope=${encodeURIComponent(scope)}` : '';
+  return fetch(`/api/circles/${cid}/itinerary${qs}`, { method: 'POST', body: form }).then((r) =>
+    json(r),
+  );
+}
+
 // Re-export for convenience.
 export type { CircleEmailConfig };

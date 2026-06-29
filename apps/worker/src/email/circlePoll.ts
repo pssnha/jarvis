@@ -188,6 +188,7 @@ async function pollCircleMailbox(circle: Circle): Promise<{ scanned: number; fou
                 ],
                 context: parsed.subject ? `Email subject: ${parsed.subject}` : undefined,
                 source: 'email',
+                replace: true, // an attached PDF itinerary is the trip's source of truth
               });
               if (res.ok) {
                 foundCount++;

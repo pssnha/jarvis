@@ -243,6 +243,7 @@ export async function registerVacations(app: FastifyInstance): Promise<void> {
       zone: circle.timezone,
       documents: [{ data: buffer.toString('base64'), mediaType, filename: file.filename }],
       source: 'web',
+      replace: true, // a full uploaded itinerary is the trip's source of truth
     });
 
     // Mirror the socket chat flow so the upload + reply persist in the thread.

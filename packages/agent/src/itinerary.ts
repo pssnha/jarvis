@@ -3,6 +3,7 @@ import type { LlmDocument } from './llm/types';
 import { dateKeyInZone } from './datetime';
 import {
   createVacation,
+  deleteVacationItem,
   getVacation,
   listVacations,
   updateVacation,
@@ -19,6 +20,8 @@ export interface ApplyItineraryResult {
   added: number;
   updated: number;
   unchanged: number;
+  /** Items removed by replace mode (superseded by the new itinerary). */
+  removed: number;
   /** Human-readable per-item lines for a notification. */
   lines: string[];
 }
@@ -148,16 +151,27 @@ export async function applyItinerary(
   circleId: string,
   parsed: ParsedItinerary,
   circleZone: string,
+  opts?: { replace?: boolean },
 ): Promise<ApplyItineraryResult> {
   const { vacationId, zone, created } = await resolveTrip(circleId, parsed, circleZone);
 
   let added = 0;
   let updated = 0;
   let unchanged = 0;
+  let removed = 0;
   const lines: string[] = [];
+
+  // Track what this upload touched so replace mode can retire only the items it
+  // superseded — by item id, the days it covers, and the types it carries.
+  const keptIds = new Set<string>();
+  const coveredDays = new Set<string>();
+  const coveredTypes = new Set<string>();
 
   for (const draft of parsed.items) {
     const res = await upsertVacationItem(vacationId, toInput(draft), zone);
+    keptIds.add(res.item.id);
+    coveredDays.add(dateKeyInZone(res.item.startsAt, zone));
+    coveredTypes.add(res.item.type);
     const label = itemLabel(draft);
     if (res.action === 'added') {
       added++;
@@ -167,6 +181,23 @@ export async function applyItinerary(
       lines.push(`✏️ ${label}${res.changes.length ? ` — ${res.changes.join(', ')}` : ''}`);
     } else {
       unchanged++;
+    }
+  }
+
+  // Replace mode: a full itinerary upload is the source of truth, so remove the
+  // trip's now-superseded items — but ONLY those of a type the upload carries, on
+  // a day it covers, that it didn't itself add/update. This retires flights that
+  // were rebooked onto different numbers without touching unrelated items or days
+  // the upload never mentions. New trips have nothing to reconcile.
+  if (opts?.replace && !created && keptIds.size > 0) {
+    const full = await getVacation(circleId, vacationId);
+    for (const e of full?.items ?? []) {
+      if (keptIds.has(e.id)) continue;
+      if (!coveredTypes.has(e.type as ParsedItinerary['items'][number]['type'])) continue;
+      if (!coveredDays.has(dateKeyInZone(e.startsAt, zone))) continue;
+      await deleteVacationItem(vacationId, e.id);
+      removed++;
+      lines.push(`➖ ${e.title}`);
     }
   }
 
@@ -191,6 +222,7 @@ export async function applyItinerary(
     added,
     updated,
     unchanged,
+    removed,
     lines,
   };
 }
@@ -204,6 +236,12 @@ export interface IngestItineraryOptions {
   context?: string;
   /** Usage attribution: email | whatsapp | web. */
   source?: string;
+  /**
+   * Treat this document as the trip's full itinerary: also remove flights it
+   * supersedes (see applyItinerary). Set for document uploads (PDF/image), which
+   * are complete itineraries; leave off for partial single-booking sources.
+   */
+  replace?: boolean;
 }
 
 export interface IngestItineraryResult {
@@ -230,7 +268,7 @@ export async function ingestItineraryDocument(
     return { ok: false, message: "I couldn't find a travel itinerary in that file." };
   }
 
-  const result = await applyItinerary(opts.circleId, parsed, opts.zone);
+  const result = await applyItinerary(opts.circleId, parsed, opts.zone, { replace: opts.replace });
   const header = result.created
     ? `🧳 Added trip *${result.vacationTitle}*`
     : `🧳 Updated *${result.vacationTitle}*`;

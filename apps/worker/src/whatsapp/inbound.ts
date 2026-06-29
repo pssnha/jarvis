@@ -93,6 +93,7 @@ async function handleDocument(
     documents: [{ data: buffer.toString('base64'), mediaType: doc.mimetype, filename: doc.filename }],
     context: doc.caption,
     source: 'whatsapp',
+    replace: true, // a sent itinerary document is the trip's source of truth
   });
   await send(jid, res.message);
 }

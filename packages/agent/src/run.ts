@@ -1,6 +1,7 @@
 import { getProvider } from './llm';
 import { circleUsageStatus } from './llm/limits';
 import type { LlmMessage } from './llm/types';
+import { executeProposalCommand, resolveProposalCommand } from './proposals';
 import { buildSystemPrompt } from './systemPrompt';
 import { toolsForSurface, type ToolContext, type ToolSurface } from './tools';
 
@@ -34,6 +35,15 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   // Cap per-circle spend: refuse before incurring any LLM cost when over limit.
   const usage = await circleUsageStatus(opts.ctx.circleId, opts.ctx.timezone);
   if (usage.blocked) return { reply: LIMIT_REACHED_REPLY };
+
+  // Resolve a numeric "add 1 and 2" / "no 3" reply against the CURRENT pending
+  // codes deterministically — the LLM otherwise anchors on stale numbered lists
+  // still sitting in the conversation history and refuses valid confirmations.
+  if (opts.pendingProposals && opts.pendingProposals.length > 0) {
+    const pendingCodes = opts.pendingProposals.map((p) => p.code);
+    const cmd = resolveProposalCommand(opts.userText, pendingCodes);
+    if (cmd) return { reply: await executeProposalCommand(opts.ctx.circleId, cmd, pendingCodes) };
+  }
 
   const userText = opts.authorName ? `${opts.authorName}: ${opts.userText}` : opts.userText;
 

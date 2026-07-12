@@ -69,7 +69,10 @@ add_trip_item per flight/hotel/activity) before replying.`;
 ${opts.pendingProposals.map((p) => `  [${p.code}] ${p.kind} — ${p.summary}`).join('\n')}
 When the user approves one or more, call confirm_proposal with each matching code; when they decline,
 call reject_proposal. "yes"/"add all" means confirm every pending code; "no"/"skip all" rejects them
-all. Then briefly say what you added or skipped.`
+all. Then briefly say what you added or skipped.
+These codes above are the ONLY valid proposal numbers right now. IGNORE any item numbers mentioned
+earlier in this conversation — those lists are stale and already handled. If the user names a number
+not listed above, don't guess: tell them the current pending numbers and ask which they mean.`
       : '';
 
   const tripsNote =

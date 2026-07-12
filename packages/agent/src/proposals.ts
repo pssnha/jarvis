@@ -123,6 +123,113 @@ export async function markNotified(ids: string[]): Promise<void> {
   });
 }
 
+// --------------------------------------------------------------------------
+// Deterministic parsing of a "confirm/reject these proposals" reply.
+//
+// Notifications present pending items by number ("[1] …", "[2] …"). Mapping a
+// reply like "add 1 and 2" back to those codes must NOT go through the LLM: the
+// conversation history accumulates months of old numbered lists (codes that
+// were long since decided), and the model anchors on that stale numbering
+// instead of the current pending set — refusing a valid "add 1 and 2" because
+// it "sees" an old 18–23 list. We resolve numeric confirm/reject replies here,
+// strictly against the codes pending right now, and only fall back to the LLM
+// for genuinely free-form messages.
+// --------------------------------------------------------------------------
+
+const CONFIRM_VERBS = new Set(['add', 'confirm', 'accept', 'approve', 'yes', 'y', 'yeah', 'yep', 'yup', 'ok', 'okay', 'keep', 'sure']);
+const REJECT_VERBS = new Set(['no', 'n', 'nope', 'skip', 'reject', 'decline', 'ignore', 'dont', 'not']);
+const ALL_WORDS = new Set(['all', 'both', 'everything', 'them', 'these', 'those', 'every']);
+/** Harmless connective words allowed inside a command without aborting it. */
+const FILLER_WORDS = new Set([
+  'and', 'plus', 'also', 'then', 'the', 'to', 'of', 'for', 'me', 'a', 'an', 'just',
+  'please', 'pls', 'thanks', 'thx', 'item', 'items', 'number', 'numbers', 'calendar',
+  'proposal', 'proposals', 'my', 'our',
+]);
+
+export interface ProposalCommand {
+  /** Pending codes to confirm. */
+  confirm: string[];
+  /** Pending codes to reject. */
+  reject: string[];
+  /** Referenced numbers that are NOT in the current pending set. */
+  unknown: string[];
+}
+
+/**
+ * Parse a numeric confirm/reject reply against the codes pending right now.
+ * Returns null when the message isn't an unambiguous confirm/reject command
+ * (any unrecognised word aborts it) so the caller can defer to the LLM.
+ */
+export function resolveProposalCommand(
+  text: string,
+  pendingCodes: string[],
+): ProposalCommand | null {
+  const pending = new Set(pendingCodes);
+  if (pending.size === 0) return null;
+
+  // Drop a "Name: " sender prefix, normalise, and tokenise on non-alphanumerics.
+  const body = text.replace(/^[^:]{1,40}:\s/, '').toLowerCase().replace(/#/g, ' ');
+  const tokens = body.split(/[^a-z0-9]+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  let mode: 'confirm' | 'reject' | null = null;
+  let sawVerb = false;
+  let sawTarget = false; // an explicit number or "all"
+  const confirm = new Set<string>();
+  const reject = new Set<string>();
+  const unknown = new Set<string>();
+
+  for (const tok of tokens) {
+    if (CONFIRM_VERBS.has(tok)) {
+      mode = 'confirm';
+      sawVerb = true;
+    } else if (REJECT_VERBS.has(tok)) {
+      mode = 'reject';
+      sawVerb = true;
+    } else if (ALL_WORDS.has(tok)) {
+      if (!mode) return null; // "all" with no verb → ambiguous
+      sawTarget = true;
+      for (const c of pending) (mode === 'confirm' ? confirm : reject).add(c);
+    } else if (/^\d+$/.test(tok)) {
+      if (!mode) return null; // a bare number with no verb → let the LLM decide
+      sawTarget = true;
+      const code = String(Number(tok)); // normalise "02" → "2"
+      if (pending.has(code)) (mode === 'confirm' ? confirm : reject).add(code);
+      else unknown.add(code);
+    } else if (!FILLER_WORDS.has(tok)) {
+      return null; // any real word we don't recognise → not a plain command
+    }
+  }
+
+  // Require an explicit target (a number or "all"): a bare "yes"/"no"/"add" is
+  // too easily an answer to some other question the assistant asked — let the
+  // LLM handle those with full context. Numeric replies are the failure case.
+  if (!sawVerb || !sawTarget) return null;
+  // A code named on both sides: rejection wins (explicit "no" is the safer read).
+  for (const c of reject) confirm.delete(c);
+
+  if (confirm.size === 0 && reject.size === 0 && unknown.size === 0) return null;
+  return { confirm: [...confirm], reject: [...reject], unknown: [...unknown] };
+}
+
+/** Execute a resolved confirm/reject command, returning a plain reply to send. */
+export async function executeProposalCommand(
+  circleId: string,
+  cmd: ProposalCommand,
+  pendingCodes: string[],
+): Promise<string> {
+  const lines: string[] = [];
+  for (const code of cmd.confirm) lines.push(await confirmProposal(circleId, code));
+  for (const code of cmd.reject) lines.push(await rejectProposal(circleId, code));
+  if (cmd.unknown.length > 0) {
+    const items = cmd.unknown.length === 1 ? 'an item' : 'items';
+    lines.push(
+      `I don't have ${items} numbered ${cmd.unknown.join(', ')} — the current list is ${pendingCodes.join(', ')}.`,
+    );
+  }
+  return lines.join('\n');
+}
+
 /** Create the entity a confirmed proposal describes. Events land in the circle's
  *  primary group; trips on the circle's vacation calendar (merging email items
  *  into an existing trip when their dates fall in/near it). */

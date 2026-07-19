@@ -172,8 +172,11 @@ export function resolveProposalCommand(
   const tokens = body.split(/[^a-z0-9]+/).filter(Boolean);
   if (tokens.length === 0) return null;
 
-  let mode: 'confirm' | 'reject' | null = null;
-  let sawVerb = false;
+  // A reply of only numbers/connectors (no verb) — e.g. "1", "1 and 2" — is a
+  // confirmation in the notify UX ("reply with which to add"). Default to
+  // confirm so a bare number resolves; an explicit verb overrides per-segment.
+  const hasVerb = tokens.some((t) => CONFIRM_VERBS.has(t) || REJECT_VERBS.has(t));
+  let mode: 'confirm' | 'reject' | null = hasVerb ? null : 'confirm';
   let sawTarget = false; // an explicit number or "all"
   const confirm = new Set<string>();
   const reject = new Set<string>();
@@ -182,16 +185,14 @@ export function resolveProposalCommand(
   for (const tok of tokens) {
     if (CONFIRM_VERBS.has(tok)) {
       mode = 'confirm';
-      sawVerb = true;
     } else if (REJECT_VERBS.has(tok)) {
       mode = 'reject';
-      sawVerb = true;
     } else if (ALL_WORDS.has(tok)) {
-      if (!mode) return null; // "all" with no verb → ambiguous
+      if (!mode) return null; // "all" before any verb in a verb-bearing reply
       sawTarget = true;
       for (const c of pending) (mode === 'confirm' ? confirm : reject).add(c);
     } else if (/^\d+$/.test(tok)) {
-      if (!mode) return null; // a bare number with no verb → let the LLM decide
+      if (!mode) return null; // a number before its verb → ambiguous, defer
       sawTarget = true;
       const code = String(Number(tok)); // normalise "02" → "2"
       if (pending.has(code)) (mode === 'confirm' ? confirm : reject).add(code);
@@ -201,10 +202,10 @@ export function resolveProposalCommand(
     }
   }
 
-  // Require an explicit target (a number or "all"): a bare "yes"/"no"/"add" is
-  // too easily an answer to some other question the assistant asked — let the
-  // LLM handle those with full context. Numeric replies are the failure case.
-  if (!sawVerb || !sawTarget) return null;
+  // Require an explicit target (a number or "all"). A bare "yes"/"no"/"add" is
+  // too easily an answer to some other question the assistant asked — defer
+  // those to the LLM, which has the full conversation for context.
+  if (!sawTarget) return null;
   // A code named on both sides: rejection wins (explicit "no" is the safer read).
   for (const c of reject) confirm.delete(c);
 

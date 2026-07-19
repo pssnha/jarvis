@@ -220,6 +220,11 @@ export async function handleInboundMessage(
     const convo = await getOrCreateConversation(circleId, 'whatsapp', { memberId: member.id });
     const history = await loadHistory(convo.id);
     const vacs = await listVacations(circleId, { includePast: false });
+    // Email proposals are the circle's shared inbox: their notifications are DM'd
+    // to whoever admins the circle, and that reply can land in a member DM (admin
+    // detection is number-based and brittle). Surface pending items here too so
+    // "add 1", "add all", etc. resolve against the real list — not stale history.
+    const pending = await listPendingProposals(circleId);
 
     const { reply } = await runAgent({
       ctx: {
@@ -234,6 +239,7 @@ export async function handleInboundMessage(
       history,
       userText,
       authorName: member.name ?? pushName,
+      pendingProposals: pending.map((p) => ({ code: p.code, kind: p.kind, summary: p.summary })),
       trips: tripContext(vacs, circle.timezone),
     });
     await appendMessages(convo.id, userText, reply, member.name ?? pushName);

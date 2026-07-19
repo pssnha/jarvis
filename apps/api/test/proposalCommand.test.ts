@@ -26,6 +26,26 @@ describe('resolveProposalCommand', () => {
     });
   });
 
+  it('confirms a bare number reply "1" (notify UX: reply with which to add)', () => {
+    expect(resolveProposalCommand('1', pending)).toEqual({
+      confirm: ['1'],
+      reject: [],
+      unknown: [],
+    });
+  });
+
+  it('confirms bare "1 and 2" with no verb', () => {
+    expect(resolveProposalCommand('1 and 2', pending)).toEqual({
+      confirm: ['1', '2'],
+      reject: [],
+      unknown: [],
+    });
+  });
+
+  it('defers "1 pm" — a bare number with a real word is not a command', () => {
+    expect(resolveProposalCommand('1 pm', pending)).toBeNull();
+  });
+
   it('handles "add all"', () => {
     expect(resolveProposalCommand('add all', pending)).toEqual({
       confirm: ['1', '2'],

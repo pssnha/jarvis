@@ -78,7 +78,10 @@ async function runScoped(opts: {
   groupContext: boolean;
 }): Promise<string> {
   const history = await loadHistory(opts.conversationId);
-  const pending = opts.isAdmin || opts.groupContext ? await listPendingProposals(opts.circleId) : [];
+  // Pending email proposals are the circle's shared inbox; their notifications
+  // may be answered from any DM (admin detection is brittle), so surface them in
+  // individual chats too — "add 1" then resolves against the real pending list.
+  const pending = await listPendingProposals(opts.circleId);
   const vacs = await listVacations(opts.circleId, { includePast: false });
   const { reply } = await runAgent({
     ctx: {

@@ -22,6 +22,24 @@ function digits(s: string): string {
   return s.replace(/\D/g, '');
 }
 
+/**
+ * The sender's PHONE number, resolving WhatsApp LID addressing.
+ *
+ * WhatsApp increasingly delivers a "LID" (`<id>@lid`, a hidden-number
+ * identifier) as the sender JID instead of the phone-number JID. Its digits are
+ * NOT a phone number, so using them breaks admin detection and spawns a phantom
+ * member — which routes the owner's own DM into individual scope (private
+ * events, no proposals). Baileys carries the real phone-number JID alongside it
+ * in `remoteJidAlt`/`participantAlt`; prefer that whenever the primary is a LID.
+ */
+function senderPhone(msg: WAMessage, isGroup: boolean): string {
+  const key = msg.key;
+  const primary = (isGroup ? key.participant : key.remoteJid) ?? '';
+  const alt = (isGroup ? key.participantAlt : key.remoteJidAlt) ?? '';
+  const pnJid = primary.includes('@lid') && alt ? alt : primary;
+  return digits((pnJid.split('@')[0] ?? ''));
+}
+
 function extractText(msg: WAMessage): string | null {
   const m = msg.message?.ephemeralMessage?.message ?? msg.message;
   if (!m) return null;
@@ -139,8 +157,9 @@ export async function handleInboundMessage(
   if (circle.deletedAt) return; // circle scheduled for deletion — don't service it
 
   const isGroup = jid.endsWith('@g.us');
-  const senderJid = isGroup ? (msg.key.participant ?? '') : jid;
-  const senderNumber = digits(senderJid.split('@')[0] ?? '');
+  // Resolve LID → phone number so the owner's DM is recognised (not treated as a
+  // phantom member). Replies still go to `jid` (the original chat JID).
+  const senderNumber = senderPhone(msg, isGroup);
   const pushName = msg.pushName ?? undefined;
 
   // An itinerary attachment (PDF/image) — parse and apply it, then we're done.

@@ -1,0 +1,23 @@
+{
+  "originHash" : "eb0b601b1a83c44c646a97ed70816ed13c1da7108fdffe5a9e30f2516ef9a7de",
+  "pins" : [
+    {
+      "identity" : "ios-voice-processor",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Picovoice/ios-voice-processor.git",
+      "state" : {
+        "revision" : "083c02aed9a890400d647fd357f8a505bf672f58",
+        "version" : "1.2.0"
+      }
+    },
+    {
+      "identity" : "porcupine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Picovoice/porcupine.git",
+      "state" : {
+        "revision" : "3d3bdb0a4e0c0c8374b8a94d3590666b214686f7"
+      }
+    }
+  ],
+  "version" : 3
+}

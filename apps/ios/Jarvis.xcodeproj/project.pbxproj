@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A00000000000000000000013 /* Porcupine in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000000012 /* Porcupine */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		A00000000000000000000004 /* Jarvis.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Jarvis.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000010 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
@@ -38,6 +42,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00000000000000000000013 /* Porcupine in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -81,6 +86,7 @@
 			);
 			name = Jarvis;
 			packageProductDependencies = (
+				A00000000000000000000012 /* Porcupine */,
 			);
 			productName = Jarvis;
 			productReference = A00000000000000000000004 /* Jarvis.app */;
@@ -110,6 +116,9 @@
 			);
 			mainGroup = A00000000000000000000002;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A00000000000000000000014 /* XCRemoteSwiftPackageReference "porcupine" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -259,6 +268,25 @@
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A00000000000000000000014 /* XCRemoteSwiftPackageReference "porcupine" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Picovoice/porcupine.git";
+			requirement = {
+				kind = revision;
+				revision = 3d3bdb0a4e0c0c8374b8a94d3590666b214686f7;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A00000000000000000000012 /* Porcupine */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A00000000000000000000014 /* XCRemoteSwiftPackageReference "porcupine" */;
+			productName = Porcupine;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCConfigurationList section */
 		A0000000000000000000000A /* Build configuration list for PBXProject "Jarvis" */ = {

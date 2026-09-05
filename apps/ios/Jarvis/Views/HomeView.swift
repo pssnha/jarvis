@@ -8,6 +8,7 @@ struct HomeView: View {
     var body: some View {
         List {
             Section(model.context?.circleName ?? "Jarvis") {
+                NavigationLink { VoiceView() } label: { Label("Voice", systemImage: "mic.fill") }
                 HStack {
                     TextField("Ask Jarvis", text: $text)
                         .textFieldStyle(.roundedBorder)

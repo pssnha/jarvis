@@ -14,4 +14,12 @@ enum Config {
     static let oauthClientSecret = string("JarvisOAuthClientSecret")
     static let oauthRedirect = URL(string: "jarvis://oauth/callback")!
     static let oauthCallbackScheme = "jarvis"
+
+    /// Hotword is optional: present only when both the key and the keyword model exist.
+    static let picovoiceAccessKey: String? = {
+        let v = Bundle.main.object(forInfoDictionaryKey: "PicovoiceAccessKey") as? String ?? ""
+        return v.isEmpty ? nil : v
+    }()
+    static let hotwordKeywordPath: String? =
+        Bundle.main.path(forResource: "Hey-Jarvis_en_ios", ofType: "ppn")
 }

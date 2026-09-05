@@ -20,8 +20,24 @@ Not part of the pnpm/TS toolchain (like `apps/alexa`): build it with Xcode.
 - `Jarvis/Intents` — `AskJarvisIntent` (open question), `CalendarTodayIntent`,
   `AddReminderIntent`, `CancelEventIntent` (Siri confirmation before the cancel turn),
   and the `AppShortcutsProvider` phrases.
-- `Jarvis/Views` — sign-in and a Home screen with a text box that runs the same turn
-  pipeline Siri uses (handy for testing without speaking).
+- `Jarvis/Voice` — the in-app conversation: `SpeechRecognizer` (SFSpeechRecognizer,
+  on-device when supported, ends on a pause), `Speaker` (AVSpeechSynthesizer), `Hotword`
+  (Picovoice Porcupine, foreground-only), and `VoiceSession`, the state machine
+  idle → listening → thinking → speaking with tap-to-talk, barge-in, and automatic
+  follow-up listening when Jarvis asks a question.
+- `Jarvis/Views` — sign-in, a Home screen with a text box that runs the same turn
+  pipeline Siri uses, and `VoiceView`.
+
+## "Hey Jarvis" hotword (optional)
+
+Off unless configured, in which case a toggle appears on the Voice screen:
+
+1. Create an AccessKey at console.picovoice.ai and train a "Hey Jarvis" keyword for iOS.
+2. Drop the file in as `Jarvis/Resources/Hey-Jarvis_en_ios.ppn` (the synced group picks it up).
+3. Add `PICOVOICE_ACCESS_KEY = ...` to `Config.local.xcconfig`.
+
+The Porcupine Swift package is pinned to a commit because the repo's tags aren't semver;
+the first build clones it (large repo, one-off).
 
 ## First run
 

@@ -8,6 +8,8 @@
 	<string>$(JARVIS_OAUTH_CLIENT_ID)</string>
 	<key>JarvisOAuthClientSecret</key>
 	<string>$(JARVIS_OAUTH_CLIENT_SECRET)</string>
+	<key>PicovoiceAccessKey</key>
+	<string>$(PICOVOICE_ACCESS_KEY)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

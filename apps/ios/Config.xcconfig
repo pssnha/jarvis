@@ -8,4 +8,7 @@ JARVIS_OAUTH_CLIENT_ID = jarvis-ios
 // The client secret is per-install-family, not per-user; keep the real value in
 // Config.local.xcconfig (git-ignored) together with DEVELOPMENT_TEAM.
 JARVIS_OAUTH_CLIENT_SECRET = PUT-A-STRONG-SECRET-HERE
+// Picovoice AccessKey for the "Hey Jarvis" hotword (console.picovoice.ai). Leave empty
+// to ship without the hotword; the keyword file goes in Jarvis/Resources/Hey-Jarvis_en_ios.ppn.
+PICOVOICE_ACCESS_KEY =
 #include? "Config.local.xcconfig"

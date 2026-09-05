@@ -147,6 +147,20 @@ textarea {
   flex-direction: column;
   background: var(--bg);
 }
+/* Inside the iOS app: no chrome, the pages fill the web view; the chat pane
+   (normally a drawer) becomes the whole screen. */
+.shell.embedded .content {
+  padding-top: env(safe-area-inset-top);
+}
+.shell.embedded .chatpane,
+.shell.embedded .chatpane .chat-close {
+  display: none;
+}
+.shell.embedded > .chatview {
+  flex: 1;
+  min-height: 0;
+  padding-top: env(safe-area-inset-top);
+}
 .topbar {
   display: none;
   align-items: center;

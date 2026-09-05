@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getMe, logout } from './lib/api';
+import { getMe, listCircles, logout } from './lib/api';
 import type { Me } from './lib/types';
 import { Calendar } from './pages/Calendar';
 import { Vacations } from './pages/Vacations';
@@ -12,9 +12,16 @@ import { Splash } from './pages/Splash';
 import { Signup } from './pages/Signup';
 import { SignupContinue } from './pages/SignupContinue';
 
+/**
+ * Running inside the iOS app's web view. The app supplies the navigation (tab
+ * bar) and sign-in, so the shell renders bare pages and a full-screen chat.
+ */
+export const embedded = navigator.userAgent.includes('JarvisiOS');
+
 type View =
   | 'calendar'
   | 'vacations'
+  | 'chat'
   | 'circles'
   | 'permissions'
   | 'maintenance'
@@ -36,6 +43,7 @@ function parseRoute(): Route {
   const v = parts[0];
   const known: View[] = [
     'vacations',
+    'chat',
     'circles',
     'permissions',
     'maintenance',
@@ -70,6 +78,20 @@ export function App() {
       .catch(() => setMe(null));
   }, []);
 
+  // In the app, a missing session means the cookie lapsed: tell the native side
+  // to re-establish it (it signs in natively; Google won't inside a web view).
+  useEffect(() => {
+    if (embedded && me === null) {
+      window.webkit?.messageHandlers?.jarvis?.postMessage('unauthenticated');
+    }
+  }, [me]);
+
+  // Remember the circle the calendar/trips pages are on so the app's standalone
+  // Chat tab talks to the same one.
+  useEffect(() => {
+    if (active?.circleId) localStorage.setItem('jarvis:activeCircle', active.circleId);
+  }, [active]);
+
   // Keep the route in sync with browser navigation (back/forward, refresh).
   useEffect(() => {
     const onHash = () => setRoute(parseRoute());
@@ -89,7 +111,7 @@ export function App() {
       </div>
     );
   }
-  if (me === null) return <Splash />;
+  if (me === null) return embedded ? <div className="shell" /> : <Splash />;
 
   const view = route.view;
   const siteAdmin = me.role === 'admin';
@@ -114,6 +136,22 @@ export function App() {
       {label}
     </button>
   );
+
+  if (embedded) {
+    if (view === 'chat') {
+      const circleId = active?.circleId ?? localStorage.getItem('jarvis:activeCircle');
+      return (
+        <div className="shell embedded">
+          <EmbeddedChat circleId={circleId} me={me} />
+        </div>
+      );
+    }
+    return (
+      <div className="shell embedded">
+        <main className="content">{renderView()}</main>
+      </div>
+    );
+  }
 
   return (
     <div className="shell">
@@ -158,8 +196,23 @@ export function App() {
           </div>
         </aside>
 
-        <main className="content">
-          {(() => {
+        <main className="content">{renderView()}</main>
+
+        {chatOpen && <div className="backdrop chat-backdrop" onClick={() => setChatOpen(false)} />}
+        <aside className={chatOpen ? 'chatpane open' : 'chatpane'}>
+          <Chat
+            circleId={active?.circleId ?? null}
+            scope={active?.scope}
+            surface={view === 'vacations' ? 'vacations' : view === 'calendar' ? 'calendar' : 'general'}
+            me={me}
+            onClose={() => setChatOpen(false)}
+          />
+        </aside>
+      </div>
+    </div>
+  );
+
+  function renderView() {
             // Resolve the URL view to a page the user may see (else fall back).
             const v: View =
               view === 'circles' && (siteAdmin || circleAdmin)
@@ -200,21 +253,25 @@ export function App() {
             if (v === 'signups') return <Signups key={key} itemId={route.id} />;
             if (v === 'permissions') return <Permissions key={key} />;
             if (v === 'maintenance') return <Maintenance key={key} />;
-            return <Calendar key={key} onActive={setActive} me={me} />;
-          })()}
-        </main>
+            return <Calendar key={key} onActive={setActive} me={me!} />;
+  }
+}
 
-        {chatOpen && <div className="backdrop chat-backdrop" onClick={() => setChatOpen(false)} />}
-        <aside className={chatOpen ? 'chatpane open' : 'chatpane'}>
-          <Chat
-            circleId={active?.circleId ?? null}
-            scope={active?.scope}
-            surface={view === 'vacations' ? 'vacations' : view === 'calendar' ? 'calendar' : 'general'}
-            me={me}
-            onClose={() => setChatOpen(false)}
-          />
-        </aside>
-      </div>
-    </div>
-  );
+/** The app's Chat tab: full-screen, bound to the remembered circle (or the
+ *  user's first) since no calendar/trips page is open beside it. */
+function EmbeddedChat({ circleId, me }: { circleId: string | null; me: Me }) {
+  const [resolved, setResolved] = useState<string | null>(circleId);
+  useEffect(() => {
+    if (resolved) return;
+    listCircles()
+      .then((cs) => setResolved(cs[0]?.id ?? null))
+      .catch(() => {});
+  }, [resolved]);
+  return <Chat circleId={resolved} surface="general" me={me} />;
+}
+
+declare global {
+  interface Window {
+    webkit?: { messageHandlers?: { jarvis?: { postMessage: (msg: string) => void } } };
+  }
 }

@@ -1,10 +1,9 @@
 # Jarvis iOS
 
-SwiftUI app (iOS 18+) that gives the family hands-free access to Jarvis: Siri App
-Intents for one-shots with the phone locked, and (P2) an in-app "Hey Jarvis" voice
-screen. It only talks to the existing API — `/api/oauth/*` for sign-in and
-`/api/voice/*` for turns — so all scheduling logic stays server-side on the `voice`
-tool surface.
+SwiftUI app (iOS 18+). Native: Siri App Intents for one-shots with the phone locked and
+an in-app voice screen with optional "Hey Jarvis" hotword. Everything else on
+jarvis.passanha.com runs inside the app as embedded web pages, signed in automatically,
+so the app always matches the site without a release.
 
 Not part of the pnpm/TS toolchain (like `apps/alexa`): build it with Xcode.
 
@@ -25,8 +24,15 @@ Not part of the pnpm/TS toolchain (like `apps/alexa`): build it with Xcode.
   (Picovoice Porcupine, foreground-only), and `VoiceSession`, the state machine
   idle → listening → thinking → speaking with tap-to-talk, barge-in, and automatic
   follow-up listening when Jarvis asks a question.
-- `Jarvis/Views` — sign-in, a Home screen with a text box that runs the same turn
-  pipeline Siri uses, and `VoiceView`.
+- `Jarvis/Web` — `WebPage`/`WebScreen`: the rest of Jarvis (Calendar, Vacations, Chat,
+  Admin, Billing…) is the web app embedded in `WKWebView`, one page per tab. The web view
+  is signed in by redeeming a one-time code (`POST /api/voice/session` →
+  `GET /api/auth/app-session/:code`) for the normal session cookie, because Google refuses
+  to sign in inside a web view. The UA suffix `JarvisiOS` switches the web app into its
+  in-app shell (no sidebar/topbar, full-screen chat at `#/chat`). External links open in
+  Safari; a lapsed session is reported back over `webkit.messageHandlers.jarvis`.
+- `Jarvis/Views` — sign-in, the tab bar (Calendar · Vacations · Chat · Voice · More),
+  `MoreView` (circle switcher, admin pages by role, sign out) and `VoiceView`.
 
 ## "Hey Jarvis" hotword (optional)
 

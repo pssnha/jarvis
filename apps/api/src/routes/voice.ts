@@ -10,6 +10,7 @@ import {
 } from '@jarvis/agent';
 import { prisma, type AuthUser } from '@jarvis/db';
 import { accessibleScheduleCircleIds } from '../lib/access';
+import { mintAppSessionCode } from '../auth/appSession';
 
 /** The circle a voice request acts on: the one named (if accessible) else the
  *  user's first accessible circle. (Schedule access is members-only.) */
@@ -42,14 +43,23 @@ export async function registerVoice(api: FastifyInstance): Promise<void> {
     const circle = await resolveCircle(user, q.circleId);
     if (!circle) return reply.code(404).send({ error: 'no_circle' });
     const circles = await accessibleCircles(user);
+    const grants = await prisma.circleAdmin.count({ where: { authUserId: user.id } });
     return {
       circleId: circle.id,
       circleName: circle.name,
       timezone: circle.timezone,
       multipleCircles: circles.length > 1,
       circles,
+      email: user.email,
+      // Mirrors the web's nav gating so the app shows the same admin pages.
+      siteAdmin: user.role === 'admin',
+      circleAdmin: grants > 0,
     };
   });
+
+  // One-time code the app's embedded web view redeems for the web session cookie
+  // (GET /api/auth/app-session/:code). Valid for a minute, single use.
+  api.post('/voice/session', async (req) => ({ code: mintAppSessionCode(req.authUser!.id) }));
 
   // One conversational turn: same pipeline as the web chat, circle-scoped.
   api.post('/voice/turn', async (req, reply) => {

@@ -10,6 +10,9 @@ struct VoiceContext: Decodable {
     let timezone: String
     let multipleCircles: Bool
     let circles: [Circle]
+    let email: String
+    let siteAdmin: Bool
+    let circleAdmin: Bool
 }
 
 /// The circle the user picked when they belong to several. Read by Siri intents
@@ -47,6 +50,13 @@ enum JarvisAPI {
         var path = "voice/context"
         if let id = CirclePreference.circleId { path += "?circleId=\(id)" }
         return try await request(path, method: "GET", body: nil)
+    }
+
+    /// One-time code the embedded web view redeems for the web session cookie.
+    static func appSessionCode() async throws -> String {
+        struct Reply: Decodable { let code: String }
+        let r: Reply = try await request("voice/session", method: "POST", body: [:])
+        return r.code
     }
 
     static func turn(_ text: String, circleId: String? = CirclePreference.circleId) async throws -> TurnReply {

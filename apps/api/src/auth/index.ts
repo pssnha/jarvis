@@ -5,6 +5,7 @@ import { prisma } from '@jarvis/db';
 import { setUserWhatsApp } from '@jarvis/agent';
 import { env } from '../config/env';
 import { SESSION_COOKIE, OAUTH_RETURN_COOKIE, SIGNED_OUT_COOKIE } from './constants';
+import { redeemAppSessionCode } from './appSession';
 
 const isProd = env.NODE_ENV === 'production';
 
@@ -138,6 +139,28 @@ export async function registerAuthRoutes(api: FastifyInstance): Promise<void> {
     );
   }
 
+  // The iOS app's embedded web view lands here with a code minted over its Bearer
+  // token (POST /api/voice/session) and leaves with the normal session cookie.
+  api.get('/auth/app-session/:code', async (req, reply) => {
+    const { code } = req.params as { code: string };
+    const q = req.query as { next?: string };
+    const userId = redeemAppSessionCode(code);
+    const user = userId ? await prisma.authUser.findUnique({ where: { id: userId } }) : null;
+    if (!user) return reply.code(400).type('text/html').send(errorHtml('This sign-in link has expired. Reopen the app.'));
+    reply.setCookie(SESSION_COOKIE, user.id, {
+      signed: true,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: isProd,
+      path: '/',
+      maxAge: 60 * 60 * 24 * 30,
+    });
+    reply.clearCookie(SIGNED_OUT_COOKIE, { path: '/' });
+    // Only ever bounce within the app: a hash route, nothing else.
+    const next = q.next && /^#\/[a-z-]+(\/[A-Za-z0-9_-]+)?$/.test(q.next) ? q.next : '#/calendar';
+    return reply.redirect(`${env.AUTH_BASE_URL}/${next}`);
+  });
+
   api.get('/auth/me', async (req, reply) => {
     const user = await resolveUser(api, req);
     if (!user) return reply.code(401).send({ error: 'unauthenticated' });
@@ -167,6 +190,10 @@ export async function registerAuthRoutes(api: FastifyInstance): Promise<void> {
     });
     return { ok: true };
   });
+}
+
+function errorHtml(message: string): string {
+  return `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><h1>Jarvis</h1><p>${message}</p>`;
 }
 
 function notConfiguredHtml(): string {

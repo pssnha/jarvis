@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import WebKit
 
 @Observable
 @MainActor
@@ -37,6 +38,9 @@ final class AppModel {
 
     func signOut() async {
         await AuthStore.shared.signOut()
+        // The embedded web pages hold the web session cookie — drop it too.
+        await WKWebsiteDataStore.default().removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
         CirclePreference.circleId = nil
         signedIn = false
         context = nil
@@ -48,17 +52,6 @@ final class AppModel {
         await refresh()
     }
 
-    /// Text turn from the Home screen — same pipeline Siri uses.
-    func ask(_ text: String) async -> String? {
-        busy = true; defer { busy = false }
-        do {
-            error = nil
-            return try await JarvisAPI.turn(text, circleId: context?.circleId).speech
-        } catch {
-            self.error = error.localizedDescription
-            return nil
-        }
-    }
 }
 
 extension AuthError: Equatable {

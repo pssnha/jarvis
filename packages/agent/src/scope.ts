@@ -11,13 +11,14 @@ export type ScheduleScope =
   | { circleId: string; kind: 'individual'; memberId: string }
   | { circleId: string; kind: 'circle' };
 
-/** The Prisma `Event.where` for a scope. */
+/** The Prisma `Event.where` for a scope. Excludes cancelled-occurrence
+ *  tombstones everywhere — they must never show or fire. */
 export async function scopeWhere(scope: ScheduleScope): Promise<Prisma.EventWhereInput> {
   if (scope.kind === 'group') {
-    return { circleId: scope.circleId, groupId: scope.groupId };
+    return { circleId: scope.circleId, groupId: scope.groupId, cancelled: false };
   }
   if (scope.kind === 'circle') {
-    return { circleId: scope.circleId };
+    return { circleId: scope.circleId, cancelled: false };
   }
   // individual: events of every group the member is in, plus their private events.
   const rows = await prisma.groupMember.findMany({
@@ -27,6 +28,7 @@ export async function scopeWhere(scope: ScheduleScope): Promise<Prisma.EventWher
   const groupIds = rows.map((r) => r.groupId);
   return {
     circleId: scope.circleId,
+    cancelled: false,
     OR: [{ groupId: { in: groupIds } }, { ownerMemberId: scope.memberId }],
   };
 }

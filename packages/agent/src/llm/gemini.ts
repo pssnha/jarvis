@@ -52,7 +52,12 @@ export const geminiProvider: LlmProvider = {
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: m.content }],
     }));
-    contents.push({ role: 'user', parts: [{ text: opts.userText }] });
+    const userParts: any[] = [];
+    for (const doc of opts.documents ?? []) {
+      userParts.push({ inlineData: { mimeType: doc.mediaType, data: doc.data } });
+    }
+    userParts.push({ text: opts.userText });
+    contents.push({ role: 'user', parts: userParts });
 
     for (let turn = 0; turn < maxTurns; turn++) {
       const response = await ai.models.generateContent({ model: GEMINI_MODEL, contents, config });

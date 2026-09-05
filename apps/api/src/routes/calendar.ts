@@ -11,7 +11,7 @@ export async function registerCalendar(app: FastifyInstance): Promise<void> {
     if (!group) return reply.code(404).send('Not found');
 
     const events = await prisma.event.findMany({
-      where: { groupId: group.id },
+      where: { groupId: group.id, cancelled: false },
       orderBy: { startsAt: 'asc' },
     });
     // Exclude instants detached into overrides from each parent series, so

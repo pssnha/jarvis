@@ -1,7 +1,13 @@
 import '../src/loadEnv';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '@jarvis/db';
-import { createEvent, expandCalendar, updateEventOccurrence } from '@jarvis/agent';
+import {
+  cancelEventOccurrence,
+  createEvent,
+  expandCalendar,
+  findOccurrenceInstant,
+  updateEventOccurrence,
+} from '@jarvis/agent';
 
 /**
  * Editing one instance of a recurring series must not touch the rest: it detaches
@@ -98,5 +104,52 @@ describe('single-occurrence edit', () => {
     );
     const overrides = await prisma.event.count({ where: { recurrenceParentId: parentId } });
     expect(overrides).toBe(1);
+  });
+});
+
+describe('single-occurrence cancel', () => {
+  it('skips only the chosen date, and the tombstone never shows', async () => {
+    if (!dbOk) return;
+    // Fresh weekly series to keep this isolated from the edit test above.
+    const ev = await createEvent({
+      circleId: id('C'),
+      groupId: id('G'),
+      source: 'web',
+      timezone: TZ,
+      kind: 'event',
+      draft: {
+        title: 'Sunday badminton',
+        start: '2026-07-05T14:00', // Sun
+        end: '2026-07-05T16:00',
+        recurrence: { freq: 'weekly', byweekday: ['SU'] },
+      },
+    });
+    const from = new Date('2026-07-05T00:00:00Z');
+    const to = new Date('2026-07-20T00:00:00Z'); // 3 Sundays: 5, 12, 19
+
+    const before = await expandCalendar(scope, TZ, from, to);
+    const badmintonBefore = before.filter((o) => o.title === 'Sunday badminton');
+    expect(badmintonBefore.length).toBe(3);
+
+    // Resolve and cancel just Sunday 2026-07-12.
+    const instant = await findOccurrenceInstant(id('C'), ev.id, '2026-07-12', TZ);
+    expect(instant?.toISOString()).toBe('2026-07-12T21:00:00.000Z'); // 14:00 PDT
+    await cancelEventOccurrence(id('C'), ev.id, instant!);
+
+    const after = await expandCalendar(scope, TZ, from, to);
+    const badmintonAfter = after.filter((o) => o.title === 'Sunday badminton');
+    // One fewer occurrence, and the cancelled tombstone itself is not rendered.
+    expect(badmintonAfter.length).toBe(2);
+    const isos = badmintonAfter.map((o) => o.start.toISOString());
+    expect(isos).not.toContain('2026-07-12T21:00:00.000Z');
+    expect(isos).toContain('2026-07-05T21:00:00.000Z');
+    expect(isos).toContain('2026-07-19T21:00:00.000Z');
+
+    // Cancelling again is idempotent (updates the tombstone, no duplicate).
+    await cancelEventOccurrence(id('C'), ev.id, instant!);
+    const tombstones = await prisma.event.count({
+      where: { recurrenceParentId: ev.id, cancelled: true },
+    });
+    expect(tombstones).toBe(1);
   });
 });

@@ -214,6 +214,65 @@ export async function updateEventOccurrence(
   });
 }
 
+/**
+ * Cancel a single instance of a recurring series (e.g. "no badminton today")
+ * without touching the rest: write a tombstone override row (rrule null,
+ * `cancelled` true) at that instant. Its existence makes the parent's expansion
+ * skip the occurrence; `cancelled` keeps the tombstone itself from firing or
+ * showing. Re-cancelling the same instant is idempotent.
+ */
+export async function cancelEventOccurrence(
+  circleId: string,
+  parentId: string,
+  occurrenceStartUtc: Date,
+) {
+  const parent = await prisma.event.findFirst({ where: { id: parentId, circleId } });
+  if (!parent || !parent.rrule) return null;
+
+  const existing = await prisma.event.findFirst({
+    where: { recurrenceParentId: parentId, recurrenceStart: occurrenceStartUtc },
+  });
+  if (existing) return prisma.event.update({ where: { id: existing.id }, data: { cancelled: true } });
+  return prisma.event.create({
+    data: {
+      title: parent.title,
+      startsAt: occurrenceStartUtc,
+      endsAt: null,
+      allDay: parent.allDay,
+      kind: parent.kind,
+      circleId: parent.circleId,
+      groupId: parent.groupId,
+      ownerMemberId: parent.ownerMemberId,
+      source: parent.source,
+      createdById: parent.createdById,
+      rrule: null,
+      recurrenceParentId: parent.id,
+      recurrenceStart: occurrenceStartUtc,
+      cancelled: true,
+    },
+  });
+}
+
+/**
+ * Resolve the exact UTC instant of a recurring series' occurrence on a given
+ * local date ("YYYY-MM-DD"), so single-occurrence edits/cancels target the real
+ * instance. Returns null if the series has no occurrence that day.
+ */
+export async function findOccurrenceInstant(
+  circleId: string,
+  parentId: string,
+  localDate: string,
+  timezone: string,
+): Promise<Date | null> {
+  const parent = await prisma.event.findFirst({ where: { id: parentId, circleId } });
+  if (!parent?.rrule) return null;
+  const dayStart = localIsoToUtc(`${localDate}T00:00`, timezone);
+  const after = new Date(dayStart.getTime() - 1); // occurrencesBetween is (after, before]
+  const before = localIsoToUtc(`${localDate}T23:59:59`, timezone);
+  const occ = occurrencesBetween(parent.rrule, parent.startsAt, timezone, after, before);
+  return occ[0] ?? null;
+}
+
 /** Original instants of any single-occurrence overrides, grouped by parent id. */
 export async function overridesByParent(parentIds: string[]): Promise<Map<string, Date[]>> {
   const map = new Map<string, Date[]>();

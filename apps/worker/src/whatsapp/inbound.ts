@@ -14,6 +14,7 @@ import {
   resolveMember,
   runAgent,
   toLocalInput,
+  type ToolContext,
 } from '@jarvis/agent';
 
 type Sender = (jid: string, text: string) => Promise<void>;
@@ -64,56 +65,103 @@ function extractDocument(msg: WAMessage): { mimetype: string; filename?: string;
 
 const MAX_DOC_BYTES = 8 * 1024 * 1024;
 
+/** An attachment downloaded and ready to feed the LLM as vision input. */
+type InlineDoc = { data: string; mediaType: string; filename?: string };
+
 /**
- * Read a PDF/image itinerary sent to a circle and apply it (auto-apply).
- * Allowed for the admin, a known member, or anyone in the circle's group chat —
- * trips are shared per-circle. Replies with the change summary.
+ * Download a PDF/image attachment for a served sender and pings "reading".
+ * Returns the inline doc, null (no attachment), or 'error' when it already
+ * replied with a failure (caller should stop).
  */
-async function handleDocument(
+async function downloadDoc(
   circleId: string,
-  timezone: string,
+  meta: { mimetype: string; filename?: string } | null,
   msg: WAMessage,
   jid: string,
-  isGroup: boolean,
-  senderNumber: string,
-  doc: { mimetype: string; filename?: string; caption?: string },
   send: Sender,
-): Promise<void> {
-  const isAdmin = senderNumber ? await isAdminWhatsApp(senderNumber) : false;
-  let allowed = isAdmin;
-  if (!allowed) {
-    if (isGroup) {
-      const group = await getGroupByWhatsappId(jid);
-      allowed = !!group && group.circleId === circleId;
-    } else if (senderNumber) {
-      allowed = !!(await findMemberByWhatsApp(circleId, senderNumber));
-    }
-  }
-  if (!allowed) return;
-
+): Promise<InlineDoc | null | 'error'> {
+  if (!meta) return null;
   let buffer: Buffer;
   try {
     buffer = (await downloadMediaMessage(msg, 'buffer', {})) as Buffer;
   } catch (err) {
     console.error(`[wa:${circleId}] media download failed:`, err);
     await send(jid, "I couldn't download that file — please try sending it again.");
-    return;
+    return 'error';
   }
   if (buffer.length > MAX_DOC_BYTES) {
     await send(jid, 'That file is too large for me to read (max 8 MB).');
-    return;
+    return 'error';
+  }
+  await send(jid, '📎 Reading that…');
+  return { data: buffer.toString('base64'), mediaType: meta.mimetype, filename: meta.filename };
+}
+
+/**
+ * Produce and send one reply for a served turn (text and/or an attachment).
+ *
+ * A document is first offered to the specialised itinerary ingester (trips are
+ * shared per-circle); only when it isn't a travel itinerary do we fall back to
+ * the vision-enabled agent, which reads the image and applies schedule changes
+ * with its full toolset. Either way the turn is logged to the conversation so
+ * follow-ups keep context.
+ */
+async function respond(opts: {
+  circleId: string;
+  timezone: string;
+  jid: string;
+  send: Sender;
+  convoId: string;
+  ctx: ToolContext;
+  authorName?: string;
+  userText: string;
+  doc: InlineDoc | null;
+  pending: { code: string; kind: string; summary: string }[];
+  trips: ReturnType<typeof tripContext>;
+}): Promise<void> {
+  if (opts.doc) {
+    try {
+      const res = await ingestItineraryDocument({
+        circleId: opts.circleId,
+        zone: opts.timezone,
+        documents: [opts.doc],
+        context: opts.userText || undefined,
+        source: 'whatsapp',
+        replace: true, // a sent itinerary document is the trip's source of truth
+      });
+      if (res.ok) {
+        await appendMessages(
+          opts.convoId,
+          opts.userText || '[shared an itinerary document]',
+          res.message,
+          opts.authorName,
+        );
+        await opts.send(opts.jid, res.message);
+        return;
+      }
+    } catch (err) {
+      console.error(`[wa:${opts.circleId}] itinerary ingest failed:`, err);
+    }
   }
 
-  await send(jid, '📎 Reading that itinerary…');
-  const res = await ingestItineraryDocument({
-    circleId,
-    zone: timezone,
-    documents: [{ data: buffer.toString('base64'), mediaType: doc.mimetype, filename: doc.filename }],
-    context: doc.caption,
-    source: 'whatsapp',
-    replace: true, // a sent itinerary document is the trip's source of truth
+  const history = await loadHistory(opts.convoId);
+  const agentText =
+    opts.userText ||
+    (opts.doc
+      ? 'I sent an image — read it and update the schedule accordingly (add, change, or remove items). Ask one short question only if it is genuinely unclear.'
+      : '');
+  const { reply } = await runAgent({
+    ctx: opts.ctx,
+    history,
+    userText: agentText,
+    documents: opts.doc ? [opts.doc] : undefined,
+    authorName: opts.authorName,
+    pendingProposals: opts.pending,
+    trips: opts.trips,
   });
-  await send(jid, res.message);
+  const logUser = opts.userText || (opts.doc ? '[sent an image]' : agentText);
+  await appendMessages(opts.convoId, logUser, reply, opts.authorName);
+  await opts.send(opts.jid, reply);
 }
 
 function tripContext(
@@ -149,8 +197,8 @@ export async function handleInboundMessage(
   if (!jid) return;
 
   const text = extractText(msg);
-  const doc = extractDocument(msg);
-  if (!text && !doc) return;
+  const docMeta = extractDocument(msg);
+  if (!text && !docMeta) return;
 
   const circle = await getCircle(circleId);
   if (!circle) return;
@@ -161,15 +209,12 @@ export async function handleInboundMessage(
   // phantom member). Replies still go to `jid` (the original chat JID).
   const senderNumber = senderPhone(msg, isGroup);
   const pushName = msg.pushName ?? undefined;
-
-  // An itinerary attachment (PDF/image) — parse and apply it, then we're done.
-  if (doc) {
-    await handleDocument(circleId, circle.timezone, msg, jid, isGroup, senderNumber, doc, send);
-    return;
-  }
-
   const userText = (text ?? '').trim();
-  if (!userText) return;
+  const pendingFor = (p: { code: string; kind: string; summary: string }) => ({
+    code: p.code,
+    kind: p.kind,
+    summary: p.summary,
+  });
 
   if (isGroup) {
     const group = await getGroupByWhatsappId(jid);
@@ -179,11 +224,19 @@ export async function handleInboundMessage(
     const member = await resolveMember(circleId, { waId: senderNumber, name: pushName });
     if (member) await ensureGroupMember(group.id, member.id);
     const convo = await getOrCreateConversation(circleId, 'whatsapp', { groupId: group.id });
-    const history = await loadHistory(convo.id);
     const pending = await listPendingProposals(circleId);
     const vacs = await listVacations(circleId, { includePast: false });
 
-    const { reply } = await runAgent({
+    const doc = await downloadDoc(circleId, docMeta, msg, jid, send);
+    if (doc === 'error') return;
+    if (!userText && !doc) return;
+
+    await respond({
+      circleId,
+      timezone: circle.timezone,
+      jid,
+      send,
+      convoId: convo.id,
       ctx: {
         circleId,
         scope: { circleId, kind: 'group', groupId: group.id },
@@ -193,14 +246,12 @@ export async function handleInboundMessage(
         isAdmin,
         groupContext: true,
       },
-      history,
-      userText,
       authorName: member?.name ?? pushName,
-      pendingProposals: pending.map((p) => ({ code: p.code, kind: p.kind, summary: p.summary })),
+      userText,
+      doc,
+      pending: pending.map(pendingFor),
       trips: tripContext(vacs, circle.timezone),
     });
-    await appendMessages(convo.id, userText, reply, member?.name ?? pushName);
-    await send(jid, reply);
     return;
   }
 
@@ -210,11 +261,19 @@ export async function handleInboundMessage(
   if (isAdmin) {
     // Admin owner DM → manage the circle + confirm email proposals here.
     const convo = await getOrCreateConversation(circleId, 'whatsapp', {});
-    const history = await loadHistory(convo.id);
     const pending = await listPendingProposals(circleId);
     const vacs = await listVacations(circleId, { includePast: false });
 
-    const { reply } = await runAgent({
+    const doc = await downloadDoc(circleId, docMeta, msg, jid, send);
+    if (doc === 'error') return;
+    if (!userText && !doc) return;
+
+    await respond({
+      circleId,
+      timezone: circle.timezone,
+      jid,
+      send,
+      convoId: convo.id,
       ctx: {
         circleId,
         scope: { circleId, kind: 'circle' },
@@ -223,13 +282,11 @@ export async function handleInboundMessage(
         isAdmin: true,
         groupContext: false,
       },
-      history,
       userText,
-      pendingProposals: pending.map((p) => ({ code: p.code, kind: p.kind, summary: p.summary })),
+      doc,
+      pending: pending.map(pendingFor),
       trips: tripContext(vacs, circle.timezone),
     });
-    await appendMessages(convo.id, userText, reply);
-    await send(jid, reply);
     return;
   }
 
@@ -237,7 +294,6 @@ export async function handleInboundMessage(
   const member = senderNumber ? await findMemberByWhatsApp(circleId, senderNumber) : null;
   if (member) {
     const convo = await getOrCreateConversation(circleId, 'whatsapp', { memberId: member.id });
-    const history = await loadHistory(convo.id);
     const vacs = await listVacations(circleId, { includePast: false });
     // Email proposals are the circle's shared inbox: their notifications are DM'd
     // to whoever admins the circle, and that reply can land in a member DM (admin
@@ -245,7 +301,16 @@ export async function handleInboundMessage(
     // "add 1", "add all", etc. resolve against the real list — not stale history.
     const pending = await listPendingProposals(circleId);
 
-    const { reply } = await runAgent({
+    const doc = await downloadDoc(circleId, docMeta, msg, jid, send);
+    if (doc === 'error') return;
+    if (!userText && !doc) return;
+
+    await respond({
+      circleId,
+      timezone: circle.timezone,
+      jid,
+      send,
+      convoId: convo.id,
       ctx: {
         circleId,
         scope: { circleId, kind: 'individual', memberId: member.id },
@@ -255,18 +320,16 @@ export async function handleInboundMessage(
         isAdmin: false,
         groupContext: false,
       },
-      history,
-      userText,
       authorName: member.name ?? pushName,
-      pendingProposals: pending.map((p) => ({ code: p.code, kind: p.kind, summary: p.summary })),
+      userText,
+      doc,
+      pending: pending.map(pendingFor),
       trips: tripContext(vacs, circle.timezone),
     });
-    await appendMessages(convo.id, userText, reply, member.name ?? pushName);
-    await send(jid, reply);
     return;
   }
 
-  // Not a member of this circle.
+  // Not a member of this circle. Ignore attachments from strangers.
   await send(
     jid,
     "Hi! I'm Jarvis, the schedule assistant for this circle. I don't recognise this number yet — ask the circle admin to add you.",

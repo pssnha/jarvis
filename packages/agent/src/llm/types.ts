@@ -25,6 +25,9 @@ export interface RunConversationOpts extends UsageContext {
   system: string;
   history: LlmMessage[];
   userText: string;
+  /** Attachments (PDF/image) for the new user turn — the model reads them as
+   *  vision input alongside `userText`. History turns stay text-only. */
+  documents?: LlmDocument[];
   tools: ToolSpec[];
   runTool: (name: string, input: Record<string, unknown>) => Promise<string>;
   maxTurns?: number;

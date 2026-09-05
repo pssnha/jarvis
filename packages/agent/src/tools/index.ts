@@ -1,5 +1,16 @@
 import { EVENT_CATEGORIES, RECURRENCE_FREQS, WEEKDAYS, type Channel, type EventDraft } from '@jarvis/shared';
-import { cancelEvent, createEvent, findConflicts, findEvents, getSchedule } from '../schedule';
+import {
+  cancelEvent,
+  cancelEventOccurrence,
+  createEvent,
+  findConflicts,
+  findEvents,
+  findOccurrenceInstant,
+  getSchedule,
+  updateEvent,
+  updateEventOccurrence,
+  type UpdateEventInput,
+} from '../schedule';
 import { confirmProposal, rejectProposal } from '../proposals';
 import {
   deleteVacationItem,
@@ -79,6 +90,23 @@ function parseRecurrence(input: unknown): EventDraft['recurrence'] {
     count: typeof o.count === 'number' ? o.count : undefined,
     until: typeof o.until === 'string' ? o.until : undefined,
   };
+}
+
+/** Build a partial event patch from tool input — only keys actually supplied
+ *  are set, so an update leaves unmentioned fields untouched. */
+function buildEventPatch(input: Record<string, unknown>): UpdateEventInput {
+  const patch: UpdateEventInput = {};
+  if (typeof input.title === 'string') patch.title = input.title;
+  if (typeof input.start === 'string') patch.start = input.start;
+  if ('end' in input) patch.end = typeof input.end === 'string' ? input.end : null;
+  if (typeof input.all_day === 'boolean') patch.allDay = input.all_day;
+  if ('location' in input)
+    patch.location = typeof input.location === 'string' ? input.location : null;
+  if (typeof input.category === 'string') patch.category = input.category as UpdateEventInput['category'];
+  if (typeof input.remind_lead_minutes === 'number')
+    patch.reminderLeadMinutes = input.remind_lead_minutes;
+  if ('recurrence' in input) patch.recurrence = parseRecurrence(input.recurrence) ?? null;
+  return patch;
 }
 
 export const tools: AgentTool[] = [
@@ -255,6 +283,118 @@ export const tools: AgentTool[] = [
   },
   {
     spec: {
+      name: 'update_event',
+      description:
+        'Change an existing event/reminder — or a whole recurring series — by its id: its time, title, location, category, reminder lead, or recurrence. Use list_events/find_event first to get the id. To change only ONE date of a repeating item, use update_event_occurrence instead. Only pass the fields you want to change.',
+      parameters: {
+        type: 'object',
+        properties: {
+          event_id: { type: 'string' },
+          title: { type: 'string' },
+          start: {
+            type: 'string',
+            description: 'New local ISO start without offset, e.g. "2026-09-11T17:00". Date only for all-day.',
+          },
+          end: { type: 'string', description: 'New local ISO end (empty string clears it).' },
+          all_day: { type: 'boolean' },
+          location: { type: 'string' },
+          category: { type: 'string', enum: EVENT_CATEGORIES },
+          remind_lead_minutes: {
+            type: 'integer',
+            description: 'For kind="event": minutes before start to remind.',
+          },
+          recurrence: recurrenceSchema,
+        },
+        required: ['event_id'],
+      },
+    },
+    handler: async (input, ctx) => {
+      const ev = await updateEvent(
+        ctx.circleId,
+        String(input.event_id),
+        buildEventPatch(input),
+        ctx.timezone,
+      );
+      if (!ev) return 'No event with that id in this group.';
+      let msg = `Updated "${ev.title}" — ${formatEventTime(ev.startsAt, ev.endsAt, ev.allDay, ctx.timezone)}`;
+      if (ev.rrule) msg += `, repeating ${describeRecurrence(ev.rrule)}`;
+      return `${msg}.`;
+    },
+  },
+  {
+    spec: {
+      name: 'update_event_occurrence',
+      description:
+        'Change just ONE occurrence of a repeating event (e.g. move only next Friday\'s lesson) while leaving the rest of the series unchanged. Give the series id and the local date of the occurrence to change. Only pass the fields you want to change.',
+      parameters: {
+        type: 'object',
+        properties: {
+          event_id: { type: 'string', description: 'The recurring series id (from list_events/find_event).' },
+          occurrence_date: {
+            type: 'string',
+            description: 'Local date of the occurrence to change, "YYYY-MM-DD".',
+          },
+          title: { type: 'string' },
+          start: { type: 'string', description: 'New local ISO start for this occurrence, e.g. "2026-09-11T16:00".' },
+          end: { type: 'string' },
+          all_day: { type: 'boolean' },
+          location: { type: 'string' },
+          category: { type: 'string', enum: EVENT_CATEGORIES },
+          remind_lead_minutes: { type: 'integer' },
+        },
+        required: ['event_id', 'occurrence_date'],
+      },
+    },
+    handler: async (input, ctx) => {
+      const parentId = String(input.event_id);
+      const instant = await findOccurrenceInstant(
+        ctx.circleId,
+        parentId,
+        String(input.occurrence_date),
+        ctx.timezone,
+      );
+      if (!instant) return 'No occurrence of that series on that date — check the id and date.';
+      const ev = await updateEventOccurrence(
+        ctx.circleId,
+        parentId,
+        instant,
+        buildEventPatch(input),
+        ctx.timezone,
+      );
+      if (!ev) return 'That id is not a recurring series.';
+      return `Updated the ${ev.title} on ${String(input.occurrence_date)} — ${formatEventTime(ev.startsAt, ev.endsAt, ev.allDay, ctx.timezone)}. The rest of the series is unchanged.`;
+    },
+  },
+  {
+    spec: {
+      name: 'cancel_event_occurrence',
+      description:
+        'Skip/cancel just ONE occurrence of a repeating event (e.g. "no badminton this Sunday") while keeping the rest of the series. Give the series id and the local date to skip.',
+      parameters: {
+        type: 'object',
+        properties: {
+          event_id: { type: 'string', description: 'The recurring series id (from list_events/find_event).' },
+          occurrence_date: { type: 'string', description: 'Local date to skip, "YYYY-MM-DD".' },
+        },
+        required: ['event_id', 'occurrence_date'],
+      },
+    },
+    handler: async (input, ctx) => {
+      const parentId = String(input.event_id);
+      const instant = await findOccurrenceInstant(
+        ctx.circleId,
+        parentId,
+        String(input.occurrence_date),
+        ctx.timezone,
+      );
+      if (!instant) return 'No occurrence of that series on that date — check the id and date.';
+      const ev = await cancelEventOccurrence(ctx.circleId, parentId, instant);
+      if (!ev) return 'That id is not a recurring series.';
+      return `Skipped the ${ev.title} on ${String(input.occurrence_date)} — the rest of the series is unchanged.`;
+    },
+  },
+  {
+    spec: {
       name: 'confirm_proposal',
       description:
         'Approve a pending email proposal by its code, creating the reminder/event/trip. Use when the user agrees to add a proposed item from an email.',
@@ -404,7 +544,17 @@ export type ToolSurface = 'calendar' | 'vacations' | 'general';
 
 const SURFACE_TOOLS: Record<'calendar' | 'vacations', string[]> = {
   // Calendar page: events only — never trips.
-  calendar: ['create_event', 'list_events', 'find_event', 'cancel_event', 'confirm_proposal', 'reject_proposal'],
+  calendar: [
+    'create_event',
+    'list_events',
+    'find_event',
+    'update_event',
+    'update_event_occurrence',
+    'cancel_event',
+    'cancel_event_occurrence',
+    'confirm_proposal',
+    'reject_proposal',
+  ],
   // Vacations page: trip itineraries only — never calendar events.
   vacations: ['list_trips', 'add_trip_item', 'cancel_trip_item', 'confirm_proposal', 'reject_proposal'],
 };

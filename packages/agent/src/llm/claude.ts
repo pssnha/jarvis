@@ -1,13 +1,13 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, MODEL } from '../client';
-import type { ExtractOpts, LlmProvider, RunConversationOpts, UsageContext } from './types';
+import type { ExtractOpts, LlmDocument, LlmProvider, RunConversationOpts, UsageContext } from './types';
 import { recordLlmUsage } from './usage';
 
-/** Build the user content for a structured extraction: any attached documents
- *  (PDFs render as document blocks, images as image blocks) followed by the text. */
-function buildExtractContent(opts: ExtractOpts): Anthropic.ContentBlockParam[] {
+/** Render attachments as content blocks: PDFs as document blocks, images as
+ *  image blocks. Shared by extraction and the conversational vision path. */
+function docBlocks(documents?: LlmDocument[]): Anthropic.ContentBlockParam[] {
   const blocks: Anthropic.ContentBlockParam[] = [];
-  for (const doc of opts.documents ?? []) {
+  for (const doc of documents ?? []) {
     if (doc.mediaType === 'application/pdf') {
       blocks.push({
         type: 'document',
@@ -20,8 +20,22 @@ function buildExtractContent(opts: ExtractOpts): Anthropic.ContentBlockParam[] {
       });
     }
   }
-  blocks.push({ type: 'text', text: opts.text });
   return blocks;
+}
+
+/** Build the user content for a structured extraction: attachments then text. */
+function buildExtractContent(opts: ExtractOpts): Anthropic.ContentBlockParam[] {
+  return [...docBlocks(opts.documents), { type: 'text', text: opts.text }];
+}
+
+/** The new user turn: plain text, or attachment blocks + text when documents
+ *  are present so the model can read them. */
+function buildUserContent(
+  userText: string,
+  documents?: LlmDocument[],
+): string | Anthropic.ContentBlockParam[] {
+  if (!documents?.length) return userText;
+  return [...docBlocks(documents), { type: 'text', text: userText }];
 }
 
 /** Record an Anthropic response's token usage against the call's circle. */
@@ -53,7 +67,7 @@ export const claudeProvider: LlmProvider = {
       role: m.role,
       content: m.content,
     }));
-    messages.push({ role: 'user', content: opts.userText });
+    messages.push({ role: 'user', content: buildUserContent(opts.userText, opts.documents) });
 
     for (let turn = 0; turn < maxTurns; turn++) {
       const response = await anthropic.messages.create({

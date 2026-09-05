@@ -1,6 +1,6 @@
 import { getProvider } from './llm';
 import { circleUsageStatus } from './llm/limits';
-import type { LlmMessage } from './llm/types';
+import type { LlmDocument, LlmMessage } from './llm/types';
 import { executeProposalCommand, resolveProposalCommand } from './proposals';
 import { buildSystemPrompt } from './systemPrompt';
 import { toolsForSurface, type ToolContext, type ToolSurface } from './tools';
@@ -15,6 +15,8 @@ export interface RunOptions {
   history: LlmMessage[];
   /** The new user message text. */
   userText: string;
+  /** Attachments (PDF/image) on the new turn — the model reads them as vision. */
+  documents?: LlmDocument[];
   /** Sender's display name (group context). */
   authorName?: string;
   /** Email proposals awaiting confirmation in this group. */
@@ -71,6 +73,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     }),
     history: opts.history,
     userText,
+    documents: opts.documents,
     tools: active.map((t) => t.spec),
     runTool: dispatch,
     maxTurns: opts.maxTurns,

@@ -26,6 +26,7 @@ export async function sendDueReminders(): Promise<void> {
   const events = (await prisma.event.findMany({
     where: {
       circle: { deletedAt: null }, // skip soft-deleted (dormant) circles
+      cancelled: false, // never fire a cancelled-occurrence tombstone
       OR: [
         { NOT: { rrule: null } },
         { rrule: null, remindedAt: null, startsAt: { lte: horizon } },

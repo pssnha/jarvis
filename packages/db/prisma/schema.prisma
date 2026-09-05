@@ -234,6 +234,10 @@ model Event {
   recurrenceParent    Event?  @relation("EventOverrides", fields: [recurrenceParentId], references: [id], onDelete: Cascade)
   recurrenceOverrides Event[] @relation("EventOverrides")
   recurrenceStart     DateTime?
+  /// A cancelled single occurrence: a tombstone override row (rrule null,
+  /// recurrenceParentId/Start set) that skips one instance of a series without
+  /// firing or showing itself. Never true on a normal event or a series parent.
+  cancelled           Boolean   @default(false)
 
   /// Where this event came from: whatsapp | email | web.
   source    String

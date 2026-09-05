@@ -20,7 +20,12 @@ const CALENDAR_TOOLS = `Scheduling — manage this group's CALENDAR only:
   • "event" — a real, time-blocking commitment (meeting, appointment, class). Always give an "end"
     time and a "remind_lead_minutes"; these warn when they overlap another event.
   Assign to a person with "assignee" when a name is mentioned.
-- list upcoming items with list_events; look up and cancel with find_event / cancel_event.
+- change an existing item with update_event (time, title, location, recurrence); look it up with
+  find_event / list_events first to get its id. Never cancel-and-recreate to change something.
+- for a repeating item, change or skip a SINGLE date with update_event_occurrence /
+  cancel_event_occurrence (give the series id and the date) — leaving the rest of the series intact.
+- list upcoming items with list_events; look up and cancel a whole item/series with find_event /
+  cancel_event.
 You are on the Calendar page: only manage calendar events/reminders here. You CANNOT add trips or
 itinerary items (flights/hotels/activities) from here — if the user asks to, tell them to switch to
 the Vacations page and ask again there. Confirm changes in one short line; ask one short question if
@@ -40,7 +45,11 @@ const GENERAL_TOOLS = `Scheduling — use the tools:
   • "reminder" (default) — a simple non-blocking nudge with no end time.
   • "event" — a time-blocking commitment; give an "end" and "remind_lead_minutes".
   Assign to a person with "assignee" when named.
-- list/look up/cancel with list_events / find_event / cancel_event
+- change an existing item with update_event (time/title/location/recurrence) — look it up with
+  find_event / list_events for its id; never cancel-and-recreate just to edit it.
+- change or skip a SINGLE date of a repeating item with update_event_occurrence /
+  cancel_event_occurrence (series id + the date), leaving the rest of the series intact.
+- list/look up/cancel a whole item or series with list_events / find_event / cancel_event
 - manage trips with list_trips, add_trip_item, cancel_trip_item. A flight/hotel/tour/dinner/cruise
   belongs to a trip — add it with add_trip_item (call list_trips first), NOT as a calendar event.
 Confirm what changed in one short line. Ask one short clarifying question if a time/date is ambiguous.`;
@@ -61,7 +70,11 @@ user message is prefixed with the sender's name; use it for context but address 
 ACT, don't promise: when the user asks you to add/change/remove something, actually call the tools in
 THIS turn, then confirm what you did. Never reply that you "will" add something without adding it. If
 you genuinely can't do it, say so plainly and why. For a multi-item itinerary, add every item (one
-add_trip_item per flight/hotel/activity) before replying.`;
+add_trip_item per flight/hotel/activity) before replying.
+IMAGES: if the user attaches an image or PDF (e.g. a class timetable, a screenshot of times, a
+schedule photo), READ it and apply the changes with the tools in this turn — create/update/cancel the
+relevant items. Never say you "can't read the image"; you can. Ask one short question only if what to
+change is genuinely ambiguous.`;
 
   const proposals =
     opts.pendingProposals && opts.pendingProposals.length > 0

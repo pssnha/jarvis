@@ -540,9 +540,9 @@ export const toolSpecs: ToolSpec[] = tools.map((t) => t.spec);
 export const toolHandlers = new Map(tools.map((t) => [t.spec.name, t.handler]));
 
 /** Which surface (page) the assistant is acting on, to avoid cross-editing. */
-export type ToolSurface = 'calendar' | 'vacations' | 'general';
+export type ToolSurface = 'calendar' | 'vacations' | 'voice' | 'general';
 
-const SURFACE_TOOLS: Record<'calendar' | 'vacations', string[]> = {
+const SURFACE_TOOLS: Record<Exclude<ToolSurface, 'general'>, string[]> = {
   // Calendar page: events only — never trips.
   calendar: [
     'create_event',
@@ -557,6 +557,18 @@ const SURFACE_TOOLS: Record<'calendar' | 'vacations', string[]> = {
   ],
   // Vacations page: trip itineraries only — never calendar events.
   vacations: ['list_trips', 'add_trip_item', 'cancel_trip_item', 'confirm_proposal', 'reject_proposal'],
+  // Voice (Siri / in-app): full calendar scheduling, trips read-only. Itinerary
+  // editing is deliberately unavailable by voice; proposal codes aren't spoken.
+  voice: [
+    'create_event',
+    'list_events',
+    'find_event',
+    'update_event',
+    'update_event_occurrence',
+    'cancel_event',
+    'cancel_event_occurrence',
+    'list_trips',
+  ],
 };
 
 /** The tools available on a given surface (all of them for "general"). */

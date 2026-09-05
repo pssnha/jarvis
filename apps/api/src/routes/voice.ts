@@ -24,7 +24,9 @@ async function circleCount(user: AuthUser): Promise<number> {
   return (await accessibleScheduleCircleIds(user)).length;
 }
 
-/** Voice API (Bearer-authenticated) — the contract the Alexa Lambda calls. */
+/** Voice API (Bearer-authenticated) — the contract the Alexa Lambda and the iOS
+ *  app (Siri intents + in-app voice) call. Every turn runs on the `voice` tool
+ *  surface: shared-calendar scheduling, trips read-only, spoken-style replies. */
 export async function registerVoice(api: FastifyInstance): Promise<void> {
   // What circle the linked user maps to (so the skill can name it / disambiguate).
   api.get('/voice/context', async (req, reply) => {
@@ -61,7 +63,7 @@ export async function registerVoice(api: FastifyInstance): Promise<void> {
     });
 
     const scope: ScheduleScope = { circleId: circle.id, kind: 'circle' };
-    const convo = await getOrCreateConversation(circle.id, 'alexa', {});
+    const convo = await getOrCreateConversation(circle.id, 'voice', {});
     const history = await loadHistory(convo.id);
     const trips = (await listVacations(circle.id, { includePast: false })).map((v) => ({
       id: v.id,
@@ -76,7 +78,7 @@ export async function registerVoice(api: FastifyInstance): Promise<void> {
         circleId: circle.id,
         scope,
         timezone: circle.timezone,
-        source: 'alexa',
+        source: 'voice',
         createdById: meMember?.id,
         isAdmin,
         groupContext: false,
@@ -85,7 +87,7 @@ export async function registerVoice(api: FastifyInstance): Promise<void> {
       userText: text,
       authorName: user.name ?? undefined,
       trips,
-      surface: 'general',
+      surface: 'voice',
     });
 
     await appendMessages(convo.id, text, speech, user.name ?? undefined);

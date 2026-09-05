@@ -37,8 +37,15 @@ final class AppModel {
 
     func signOut() async {
         await AuthStore.shared.signOut()
+        CirclePreference.circleId = nil
         signedIn = false
         context = nil
+    }
+
+    func selectCircle(_ id: String) async {
+        guard id != context?.circleId else { return }
+        CirclePreference.circleId = id
+        await refresh()
     }
 
     /// Text turn from the Home screen — same pipeline Siri uses.

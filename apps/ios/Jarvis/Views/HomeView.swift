@@ -8,6 +8,14 @@ struct HomeView: View {
     var body: some View {
         List {
             Section(model.context?.circleName ?? "Jarvis") {
+                if let ctx = model.context, ctx.circles.count > 1 {
+                    Picker("Circle", selection: Binding(
+                        get: { ctx.circleId },
+                        set: { id in Task { await model.selectCircle(id) } }
+                    )) {
+                        ForEach(ctx.circles) { c in Text(c.name).tag(c.id) }
+                    }
+                }
                 NavigationLink { VoiceView() } label: { Label("Voice", systemImage: "mic.fill") }
                 HStack {
                     TextField("Ask Jarvis", text: $text)

@@ -1,7 +1,7 @@
 import '../src/loadEnv';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '@jarvis/db';
-import { expireStaleProposals, listPendingProposals, loadHistory } from '@jarvis/agent';
+import { appendMessages, expireStaleProposals, listPendingProposals, loadHistory } from '@jarvis/agent';
 
 /**
  * Regression coverage:
@@ -67,6 +67,31 @@ describe('loadHistory', () => {
     // Should end with the newest message (msg 24), not start with msg 0.
     expect(h[h.length - 1]!.content).toBe('msg 24');
     expect(h[0]!.content).toBe('msg 5'); // 25 msgs, last 20 → starts at msg 5
+  });
+
+  it('keeps a same-millisecond user/assistant pair in order', async () => {
+    if (!dbOk) return;
+    const convo = await prisma.conversation.create({
+      data: { id: id('PAIR'), circleId: id('C'), channel: 'voice' },
+    });
+    // Ten turns written the way the channels write them; a flipped pair would
+    // make the model re-execute the previous request (seen as duplicate events).
+    for (let i = 0; i < 10; i++) await appendMessages(convo.id, `q${i}`, `a${i}`);
+    const h = await loadHistory(convo.id, 20);
+    expect(h.map((m) => m.role)).toEqual(Array.from({ length: 10 }).flatMap(() => ['user', 'assistant']));
+    expect(h[h.length - 1]!.content).toBe('a9');
+    // Same-timestamp rows (as a raw createMany would produce) still order by id.
+    const at = new Date();
+    await prisma.message.createMany({
+      data: [
+        { conversationId: convo.id, role: 'user', content: 'tie-q', createdAt: at },
+        { conversationId: convo.id, role: 'assistant', content: 'tie-a', createdAt: at },
+      ],
+    });
+    const h2 = await loadHistory(convo.id, 2);
+    expect(h2.map((m) => m.content)).toEqual(['tie-q', 'tie-a']);
+    await prisma.message.deleteMany({ where: { conversationId: convo.id } });
+    await prisma.conversation.delete({ where: { id: convo.id } });
   });
 });
 

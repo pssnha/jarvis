@@ -1,10 +1,25 @@
 import Foundation
 
 struct VoiceContext: Decodable {
+    struct Circle: Decodable, Identifiable, Hashable {
+        let id: String
+        let name: String
+    }
     let circleId: String
     let circleName: String
     let timezone: String
     let multipleCircles: Bool
+    let circles: [Circle]
+}
+
+/// The circle the user picked when they belong to several. Read by Siri intents
+/// too, so a switch on the Home screen carries over to hands-free turns.
+enum CirclePreference {
+    private static let key = "selectedCircleId"
+    static var circleId: String? {
+        get { UserDefaults.standard.string(forKey: key) }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
 }
 
 struct TurnReply: Decodable {
@@ -29,10 +44,12 @@ enum APIError: LocalizedError {
 /// refreshing the token, so an expired hour-old token never surfaces to Siri.
 enum JarvisAPI {
     static func context() async throws -> VoiceContext {
-        try await request("voice/context", method: "GET", body: nil)
+        var path = "voice/context"
+        if let id = CirclePreference.circleId { path += "?circleId=\(id)" }
+        return try await request(path, method: "GET", body: nil)
     }
 
-    static func turn(_ text: String, circleId: String? = nil) async throws -> TurnReply {
+    static func turn(_ text: String, circleId: String? = CirclePreference.circleId) async throws -> TurnReply {
         var body: [String: String] = ["text": text]
         if let circleId { body["circleId"] = circleId }
         return try await request("voice/turn", method: "POST", body: body)
@@ -41,7 +58,7 @@ enum JarvisAPI {
     private static func request<T: Decodable>(_ path: String, method: String, body: [String: String]?) async throws -> T {
         var token = try await AuthStore.shared.validAccessToken()
         for attempt in 0..<2 {
-            var req = URLRequest(url: Config.apiBase.appendingPathComponent(path))
+            var req = URLRequest(url: URL(string: path, relativeTo: Config.apiBase.appendingPathComponent("/"))!)
             req.httpMethod = method
             req.timeoutInterval = 45 // agent turns can take a while
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

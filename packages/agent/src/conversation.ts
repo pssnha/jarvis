@@ -24,9 +24,12 @@ export async function loadHistory(conversationId: string, limit = 20): Promise<L
   // Take the most RECENT `limit` messages, then restore chronological order —
   // ordering asc + take returns the oldest rows, so a long conversation would
   // feed the model ancient turns and lose the recent context.
+  // Tie-break on id (cuids are monotonic) — a user/assistant pair written in
+  // the same millisecond must never come back flipped, or the model sees the
+  // last request as unanswered and does it again.
   const rows = await prisma.message.findMany({
     where: { conversationId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: limit,
   });
   rows.reverse();

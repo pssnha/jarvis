@@ -20,8 +20,15 @@ async function resolveCircle(user: AuthUser, requestedId?: string) {
   return prisma.circle.findUnique({ where: { id } });
 }
 
-async function circleCount(user: AuthUser): Promise<number> {
-  return (await accessibleScheduleCircleIds(user)).length;
+/** Every circle the user may speak for — the app offers a switcher when >1. */
+async function accessibleCircles(user: AuthUser): Promise<{ id: string; name: string }[]> {
+  const ids = await accessibleScheduleCircleIds(user);
+  if (ids.length === 0) return [];
+  return prisma.circle.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
 }
 
 /** Voice API (Bearer-authenticated) — the contract the Alexa Lambda and the iOS
@@ -31,13 +38,16 @@ export async function registerVoice(api: FastifyInstance): Promise<void> {
   // What circle the linked user maps to (so the skill can name it / disambiguate).
   api.get('/voice/context', async (req, reply) => {
     const user = req.authUser!;
-    const circle = await resolveCircle(user);
+    const q = (req.query ?? {}) as { circleId?: string };
+    const circle = await resolveCircle(user, q.circleId);
     if (!circle) return reply.code(404).send({ error: 'no_circle' });
+    const circles = await accessibleCircles(user);
     return {
       circleId: circle.id,
       circleName: circle.name,
       timezone: circle.timezone,
-      multipleCircles: (await circleCount(user)) > 1,
+      multipleCircles: circles.length > 1,
+      circles,
     };
   });
 

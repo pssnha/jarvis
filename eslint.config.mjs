@@ -11,6 +11,10 @@ export default tseslint.config(
       // The Alexa Lambda is a separate deploy artifact with its own (Node/CJS)
       // runtime and toolchain — not part of the monorepo's TS lint.
       'apps/alexa/**',
+      // Native iOS app (Swift/Xcode) — nothing for the TS toolchain to see.
+      'apps/ios/**',
+      // Claude Code worktrees are throwaway checkouts, not part of this tree.
+      '.claude/**',
     ],
   },
   js.configs.recommended,

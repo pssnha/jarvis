@@ -1,0 +1,11 @@
+// Build-time configuration for the Jarvis iOS app. Values flow into Info.plist
+// (see Jarvis/Info.plist) and are read by Config.swift at runtime.
+// Host only (no scheme): "//" starts a comment in xcconfig files.
+JARVIS_API_HOST = jarvis.passanha.com
+JARVIS_BUNDLE_ID = com.passanha.jarvis
+JARVIS_OAUTH_CLIENT_ID = jarvis-ios
+
+// The client secret is per-install-family, not per-user; keep the real value in
+// Config.local.xcconfig (git-ignored) together with DEVELOPMENT_TEAM.
+JARVIS_OAUTH_CLIENT_SECRET = PUT-A-STRONG-SECRET-HERE
+#include? "Config.local.xcconfig"

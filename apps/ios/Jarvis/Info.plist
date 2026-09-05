@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>JarvisAPIHost</key>
+	<string>$(JARVIS_API_HOST)</string>
+	<key>JarvisOAuthClientId</key>
+	<string>$(JARVIS_OAUTH_CLIENT_ID)</string>
+	<key>JarvisOAuthClientSecret</key>
+	<string>$(JARVIS_OAUTH_CLIENT_SECRET)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>$(JARVIS_BUNDLE_ID).oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>jarvis</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Jarvis listens when you talk to it on the voice screen.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Jarvis turns what you say into text to manage the family calendar.</string>
+	<key>NSSiriUsageDescription</key>
+	<string>Ask Jarvis about the family calendar through Siri.</string>
+	<key>UIBackgroundModes</key>
+	<array/>
+</dict>
+</plist>

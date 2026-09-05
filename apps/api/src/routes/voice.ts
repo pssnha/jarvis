@@ -63,7 +63,9 @@ export async function registerVoice(api: FastifyInstance): Promise<void> {
     });
 
     const scope: ScheduleScope = { circleId: circle.id, kind: 'circle' };
-    const convo = await getOrCreateConversation(circle.id, 'voice', {});
+    // One thread per speaker: a "yes" from one family member must never confirm
+    // a cancel another member's Siri turn just asked about.
+    const convo = await getOrCreateConversation(circle.id, 'voice', { memberId: meMember?.id });
     const history = await loadHistory(convo.id);
     const trips = (await listVacations(circle.id, { includePast: false })).map((v) => ({
       id: v.id,

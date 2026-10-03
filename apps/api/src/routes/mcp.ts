@@ -92,12 +92,10 @@ async function callTool(user: AuthUser, name: string, args: Record<string, unkno
   if (!circle) return text('This account is not a member of any circle.', true);
   const me = await selfMember(user, circle.id);
 
-  // Reads see what the user sees on their own calendar (their groups + their own
-  // private events), not the whole circle — this data leaves for a third party.
+  // Reads cover the whole family calendar (every shared group) plus the user's own
+  // private events; other members' private events never leave for a third party.
   const circleScope: ScheduleScope = { circleId: circle.id, kind: 'circle' };
-  const readScope: ScheduleScope = me
-    ? { circleId: circle.id, kind: 'individual', memberId: me.id }
-    : circleScope;
+  const readScope: ScheduleScope = { circleId: circle.id, kind: 'family', memberId: me?.id ?? null };
   // Creates go on a shared calendar the user is in (the primary one if they are),
   // so what Muse adds is visible to it afterwards. Admin-only access → primary.
   let writeScope: ScheduleScope = circleScope;

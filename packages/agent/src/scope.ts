@@ -5,11 +5,14 @@ import { Prisma, prisma } from '@jarvis/db';
  * - group: one WhatsApp group's shared calendar
  * - individual: a member's merged calendar (all their groups + their private events)
  * - circle: everything in the circle (admin / circle-wide)
+ * - family: every shared group event in the circle + this member's own private
+ *   events (external agents: the whole family calendar, minus others' private ones)
  */
 export type ScheduleScope =
   | { circleId: string; kind: 'group'; groupId: string }
   | { circleId: string; kind: 'individual'; memberId: string }
-  | { circleId: string; kind: 'circle' };
+  | { circleId: string; kind: 'circle' }
+  | { circleId: string; kind: 'family'; memberId: string | null };
 
 /** The Prisma `Event.where` for a scope. Excludes cancelled-occurrence
  *  tombstones everywhere — they must never show or fire. */
@@ -19,6 +22,16 @@ export async function scopeWhere(scope: ScheduleScope): Promise<Prisma.EventWher
   }
   if (scope.kind === 'circle') {
     return { circleId: scope.circleId, cancelled: false };
+  }
+  if (scope.kind === 'family') {
+    return {
+      circleId: scope.circleId,
+      cancelled: false,
+      OR: [
+        { groupId: { not: null } },
+        ...(scope.memberId ? [{ ownerMemberId: scope.memberId }] : []),
+      ],
+    };
   }
   // individual: events of every group the member is in, plus their private events.
   const rows = await prisma.groupMember.findMany({

@@ -17,7 +17,7 @@ export const USAGE_LIMITS = {
 } as const;
 
 /** The interfaces a schedule item can arrive through. */
-export type Channel = 'web' | 'whatsapp' | 'email' | 'telegram' | 'alexa' | 'voice';
+export type Channel = 'web' | 'whatsapp' | 'email' | 'telegram' | 'alexa' | 'voice' | 'mcp';
 
 export type EventCategory = 'appointment' | 'vacation' | 'reminder' | 'other';
 

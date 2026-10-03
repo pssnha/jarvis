@@ -79,3 +79,32 @@ export async function canManageCircle(
   });
   return Boolean(g);
 }
+
+/** The circle an agent request acts on: the one named (if accessible) else the
+ *  user's first accessible circle. Shared by the voice API and the MCP server. */
+export async function resolveCircle(user: AuthUser, requestedId?: string) {
+  const ids = await accessibleScheduleCircleIds(user);
+  if (ids.length === 0) return null;
+  const id = requestedId && ids.includes(requestedId) ? requestedId : ids[0]!;
+  return prisma.circle.findUnique({ where: { id } });
+}
+
+/** Every circle the user may act for, by name. */
+export async function accessibleCircles(user: AuthUser): Promise<{ id: string; name: string }[]> {
+  const ids = await accessibleScheduleCircleIds(user);
+  if (ids.length === 0) return [];
+  return prisma.circle.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
+}
+
+/** The user's own Member row in a circle (null for admin-only / support access). */
+export async function selfMember(user: AuthUser, circleId: string) {
+  const or: Record<string, unknown>[] = [];
+  if (user.email) or.push({ email: user.email });
+  if (user.waHash) or.push({ waHash: user.waHash });
+  if (or.length === 0) return null;
+  return prisma.member.findFirst({ where: { circleId, OR: or } });
+}

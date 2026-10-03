@@ -10,8 +10,12 @@ const CODE_TTL_MS = 5 * 60 * 1000; // authorization code: 5 minutes
 const ACCESS_TTL_S = 60 * 60; // access token: 1 hour
 const REFRESH_TTL_S = 60 * 60 * 24 * 180; // refresh token: 180 days
 
-const sha256 = (s: string): string => crypto.createHash('sha256').update(s).digest('hex');
-const randomToken = (bytes = 32): string => crypto.randomBytes(bytes).toString('hex');
+/** Personal access tokens carry a prefix so the guard can route them without a
+ *  second lookup (and so a leaked one is recognisable in logs/secret scanners). */
+export const PAT_PREFIX = 'jvs_pat_';
+
+export const sha256 = (s: string): string => crypto.createHash('sha256').update(s).digest('hex');
+export const randomToken = (bytes = 32): string => crypto.randomBytes(bytes).toString('hex');
 const base64url = (buf: Buffer): string => buf.toString('base64url');
 
 /** Verify a PKCE S256 challenge against the verifier. */
@@ -57,6 +61,19 @@ export async function bearerAuth(req: FastifyRequest, reply: FastifyReply): Prom
   const header = req.headers.authorization;
   const token = header?.startsWith('Bearer ') ? header.slice(7).trim() : null;
   if (!token) return reply.code(401).send({ error: 'unauthenticated' });
+  if (token.startsWith(PAT_PREFIX)) {
+    const pat = await prisma.personalAccessToken.findUnique({
+      where: { tokenHash: sha256(token) },
+      include: { authUser: true },
+    });
+    if (!pat) return reply.code(401).send({ error: 'invalid_token' });
+    // Best-effort bookkeeping for the Connections page; never block the request.
+    void prisma.personalAccessToken
+      .update({ where: { id: pat.id }, data: { lastUsedAt: new Date() } })
+      .catch(() => undefined);
+    req.authUser = pat.authUser;
+    return undefined;
+  }
   const row = await prisma.oAuthToken.findUnique({
     where: { accessTokenHash: sha256(token) },
     include: { authUser: true },

@@ -8,6 +8,7 @@ import { Circles, Permissions } from './pages/Admin';
 import { Maintenance } from './pages/Maintenance';
 import { Billing } from './pages/Billing';
 import { Signups } from './pages/Signups';
+import { Connections } from './pages/Connections';
 import { Splash } from './pages/Splash';
 import { Signup } from './pages/Signup';
 import { SignupContinue } from './pages/SignupContinue';
@@ -22,6 +23,7 @@ type View =
   | 'calendar'
   | 'vacations'
   | 'chat'
+  | 'connections'
   | 'circles'
   | 'permissions'
   | 'maintenance'
@@ -44,6 +46,7 @@ function parseRoute(): Route {
   const known: View[] = [
     'vacations',
     'chat',
+    'connections',
     'circles',
     'permissions',
     'maintenance',
@@ -177,6 +180,7 @@ export function App() {
           <nav className="side-nav">
             {item('calendar', 'Calendar')}
             {item('vacations', 'Vacations')}
+            {item('connections', 'Connections')}
             {(siteAdmin || circleAdmin) && (
               <>
                 <div className="side-group">Admin</div>
@@ -227,7 +231,9 @@ export function App() {
                         ? 'maintenance'
                         : view === 'vacations'
                           ? 'vacations'
-                          : 'calendar';
+                          : view === 'connections'
+                            ? 'connections'
+                            : 'calendar';
             const key = `${v}:${resetKey}`;
             if (v === 'vacations')
               return (
@@ -253,6 +259,7 @@ export function App() {
             if (v === 'signups') return <Signups key={key} itemId={route.id} />;
             if (v === 'permissions') return <Permissions key={key} />;
             if (v === 'maintenance') return <Maintenance key={key} />;
+            if (v === 'connections') return <Connections key={key} />;
             return <Calendar key={key} onActive={setActive} me={me!} />;
   }
 }

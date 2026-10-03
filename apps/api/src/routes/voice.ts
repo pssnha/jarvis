@@ -8,29 +8,9 @@ import {
   toLocalInput,
   type ScheduleScope,
 } from '@jarvis/agent';
-import { prisma, type AuthUser } from '@jarvis/db';
-import { accessibleScheduleCircleIds } from '../lib/access';
+import { prisma } from '@jarvis/db';
+import { accessibleCircles, resolveCircle, selfMember } from '../lib/access';
 import { mintAppSessionCode } from '../auth/appSession';
-
-/** The circle a voice request acts on: the one named (if accessible) else the
- *  user's first accessible circle. (Schedule access is members-only.) */
-async function resolveCircle(user: AuthUser, requestedId?: string) {
-  const ids = await accessibleScheduleCircleIds(user);
-  if (ids.length === 0) return null;
-  const id = requestedId && ids.includes(requestedId) ? requestedId : ids[0]!;
-  return prisma.circle.findUnique({ where: { id } });
-}
-
-/** Every circle the user may speak for — the app offers a switcher when >1. */
-async function accessibleCircles(user: AuthUser): Promise<{ id: string; name: string }[]> {
-  const ids = await accessibleScheduleCircleIds(user);
-  if (ids.length === 0) return [];
-  return prisma.circle.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, name: true },
-    orderBy: { name: 'asc' },
-  });
-}
 
 /** Voice API (Bearer-authenticated) — the contract the Alexa Lambda and the iOS
  *  app (Siri intents + in-app voice) call. Every turn runs on the `voice` tool
@@ -72,15 +52,7 @@ export async function registerVoice(api: FastifyInstance): Promise<void> {
     if (!circle) return reply.code(404).send({ error: 'no_circle' });
 
     const isAdmin = user.role === 'admin';
-    const meMember = await prisma.member.findFirst({
-      where: {
-        circleId: circle.id,
-        OR: [
-          ...(user.email ? [{ email: user.email }] : []),
-          ...(user.waHash ? [{ waHash: user.waHash }] : []),
-        ],
-      },
-    });
+    const meMember = await selfMember(user, circle.id);
 
     const scope: ScheduleScope = { circleId: circle.id, kind: 'circle' };
     // One thread per speaker: a "yes" from one family member must never confirm

@@ -11,6 +11,8 @@ import { registerAdmin } from './routes/admin';
 import { registerSignup, registerAdminSignups } from './routes/signup';
 import { registerOAuth, bearerAuth } from './routes/oauth';
 import { registerVoice } from './routes/voice';
+import { registerMcp } from './routes/mcp';
+import { registerTokens } from './routes/tokens';
 import { registerWhatsApp } from './whatsapp';
 import { registerTelegram } from './telegram';
 import {
@@ -74,6 +76,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(async (scoped) => {
         scoped.addHook('preHandler', bearerAuth);
         await registerVoice(scoped);
+        await registerMcp(scoped); // /api/mcp (Muse custom connector + other MCP clients)
       });
 
       // --- Authenticated users ---
@@ -83,6 +86,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         scoped.addHook('preHandler', rejectDeletedCircleParam); // soft-deleted circles are off-limits
         await registerCircles(scoped);
         await registerVacations(scoped);
+        await registerTokens(scoped); // /api/tokens (personal access tokens for MCP)
       });
 
       // --- Admin area (site admins + per-circle admins; enforced per route) ---

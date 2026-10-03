@@ -32,6 +32,7 @@ import type {
   VacationPayload,
   VacationSummary,
   WhatsAppStatus,
+  AccessToken,
 } from './types';
 
 async function json<T>(res: Response): Promise<T> {
@@ -574,3 +575,18 @@ export async function uploadItinerary(
 
 // Re-export for convenience.
 export type { CircleEmailConfig };
+
+// ---------- Connections (personal access tokens) ----------
+export async function listTokens(): Promise<AccessToken[]> {
+  return fetch('/api/tokens').then((r) => json<AccessToken[]>(r));
+}
+export async function createToken(name: string): Promise<AccessToken & { token: string }> {
+  return fetch('/api/tokens', {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify({ name }),
+  }).then((r) => json<AccessToken & { token: string }>(r));
+}
+export async function revokeToken(id: string): Promise<void> {
+  await fetch(`/api/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }).then((r) => json(r));
+}

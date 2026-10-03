@@ -456,3 +456,11 @@ export interface VacationItemPayload {
   cost?: string | null;
   color?: string | null;
 }
+
+/** A personal access token (for MCP clients such as a Muse custom connector). */
+export interface AccessToken {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}

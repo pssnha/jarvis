@@ -1618,6 +1618,24 @@ button.primary:active {
   justify-content: flex-end;
 }
 
+.conn-table .perm-head,
+.conn-table .perm-row {
+  grid-template-columns: 1fr auto;
+}
+.conn-table {
+  margin-bottom: 1rem;
+}
+.conn-table input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.conn-new {
+  border-color: var(--accent);
+}
+.token-table .perm-head,
+.token-table .perm-row {
+  grid-template-columns: 1.4fr 1fr 1fr auto;
+}
+
 /* Maintenance job-run calendar */
 .maintenance {
   flex: 1;

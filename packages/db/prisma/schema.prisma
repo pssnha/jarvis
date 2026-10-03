@@ -35,6 +35,7 @@ model AuthUser {
   /// OAuth account-linking (e.g. Alexa) issued to this user.
   oauthAuthCodes OAuthAuthCode[]
   oauthTokens    OAuthToken[]
+  accessTokens   PersonalAccessToken[]
   /// Active break-glass grants this user holds over circles.
   supportGrants  CircleSupportGrant[]
 }
@@ -494,6 +495,22 @@ model OAuthToken {
   refreshTokenHash String?     @unique
   expiresAt        DateTime
   createdAt        DateTime    @default(now())
+
+  @@index([authUserId])
+}
+
+/// A user-created, long-lived Bearer token for agents that can't run our OAuth
+/// flow (e.g. a Meta Muse custom connector calling /api/mcp). Only the hash is kept;
+/// the plaintext is shown once at creation. Revoked by deleting the row.
+model PersonalAccessToken {
+  id         String    @id @default(cuid())
+  authUserId String
+  authUser   AuthUser  @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+  name       String
+  /// sha256 hex of the token.
+  tokenHash  String    @unique
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
 
   @@index([authUserId])
 }

@@ -38,6 +38,8 @@ export interface ToolContext {
   isAdmin?: boolean;
   /** True in a group chat — tools must never read/write private events. */
   groupContext?: boolean;
+  /** Called after create_event stores a new event (e.g. to announce it). */
+  onEventCreated?: (eventId: string) => Promise<void>;
 }
 
 /** Where a newly created event lands, given the active scope. */
@@ -190,6 +192,7 @@ export const tools: AgentTool[] = [
         kind,
         reminderLeadMinutes,
       });
+      await ctx.onEventCreated?.(ev.id);
       let base = `Created ${kind} "${ev.title}"${assigneeName ? ` for ${assigneeName}` : ''} — ${formatEventTime(ev.startsAt, ev.endsAt, ev.allDay, ctx.timezone)}`;
       if (ev.rrule) base += `, repeating ${describeRecurrence(ev.rrule)}`;
       let warning = '';

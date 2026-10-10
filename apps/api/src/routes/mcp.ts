@@ -10,6 +10,7 @@ import {
 import { primaryGroupId, toolsForSurface, type ScheduleScope, type ToolContext } from '@jarvis/agent';
 import { prisma, type AuthUser } from '@jarvis/db';
 import { accessibleCircles, resolveCircle, selfMember } from '../lib/access';
+import { enqueueEventCreated } from '../queue';
 
 // Hints drive the client's approval UX (Muse asks before destructive calls).
 const READ: ToolAnnotations = { readOnlyHint: true, openWorldHint: false };
@@ -131,6 +132,15 @@ async function callTool(user: AuthUser, name: string, args: Record<string, unkno
     createdById: me?.id,
     isAdmin: user.role === 'admin',
     groupContext: false,
+    // Announce Muse-created events on the family's channels. A queue hiccup must
+    // not fail the create Muse already asked for.
+    onEventCreated: async (eventId) => {
+      try {
+        await enqueueEventCreated({ eventId, addedBy: me?.name ?? user.name ?? null, via: 'Muse' });
+      } catch (err) {
+        console.error('[mcp] failed to enqueue event announcement', err);
+      }
+    },
   };
   return text(await tool.handler(input, ctx));
 }

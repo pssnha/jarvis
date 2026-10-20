@@ -55,13 +55,50 @@ export async function sendDirectText(
   await s.sock.sendMessage(jid, { text });
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /** Boot a session for every circle, then listen for create/delete control events. */
 export async function startAllSessions(): Promise<void> {
-  const ids = await allCircleIds();
-  for (const id of ids) void startWhatsApp(id).catch((e) => console.error(`[wa:${id}] start failed:`, e));
-  void subscribeControl();
+  // Wire these up first: they must not depend on the boot query succeeding.
+  void subscribeControl().catch((err) => console.error('[wa] control subscribe failed:', err));
   // Safety net: reconcile sessions with the DB every 5 minutes.
   setInterval(() => void reconcile(), 5 * 60_000);
+  await clearStaleStatus();
+
+  // After a host reboot MySQL can still be starting when we boot; retry until it
+  // answers instead of leaving every circle without WhatsApp until a restart.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const ids = await allCircleIds();
+      for (const id of ids) void startWhatsApp(id).catch((e) => console.error(`[wa:${id}] start failed:`, e));
+      if (attempt > 1) console.log(`[wa] sessions started after ${attempt} attempts`);
+      return;
+    } catch (err) {
+      const delay = Math.min(60_000, 2_000 * 2 ** (attempt - 1));
+      console.error(
+        `[wa] failed to start sessions (attempt ${attempt}), retrying in ${delay / 1000}s:`,
+        (err as Error).message,
+      );
+      await sleep(delay);
+    }
+  }
+}
+
+/** Status keys persist in Redis across restarts; a leftover "open" from before a
+ *  crash or reboot would show the Admin page connected while no session runs. */
+async function clearStaleStatus(): Promise<void> {
+  try {
+    const keys: string[] = [];
+    let cursor = '0';
+    do {
+      const [next, batch] = await redis.scan(cursor, 'MATCH', 'wa:*:status', 'COUNT', 100);
+      cursor = next;
+      keys.push(...batch);
+    } while (cursor !== '0');
+    if (keys.length > 0) await redis.del(...keys);
+  } catch (err) {
+    console.error('[wa] failed to clear stale status:', err);
+  }
 }
 
 async function reconcile(): Promise<void> {

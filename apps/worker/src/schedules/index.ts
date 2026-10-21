@@ -4,6 +4,7 @@ import { sendDueReminders } from '../reminders';
 import { sendDailyBriefs } from '../dailyBrief';
 import { runHealthCheck } from '../maintenance';
 import { purgeExpiredCircles } from '../purgeExpiredCircles';
+import { pruneEventChanges } from '../pruneEventChanges';
 
 /** Register cron-scheduled jobs (all maintenance jobs are mutable per circle). */
 export function startSchedules(): void {
@@ -34,6 +35,11 @@ export function startSchedules(): void {
   const purgeCron = process.env.PURGE_CIRCLES_CRON ?? '0 3 * * *';
   cron.schedule(purgeCron, () => {
     void purgeExpiredCircles();
+  });
+
+  // Trim the MCP change feed to its retention window (daily, after the purge).
+  cron.schedule('30 3 * * *', () => {
+    void pruneEventChanges();
   });
 
   console.log(

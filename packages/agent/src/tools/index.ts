@@ -1,3 +1,4 @@
+import type { Event } from '@jarvis/db';
 import { EVENT_CATEGORIES, RECURRENCE_FREQS, WEEKDAYS, type Channel, type EventDraft } from '@jarvis/shared';
 import {
   cancelEvent,
@@ -40,6 +41,10 @@ export interface ToolContext {
   groupContext?: boolean;
   /** Called after create_event stores a new event (e.g. to announce it). */
   onEventCreated?: (eventId: string) => Promise<void>;
+  /** Receives the event rows a tool read or wrote, so a surface that wants
+   *  structured data (MCP) can attach it without changing the text reply.
+   *  `when` is the next occurrence for list_events. */
+  onEvents?: (events: { event: Event; when?: Date }[]) => void;
 }
 
 /** Where a newly created event lands, given the active scope. */
@@ -193,6 +198,7 @@ export const tools: AgentTool[] = [
         reminderLeadMinutes,
       });
       await ctx.onEventCreated?.(ev.id);
+      ctx.onEvents?.([{ event: ev }]);
       let base = `Created ${kind} "${ev.title}"${assigneeName ? ` for ${assigneeName}` : ''} — ${formatEventTime(ev.startsAt, ev.endsAt, ev.allDay, ctx.timezone)}`;
       if (ev.rrule) base += `, repeating ${describeRecurrence(ev.rrule)}`;
       let warning = '';
@@ -233,6 +239,7 @@ export const tools: AgentTool[] = [
       const days = typeof input.days_ahead === 'number' ? input.days_ahead : undefined;
       const to = days ? new Date(Date.now() + days * 86_400_000) : undefined;
       const items = await getSchedule(ctx.scope, ctx.timezone, { to });
+      ctx.onEvents?.(items.map((it) => ({ event: it.event, when: it.when })));
       if (items.length === 0) return 'No upcoming events.';
       return items
         .map((it) => {
@@ -258,6 +265,7 @@ export const tools: AgentTool[] = [
     },
     handler: async (input, ctx) => {
       const events = await findEvents(ctx.scope, String(input.query));
+      ctx.onEvents?.(events.map((event) => ({ event })));
       if (events.length === 0) return 'No matching events.';
       return events
         .map(
@@ -281,6 +289,7 @@ export const tools: AgentTool[] = [
     },
     handler: async (input, ctx) => {
       const ev = await cancelEvent(ctx.circleId, String(input.event_id));
+      if (ev) ctx.onEvents?.([{ event: ev }]);
       return ev ? `Cancelled "${ev.title}".` : 'No event with that id in this group.';
     },
   },
@@ -319,6 +328,7 @@ export const tools: AgentTool[] = [
         ctx.timezone,
       );
       if (!ev) return 'No event with that id in this group.';
+      ctx.onEvents?.([{ event: ev }]);
       let msg = `Updated "${ev.title}" — ${formatEventTime(ev.startsAt, ev.endsAt, ev.allDay, ctx.timezone)}`;
       if (ev.rrule) msg += `, repeating ${describeRecurrence(ev.rrule)}`;
       return `${msg}.`;
@@ -365,6 +375,7 @@ export const tools: AgentTool[] = [
         ctx.timezone,
       );
       if (!ev) return 'That id is not a recurring series.';
+      ctx.onEvents?.([{ event: ev }]);
       return `Updated the ${ev.title} on ${String(input.occurrence_date)} — ${formatEventTime(ev.startsAt, ev.endsAt, ev.allDay, ctx.timezone)}. The rest of the series is unchanged.`;
     },
   },
@@ -393,6 +404,7 @@ export const tools: AgentTool[] = [
       if (!instant) return 'No occurrence of that series on that date — check the id and date.';
       const ev = await cancelEventOccurrence(ctx.circleId, parentId, instant);
       if (!ev) return 'That id is not a recurring series.';
+      ctx.onEvents?.([{ event: ev }]);
       return `Skipped the ${ev.title} on ${String(input.occurrence_date)} — the rest of the series is unchanged.`;
     },
   },

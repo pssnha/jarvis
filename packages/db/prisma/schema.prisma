@@ -98,6 +98,7 @@ model Circle {
   groups        Group[]
   members       Member[]
   events        Event[]
+  eventChanges  EventChange[]
   vacations     Vacation[]
   proposals     EmailProposal[]
   conversations Conversation[]
@@ -263,6 +264,29 @@ model Event {
   @@index([source, sourceRef])
   @@index([assigneeId])
   @@index([recurrenceParentId])
+}
+
+/// Append-only change feed of Event mutations, read by MCP clients via
+/// `list_event_changes` instead of polling. `id` is the cursor. `groupId` and
+/// `ownerMemberId` are copied from the snapshot so reads can hide other members'
+/// private events. Occurrence-level changes carry the series id in `eventId` and
+/// the instance's original start in `occurrenceStart`. Pruned after 35 days.
+model EventChange {
+  id              BigInt    @id @default(autoincrement())
+  circleId        String
+  circle          Circle    @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  /// created | updated | deleted
+  type            String
+  eventId         String
+  occurrenceStart DateTime?
+  groupId         String?
+  ownerMemberId   String?
+  /// Post-change event object (last known for deletes).
+  event           Json
+  createdAt       DateTime  @default(now())
+
+  @@index([circleId, id])
+  @@index([createdAt])
 }
 
 /// A planned trip — one circle-wide vacation calendar. Times stored UTC.

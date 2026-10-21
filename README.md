@@ -143,6 +143,58 @@ calls `ingestForwardedEmail(...)` — the rest is unchanged.
 Each group exposes a read-only feed at `/api/calendar/<icalToken>.ics` (the token is created with the
 group). Subscribe to it in Apple/Google/Outlook Calendar. `POST /api/groups` returns the path.
 
+### MCP server (external agents)
+
+`POST /api/mcp` is a stateless streamable-HTTP MCP server (e.g. for a Meta Muse custom connector),
+in `apps/api/src/routes/mcp.ts`. Auth is `Authorization: Bearer <token>`, either an OAuth access token
+or a personal access token (`jvs_pat_…`) created on the web app's **Connections** page. Every tool
+takes an optional `circle_id`; without it, the user's default circle is used. Reads cover the whole
+family calendar (every shared group) plus the caller's own private events. Other members' private
+events are never returned.
+
+| Tool | Does |
+| --- | --- |
+| `list_circles` | Circles the user belongs to, with ids and time zones |
+| `list_events` | Upcoming events, with the next occurrence of recurring ones |
+| `find_event` | Search events by title to get their ids |
+| `list_trips` | Trips/vacations (read-only) |
+| `create_event` | Add an event or reminder (announced on the family's channels) |
+| `update_event` | Change an event or a whole recurring series |
+| `update_event_occurrence` | Change one occurrence of a series |
+| `cancel_event` | Delete an event or a whole series |
+| `cancel_event_occurrence` | Skip one occurrence of a series |
+| `list_event_changes` | Change feed of event/reminder mutations (below) |
+
+The event tools reply in text, the same as on WhatsApp and web chat. Alongside the text they return
+`structuredContent: { events: [...] }`: each event object has `created_at` and `updated_at`, and
+`list_events` adds `next_start`.
+
+**`list_event_changes`** lets an agent react to calendar changes without polling `list_events`:
+
+- **Arguments:** `since` (required; a sequence id, exclusive; `0` means the oldest retained entry),
+  optional `limit` (default 100, max 500) and optional `circle_id` (default: all the user's circles).
+- **Returns:** `{ changes, next_cursor, has_more }` as JSON text and as `structuredContent`. Pass
+  `next_cursor` as the next `since`.
+- **Each change:** `seq`, `at` (UTC), `circle_id`, `type` (`created` | `updated` | `deleted`),
+  `event_id`, `occurrence_start` and `event`. `event` is the event after the change, or the last known
+  version for deletes.
+- **Single occurrences:** a change to one occurrence of a series has the series id as `event_id` and
+  the instance's original start as `occurrence_start`. Removing an occurrence override reports
+  `updated` with the series as `event`, because that instance reverts to the series.
+- **Delay:** entries appear about 5 s after the write, so a reader can't step past a transaction that
+  hasn't committed yet.
+- **Retention:** entries are kept for 35 days and pruned daily by the worker. A cursor older than the
+  retained window returns an "expired" error; restart from `0`.
+- **Not recorded:** the worker's `remindedAt` bookkeeping, and a circle's own purge (its feed goes
+  with it).
+
+Every event write in `packages/agent/src/schedule.ts` (and admin member deletion) appends its
+`EventChange` row in the same transaction. A new write path must use those helpers, or the feed will
+miss it.
+
+MCP resource subscriptions are not supported: the transport is stateless JSON, so it has no stream
+to push notifications on.
+
 ## Deployment
 
 See [`deploy/README.md`](deploy/README.md) for the Hostinger VPS + Docker Compose + Let's Encrypt

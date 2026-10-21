@@ -5,6 +5,7 @@ export * from './datetime';
 export * from './recurrence';
 export * from './scope';
 export * from './schedule';
+export * from './changes';
 export * from './vacations';
 export * from './vacationImage';
 export * from './cron';

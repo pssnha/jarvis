@@ -7,7 +7,14 @@ import {
   type Tool,
   type ToolAnnotations,
 } from '@modelcontextprotocol/sdk/types.js';
-import { primaryGroupId, toolsForSurface, type ScheduleScope, type ToolContext } from '@jarvis/agent';
+import {
+  eventObject,
+  listChanges,
+  primaryGroupId,
+  toolsForSurface,
+  type ScheduleScope,
+  type ToolContext,
+} from '@jarvis/agent';
 import { prisma, type AuthUser } from '@jarvis/db';
 import { accessibleCircles, resolveCircle, selfMember } from '../lib/access';
 import { enqueueEventCreated } from '../queue';
@@ -53,8 +60,34 @@ function toolList(): Tool[] {
     inputSchema: { type: 'object', properties: {} },
     annotations: READ,
   };
+  const changesTool: Tool = {
+    name: 'list_event_changes',
+    title: 'List event changes',
+    description:
+      'Changes to events and reminders (created, updated, deleted) since a cursor, oldest first, across the circles this user belongs to. Use it to react to calendar changes instead of polling list_events. Pass since=0 to start from the oldest retained change (30+ days are kept), then pass the returned next_cursor while has_more is true and on later calls. Changes to one occurrence of a repeating event carry the series id as event_id plus occurrence_start, the original start of that instance. event is the event after the change (the last known version for deletes). If the cursor has expired, start again from 0.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Sequence id to read after (exclusive). 0 = from the oldest retained change.',
+        },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: CHANGES_MAX,
+          description: `Maximum changes to return (default ${CHANGES_DEFAULT}).`,
+        },
+        circle_id: { type: 'string', description: 'Only this circle (from list_circles). Omit for all.' },
+      },
+      required: ['since'],
+    },
+    annotations: READ,
+  };
   return [
     listCircles,
+    changesTool,
     ...AGENT_TOOLS.map((t) => {
       const params = t.spec.parameters as { properties?: Record<string, unknown>; required?: string[] };
       return {
@@ -72,6 +105,37 @@ function toolList(): Tool[] {
 }
 
 const text = (s: string, isError = false) => ({ content: [{ type: 'text' as const, text: s }], isError });
+// Same payload as text (for clients that ignore structuredContent) and structured.
+const json = (data: Record<string, unknown>) => ({
+  content: [{ type: 'text' as const, text: JSON.stringify(data) }],
+  structuredContent: data,
+  isError: false,
+});
+
+const CHANGES_DEFAULT = 100;
+const CHANGES_MAX = 500;
+
+async function eventChanges(user: AuthUser, args: Record<string, unknown>) {
+  const since = args.since;
+  if (typeof since !== 'number' || !Number.isInteger(since) || since < 0) {
+    return text('since must be a non-negative integer (0 to start from the oldest change).', true);
+  }
+  const limit =
+    typeof args.limit === 'number' && Number.isInteger(args.limit)
+      ? Math.min(Math.max(args.limit, 1), CHANGES_MAX)
+      : CHANGES_DEFAULT;
+  let circles = await accessibleCircles(user);
+  if (typeof args.circle_id === 'string') {
+    circles = circles.filter((c) => c.id === args.circle_id);
+    if (circles.length === 0) return text('No circle with that id for this account.', true);
+  }
+  const readers = await Promise.all(
+    circles.map(async (c) => ({ circleId: c.id, memberId: (await selfMember(user, c.id))?.id ?? null })),
+  );
+  const page = await listChanges(readers, since, limit);
+  if (page.expired) return text('That cursor has expired. Call again with since=0 to resync.', true);
+  return json(page);
+}
 
 async function callTool(user: AuthUser, name: string, args: Record<string, unknown>) {
   if (name === 'list_circles') {
@@ -84,6 +148,7 @@ async function callTool(user: AuthUser, name: string, args: Record<string, unkno
     });
     return text(rows.map((c) => `• ${c.name} — ${c.timezone} [circle:${c.id}]`).join('\n'));
   }
+  if (name === 'list_event_changes') return eventChanges(user, args);
 
   const tool = AGENT_TOOLS.find((t) => t.spec.name === name);
   if (!tool) return text(`Unknown tool: ${name}`, true);
@@ -124,6 +189,7 @@ async function callTool(user: AuthUser, name: string, args: Record<string, unkno
     }
   }
 
+  const events: Record<string, unknown>[] = [];
   const ctx: ToolContext = {
     circleId: circle.id,
     scope: name === 'create_event' ? writeScope : readScope,
@@ -141,8 +207,16 @@ async function callTool(user: AuthUser, name: string, args: Record<string, unkno
         console.error('[mcp] failed to enqueue event announcement', err);
       }
     },
+    onEvents: (rows) => {
+      for (const r of rows) {
+        events.push({ ...eventObject(r.event), ...(r.when ? { next_start: r.when.toISOString() } : {}) });
+      }
+    },
   };
-  return text(await tool.handler(input, ctx));
+  const reply = await tool.handler(input, ctx);
+  // Text stays exactly what every other surface gets; MCP clients also get the
+  // event objects (with created_at/updated_at) as structured content.
+  return events.length > 0 ? { ...text(reply), structuredContent: { events } } : text(reply);
 }
 
 /** MCP server (streamable HTTP, stateless) for external agents such as a Meta
@@ -156,7 +230,7 @@ export async function registerMcp(api: FastifyInstance): Promise<void> {
       {
         capabilities: { tools: {} },
         instructions:
-          "Jarvis manages a household's shared calendar and trips. Times are local wall-clock in the circle's time zone. Get event ids from list_events or find_event before updating or cancelling.",
+          "Jarvis manages a household's shared calendar and trips. Times are local wall-clock in the circle's time zone. Get event ids from list_events or find_event before updating or cancelling. To follow calendar changes, page through list_event_changes with its cursor instead of polling list_events.",
       },
     );
     server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolList() }));

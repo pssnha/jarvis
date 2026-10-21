@@ -1,5 +1,6 @@
 import { Prisma, prisma, type Event } from '@jarvis/db';
 import type { Channel, EventDraft, Recurrence } from '@jarvis/shared';
+import { recordChange } from './changes';
 import { localIsoToUtc } from './datetime';
 import { buildRRule, describeRecurrence, nextOccurrence, occurrencesBetween } from './recurrence';
 import { scopeWhere, type ScheduleScope } from './scope';
@@ -32,27 +33,46 @@ export async function createEvent(input: CreateEventInput) {
   const { draft, source, timezone } = input;
   const allDay = draft.allDay ?? false;
   const kind: EventKind = input.kind ?? 'reminder';
-  return prisma.event.create({
-    data: {
-      circleId: input.circleId,
-      groupId: input.groupId ?? null,
-      ownerMemberId: input.ownerMemberId ?? null,
-      title: draft.title,
-      startsAt: localIsoToUtc(draft.start, timezone),
-      endsAt: draft.end ? localIsoToUtc(draft.end, timezone) : null,
-      allDay,
-      location: draft.location,
-      category: draft.category,
-      color: input.color ?? null,
-      kind,
-      reminderLeadMinutes: kind === 'event' ? (input.reminderLeadMinutes ?? null) : null,
-      rrule: draft.recurrence ? buildRRule(draft.recurrence, timezone) : null,
-      source,
-      sourceRef: input.sourceRef,
-      rawText: input.rawText,
-      createdById: input.createdById,
-      assigneeId: input.assigneeId ?? null,
-    },
+  return createLogged({
+    circleId: input.circleId,
+    groupId: input.groupId ?? null,
+    ownerMemberId: input.ownerMemberId ?? null,
+    title: draft.title,
+    startsAt: localIsoToUtc(draft.start, timezone),
+    endsAt: draft.end ? localIsoToUtc(draft.end, timezone) : null,
+    allDay,
+    location: draft.location,
+    category: draft.category,
+    color: input.color ?? null,
+    kind,
+    reminderLeadMinutes: kind === 'event' ? (input.reminderLeadMinutes ?? null) : null,
+    rrule: draft.recurrence ? buildRRule(draft.recurrence, timezone) : null,
+    source,
+    sourceRef: input.sourceRef,
+    rawText: input.rawText,
+    createdById: input.createdById,
+    assigneeId: input.assigneeId ?? null,
+  });
+}
+
+/** Every Event write goes through these so the change feed sees it atomically. */
+function createLogged(data: Prisma.EventUncheckedCreateInput) {
+  return prisma.$transaction(async (tx) => {
+    const ev = await tx.event.create({ data });
+    await recordChange(tx, 'created', ev);
+    return ev;
+  });
+}
+
+function updateLogged(
+  id: string,
+  data: Prisma.EventUncheckedUpdateInput,
+  type: 'updated' | 'deleted' = 'updated',
+) {
+  return prisma.$transaction(async (tx) => {
+    const ev = await tx.event.update({ where: { id }, data });
+    await recordChange(tx, type, ev);
+    return ev;
   });
 }
 
@@ -79,26 +99,24 @@ export interface RawEventInput {
 
 export async function createRawEvent(input: RawEventInput) {
   const kind: EventKind = input.kind ?? 'reminder';
-  return prisma.event.create({
-    data: {
-      circleId: input.circleId,
-      groupId: input.groupId ?? null,
-      ownerMemberId: input.ownerMemberId ?? null,
-      title: input.title,
-      description: input.description ?? null,
-      startsAt: input.startsAt,
-      endsAt: input.endsAt ?? null,
-      allDay: input.allDay ?? false,
-      location: input.location ?? null,
-      category: input.category ?? null,
-      color: input.color ?? null,
-      kind,
-      reminderLeadMinutes: kind === 'event' ? (input.reminderLeadMinutes ?? null) : null,
-      rrule: input.rrule ?? null,
-      source: input.source,
-      sourceRef: input.sourceRef ?? null,
-      assigneeId: input.assigneeId ?? null,
-    },
+  return createLogged({
+    circleId: input.circleId,
+    groupId: input.groupId ?? null,
+    ownerMemberId: input.ownerMemberId ?? null,
+    title: input.title,
+    description: input.description ?? null,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt ?? null,
+    allDay: input.allDay ?? false,
+    location: input.location ?? null,
+    category: input.category ?? null,
+    color: input.color ?? null,
+    kind,
+    reminderLeadMinutes: kind === 'event' ? (input.reminderLeadMinutes ?? null) : null,
+    rrule: input.rrule ?? null,
+    source: input.source,
+    sourceRef: input.sourceRef ?? null,
+    assigneeId: input.assigneeId ?? null,
   });
 }
 
@@ -130,7 +148,7 @@ export async function updateEvent(
   const ev = await prisma.event.findFirst({ where: { id: eventId, circleId } });
   if (!ev) return null;
 
-  const data: Prisma.EventUpdateInput = {};
+  const data: Prisma.EventUncheckedUpdateInput = {};
   if (patch.title !== undefined) data.title = patch.title;
   if (patch.allDay !== undefined) data.allDay = patch.allDay;
   if (patch.location !== undefined) data.location = patch.location;
@@ -141,7 +159,7 @@ export async function updateEvent(
     data.rrule = patch.recurrence ? buildRRule(patch.recurrence, timezone) : null;
   }
   if (patch.assigneeId !== undefined) {
-    data.assignee = patch.assigneeId ? { connect: { id: patch.assigneeId } } : { disconnect: true };
+    data.assigneeId = patch.assigneeId || null;
   }
   if (patch.color !== undefined) data.color = patch.color;
   if (patch.kind !== undefined) data.kind = patch.kind;
@@ -149,7 +167,7 @@ export async function updateEvent(
   const effectiveKind = (patch.kind ?? ev.kind) as EventKind;
   if (effectiveKind !== 'event') data.reminderLeadMinutes = null;
 
-  return prisma.event.update({ where: { id: ev.id }, data });
+  return updateLogged(ev.id, data);
 }
 
 /**
@@ -198,19 +216,24 @@ export async function updateEventOccurrence(
   const existing = await prisma.event.findFirst({
     where: { recurrenceParentId: parentId, recurrenceStart: occurrenceStartUtc },
   });
-  if (existing) return prisma.event.update({ where: { id: existing.id }, data: fields });
-  return prisma.event.create({
-    data: {
-      ...fields,
-      circleId: parent.circleId,
-      groupId: parent.groupId,
-      ownerMemberId: parent.ownerMemberId,
-      source: parent.source,
-      createdById: parent.createdById,
-      rrule: null,
-      recurrenceParentId: parent.id,
-      recurrenceStart: occurrenceStartUtc,
-    },
+  // An edited instance is an update to the series, whether or not its override row is new.
+  if (existing) return updateLogged(existing.id, fields);
+  return prisma.$transaction(async (tx) => {
+    const ev = await tx.event.create({
+      data: {
+        ...fields,
+        circleId: parent.circleId,
+        groupId: parent.groupId,
+        ownerMemberId: parent.ownerMemberId,
+        source: parent.source,
+        createdById: parent.createdById,
+        rrule: null,
+        recurrenceParentId: parent.id,
+        recurrenceStart: occurrenceStartUtc,
+      },
+    });
+    await recordChange(tx, 'updated', ev);
+    return ev;
   });
 }
 
@@ -232,24 +255,28 @@ export async function cancelEventOccurrence(
   const existing = await prisma.event.findFirst({
     where: { recurrenceParentId: parentId, recurrenceStart: occurrenceStartUtc },
   });
-  if (existing) return prisma.event.update({ where: { id: existing.id }, data: { cancelled: true } });
-  return prisma.event.create({
-    data: {
-      title: parent.title,
-      startsAt: occurrenceStartUtc,
-      endsAt: null,
-      allDay: parent.allDay,
-      kind: parent.kind,
-      circleId: parent.circleId,
-      groupId: parent.groupId,
-      ownerMemberId: parent.ownerMemberId,
-      source: parent.source,
-      createdById: parent.createdById,
-      rrule: null,
-      recurrenceParentId: parent.id,
-      recurrenceStart: occurrenceStartUtc,
-      cancelled: true,
-    },
+  if (existing) return updateLogged(existing.id, { cancelled: true }, 'deleted');
+  return prisma.$transaction(async (tx) => {
+    const ev = await tx.event.create({
+      data: {
+        title: parent.title,
+        startsAt: occurrenceStartUtc,
+        endsAt: null,
+        allDay: parent.allDay,
+        kind: parent.kind,
+        circleId: parent.circleId,
+        groupId: parent.groupId,
+        ownerMemberId: parent.ownerMemberId,
+        source: parent.source,
+        createdById: parent.createdById,
+        rrule: null,
+        recurrenceParentId: parent.id,
+        recurrenceStart: occurrenceStartUtc,
+        cancelled: true,
+      },
+    });
+    await recordChange(tx, 'deleted', ev);
+    return ev;
   });
 }
 
@@ -301,7 +328,24 @@ export async function findEvents(scope: ScheduleScope, query: string) {
 export async function cancelEvent(circleId: string, eventId: string) {
   const ev = await prisma.event.findFirst({ where: { id: eventId, circleId } });
   if (!ev) return null;
-  await prisma.event.delete({ where: { id: ev.id } });
+  await prisma.$transaction(async (tx) => {
+    // Deleting a series cascades to its single-occurrence overrides; log those too.
+    const overrides = await tx.event.findMany({ where: { recurrenceParentId: ev.id } });
+    await tx.event.delete({ where: { id: ev.id } });
+    for (const o of overrides) if (!o.cancelled) await recordChange(tx, 'deleted', o);
+    if (ev.recurrenceParentId && ev.recurrenceStart) {
+      // Removing an override (or tombstone) restores that instance from the series.
+      const parent = await tx.event.findUnique({ where: { id: ev.recurrenceParentId } });
+      if (parent) {
+        await recordChange(tx, 'updated', parent, {
+          seriesId: parent.id,
+          start: ev.recurrenceStart,
+        });
+      }
+    } else {
+      await recordChange(tx, 'deleted', ev);
+    }
+  });
   return ev;
 }
 
@@ -336,7 +380,10 @@ export async function getSchedule(
   for (const ev of oneOff)
     items.push({ event: ev, when: ev.startsAt, assigneeName: ev.assignee?.name ?? null });
 
-  const recurring = await prisma.event.findMany({ where: { ...base, NOT: { rrule: null } }, include });
+  const recurring = await prisma.event.findMany({
+    where: { ...base, NOT: { rrule: null } },
+    include,
+  });
   const overrides = await overridesByParent(recurring.map((e) => e.id));
   for (const ev of recurring) {
     if (!ev.rrule) continue;
@@ -415,7 +462,10 @@ export async function expandCalendar(
     });
   }
 
-  const recurring = await prisma.event.findMany({ where: { ...base, NOT: { rrule: null } }, include });
+  const recurring = await prisma.event.findMany({
+    where: { ...base, NOT: { rrule: null } },
+    include,
+  });
   const overrides = await overridesByParent(recurring.map((e) => e.id));
   for (const ev of recurring) {
     if (!ev.rrule) continue;
@@ -424,7 +474,14 @@ export async function expandCalendar(
       : ev.kind === 'reminder'
         ? REMINDER_MS
         : 0;
-    for (const start of occurrencesBetween(ev.rrule, ev.startsAt, timezone, from, to, overrides.get(ev.id))) {
+    for (const start of occurrencesBetween(
+      ev.rrule,
+      ev.startsAt,
+      timezone,
+      from,
+      to,
+      overrides.get(ev.id),
+    )) {
       out.push({
         eventId: ev.id,
         title: ev.title,
@@ -485,7 +542,14 @@ export async function findConflicts(
     if (!ev.rrule) continue;
     const durationMs = ev.endsAt ? ev.endsAt.getTime() - ev.startsAt.getTime() : EVENT_DEFAULT_MS;
     const windowStart = new Date(start.getTime() - durationMs);
-    for (const occ of occurrencesBetween(ev.rrule, ev.startsAt, timezone, windowStart, end, overrides.get(ev.id))) {
+    for (const occ of occurrencesBetween(
+      ev.rrule,
+      ev.startsAt,
+      timezone,
+      windowStart,
+      end,
+      overrides.get(ev.id),
+    )) {
       const e = new Date(occ.getTime() + durationMs);
       if (occ < end && e > start) out.push({ eventId: ev.id, title: ev.title, start: occ, end: e });
     }

@@ -7,6 +7,7 @@ import {
   createAdminTgLinkCode,
   createCircleTgLinkCode,
   createRawEvent,
+  deleteMemberWithChanges,
   decryptValue,
   encryptPhone,
   encryptValue,
@@ -545,7 +546,7 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     if (!(await requireScheduleAccess(req, reply, cid))) return;
     const m = await prisma.member.findFirst({ where: { id: memberId, circleId: cid } });
     if (!m) return reply.code(404).send({ error: 'member not found' });
-    await prisma.member.delete({ where: { id: m.id } });
+    await deleteMemberWithChanges(m.id);
     return { ok: true };
   });
 
